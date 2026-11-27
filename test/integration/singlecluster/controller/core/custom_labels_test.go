@@ -1303,6 +1303,171 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		})
 	})
 
+	ginkgo.When("CustomMetricLabels enabled with ClusterQueue and Workload labels for the cohort admitted-active gauge", func() {
+		var (
+			cq           *kueue.ClusterQueue
+			lq           *kueue.LocalQueue
+			parentCohort *kueue.Cohort
+			childCohort  *kueue.Cohort
+		)
+
+		makeWorkload := func(name, kind, anno string) *kueue.Workload {
+			return utiltestingapi.MakeWorkload(name, ns.Name).
+				Label("workload-kind", kind).
+				Annotation("workload-anno", anno).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+		}
+		// expectSeries checks the series exists, so a zero value is not mistaken for a missing series.
+		expectSeries := func(cohort *kueue.Cohort, kind, anno string, value float64) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				series := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{
+					"cohort":         cohort.Name,
+					"custom_team":    "alpha",
+					"custom_wl_kind": kind,
+					"custom_wl_anno": anno,
+				})
+				g.Expect(series).To(gomega.HaveLen(1))
+				g.Expect(series[0].Value).To(gomega.Equal(value))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.BeforeEach(func() {
+			controllersCfg := &config.Configuration{}
+			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
+				utiltestingapi.MakeCustomLabel("wl_anno").SourceAnnotationKey("workload-anno").SourceKind(config.SourceKindWorkload).TrackedValues("anno1", "anno2").Obj(),
+			}
+			startManager(controllersCfg, runScheduler)
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-admitted-wl-")
+
+			parentCohort = utiltestingapi.MakeCohort("cohort-admitted-wl-parent").Obj()
+			behavioral.MustCreate(ctx, k8sClient, parentCohort)
+			childCohort = utiltestingapi.MakeCohort("cohort-admitted-wl-child").
+				Parent(kueue.CohortReference(parentCohort.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, childCohort)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-admitted-wl").
+				Label("team", "alpha").
+				Cohort(kueue.CohortReference(childCohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq-admitted-wl", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, parentCohort, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		})
+
+		ginkgo.It("should count admitted workloads by ClusterQueue and Workload labels on both Cohorts", func() {
+			wl1 := makeWorkload("wl1", "kind1", "anno1")
+			wl2 := makeWorkload("wl2", "kind1", "anno1")
+			wl3 := makeWorkload("wl3", "kind3", "anno2")
+			behavioral.MustCreate(ctx, k8sClient, wl1)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl3)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl3)
+
+			ginkgo.By("verifying the child and parent Cohorts break the count down by Workload labels")
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				behavioral.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(kueue.CohortReference(cohort.Name), 2, "alpha", "kind1", "anno1")
+				behavioral.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric(kueue.CohortReference(cohort.Name), 1, "alpha", config.UntrackedCustomLabelValue, "anno2")
+			}
+		})
+
+		ginkgo.It("should move a workload to its new series when its labels change", func() {
+			wl := makeWorkload("wl", "kind1", "anno1")
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				expectSeries(cohort, "kind1", "anno1", 1)
+			}
+
+			ginkgo.By("changing the workload custom label value")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				updatedWl.Labels["workload-kind"] = "kind2"
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the count moves to the new series and the old series stays at 0")
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				expectSeries(cohort, "kind2", "anno1", 1)
+				expectSeries(cohort, "kind1", "anno1", 0)
+			}
+		})
+
+		ginkgo.It("should decrement the series when a workload finishes or is deleted", func() {
+			wl1 := makeWorkload("wl1", "kind1", "anno1")
+			wl2 := makeWorkload("wl2", "kind1", "anno1")
+			wl3 := makeWorkload("wl3", "kind2", "anno2")
+			behavioral.MustCreate(ctx, k8sClient, wl1)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl3)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl3)
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				expectSeries(cohort, "kind1", "anno1", 2)
+				expectSeries(cohort, "kind2", "anno2", 1)
+			}
+
+			ginkgo.By("finishing a workload")
+			integration.FinishWorkloads(ctx, k8sClient, wl1)
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				expectSeries(cohort, "kind1", "anno1", 1)
+			}
+
+			ginkgo.By("deleting a workload")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl3, true)
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				expectSeries(cohort, "kind2", "anno2", 0)
+				expectSeries(cohort, "kind1", "anno1", 1)
+			}
+		})
+
+		ginkgo.It("should leave no series for the Cohorts once everything is deleted", func() {
+			wl := makeWorkload("wl", "kind1", "anno1")
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+				expectSeries(cohort, "kind1", "anno1", 1)
+			}
+
+			ginkgo.By("deleting the workload, the LocalQueue, the ClusterQueue and the Cohorts")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, parentCohort, true)
+
+			ginkgo.By("verifying no series is left for either Cohort")
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, cohort := range []*kueue.Cohort{childCohort, parentCohort} {
+					g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{
+						"cohort": cohort.Name,
+					})).To(gomega.BeEmpty())
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("CustomMetricLabels is enabled with cohort and workload custom labels", func() {
 		var (
 			cq           *kueue.ClusterQueue

@@ -20,6 +20,8 @@ import (
 	"iter"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -43,11 +45,11 @@ type cohort struct {
 	// recomputed from the children whenever the tree is rebuilt.
 	admittedWorkloadsCount int
 
-	// admittedLabelCounts tracks admitted Workloads by ClusterQueue custom-label
-	// values. Workload events and in-place relabels update it along the path to
-	// the root. Tree rebuilds replace it from the children so an implicit Cohort
-	// recreation does not start from an empty map.
-	admittedLabelCounts *metrics.LabelValsTracker
+	// admittedLabelCounts tracks admitted Workloads by ClusterQueue and Workload
+	// custom-label values. Workload events and in-place relabels update it along
+	// the path to the root. Tree rebuilds replace it from the children so an
+	// implicit Cohort recreation does not start from an empty map.
+	admittedLabelCounts *metrics.CQWorkloadValsTracker
 
 	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference
 }
@@ -126,71 +128,73 @@ func (c *cohort) PathSelfToRoot() iter.Seq[*cohort] {
 
 // updateAdmittedWorkloadsCount adjusts subtree admitted totals, and per-label
 // totals when CustomMetricLabels is enabled, along the path to the root.
-func (c *cohort) updateAdmittedWorkloadsCount(delta int, labelVals []string) {
+func (c *cohort) updateAdmittedWorkloadsCount(delta int, vals metrics.CQWorkloadVals) {
 	if c == nil || hierarchy.HasCycle(c) {
 		return
 	}
-	trackLabels := features.Enabled(features.CustomMetricLabels) && len(labelVals) > 0
-	labelSet := metrics.ValsSetFrom(labelVals)
+	trackLabels := features.Enabled(features.CustomMetricLabels) && vals != (metrics.CQWorkloadVals{})
 	for ancestor := range c.PathSelfToRoot() {
 		ancestor.admittedWorkloadsCount += delta
 		if trackLabels {
-			ancestor.ensureAdmittedLabelCounts().Add(labelSet, delta)
+			ancestor.ensureAdmittedLabelCounts().Add(vals, delta)
 		}
 	}
 }
 
 // moveAdmittedLabelCounts transfers delta admitted workloads from oldVals to
 // newVals along the path to the root.
-func (c *cohort) moveAdmittedLabelCounts(oldVals, newVals []string, delta int) {
-	if c == nil || hierarchy.HasCycle(c) || delta == 0 || slices.Equal(oldVals, newVals) {
+func (c *cohort) moveAdmittedLabelCounts(oldVals, newVals metrics.CQWorkloadVals, delta int) {
+	if c == nil || hierarchy.HasCycle(c) || delta == 0 || oldVals == newVals {
 		return
 	}
 	if !features.Enabled(features.CustomMetricLabels) {
 		return
 	}
-	oldLS := metrics.ValsSetFrom(oldVals)
-	newLS := metrics.ValsSetFrom(newVals)
 	for ancestor := range c.PathSelfToRoot() {
 		counts := ancestor.ensureAdmittedLabelCounts()
-		counts.Add(oldLS, -delta)
-		counts.Add(newLS, delta)
+		counts.Add(oldVals, -delta)
+		counts.Add(newVals, delta)
 	}
 }
 
 // ensureAdmittedLabelCounts returns the per-label tracker, allocating it if needed.
-func (c *cohort) ensureAdmittedLabelCounts() *metrics.LabelValsTracker {
+func (c *cohort) ensureAdmittedLabelCounts() *metrics.CQWorkloadValsTracker {
 	if c.admittedLabelCounts == nil {
-		c.admittedLabelCounts = metrics.NewLabelValsTracker()
+		c.admittedLabelCounts = metrics.NewCQWorkloadValsTracker()
 	}
 	return c.admittedLabelCounts
 }
 
-// admittedCountForLabels returns the subtree admitted count for labelVals.
-// When custom labels are disabled or labelVals is empty, it returns the full
+// admittedCountForLabels returns the subtree admitted count for vals.
+// When custom labels are disabled or vals is empty, it returns the full
 // subtree count.
-func (c *cohort) admittedCountForLabels(labelVals []string) int {
-	if len(labelVals) == 0 || !features.Enabled(features.CustomMetricLabels) {
+func (c *cohort) admittedCountForLabels(vals metrics.CQWorkloadVals) int {
+	if vals == (metrics.CQWorkloadVals{}) || !features.Enabled(features.CustomMetricLabels) {
 		return c.admittedWorkloadsCount
 	}
 	if c.admittedLabelCounts == nil {
 		return 0
 	}
-	return c.admittedLabelCounts.Count(metrics.ValsSetFrom(labelVals))
+	return c.admittedLabelCounts.Count(vals)
 }
 
-// subtreeHasClusterQueueWithLabels reports whether any ClusterQueue in this
-// Cohort's subtree currently uses labelVals.
-func (c *cohort) subtreeHasClusterQueueWithLabels(labelVals []string) bool {
+// subtreeSeriesWithCQLabels returns the series that ClusterQueues in this
+// Cohort's subtree currently labeled cqVals report, in one walk.
+func (c *cohort) subtreeSeriesWithCQLabels(cqVals []string) sets.Set[metrics.CQWorkloadVals] {
+	series := sets.New[metrics.CQWorkloadVals]()
+	c.collectSeriesWithCQLabels(cqVals, series)
+	return series
+}
+
+func (c *cohort) collectSeriesWithCQLabels(cqVals []string, series sets.Set[metrics.CQWorkloadVals]) {
 	for _, cq := range c.ChildCQs() {
-		if slices.Equal(cq.GetCustomLabelValues(), labelVals) {
-			return true
+		if live := cq.GetCustomLabelValues(); slices.Equal(live, cqVals) {
+			for vals := range cq.admittedLabelVals(live) {
+				series.Insert(vals)
+			}
 		}
 	}
 	for _, child := range c.ChildCohorts() {
-		if child.subtreeHasClusterQueueWithLabels(labelVals) {
-			return true
-		}
+		child.collectSeriesWithCQLabels(cqVals, series)
 	}
-	return false
 }

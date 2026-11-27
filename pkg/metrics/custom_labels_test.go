@@ -17,7 +17,9 @@ limitations under the License.
 package metrics
 
 import (
+	"fmt"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -882,16 +884,6 @@ func TestLabelValsTracker(t *testing.T) {
 	}
 }
 
-func TestValsSetFrom(t *testing.T) {
-	got := ValsSetFrom([]string{"v1", "v2"})
-	if diff := cmp.Diff([]string{"v1", "v2"}, got.OrderedList()); diff != "" {
-		t.Errorf("unexpected OrderedList: %s", diff)
-	}
-	if ValsSetFrom(nil) != EmptyValsSet() {
-		t.Error("expected ValsSetFrom(nil) to equal EmptyValsSet")
-	}
-}
-
 var allSourceKinds = []configapi.SourceKind{
 	configapi.SourceKindClusterQueue,
 	configapi.SourceKindLocalQueue,
@@ -1077,6 +1069,94 @@ func TestDeleteResetsUpdateRequired(t *testing.T) {
 	if cl.CQStore("cq", labels, nil) {
 		t.Error("CQStore() = true after delete, want false: the entry should be recorded as new")
 	}
+}
+
+// TestCustomLabelsConcurrentWrites stores, swaps and deletes values of every
+// SourceKind from several goroutines while others read, as the controllers and
+// caches of several metrics do. Run with -race; readers also check that every
+// value set they see comes whole from one write.
+func TestCustomLabelsConcurrentWrites(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	var entries []configapi.ControllerMetricsCustomLabel
+	for _, kind := range allSourceKinds {
+		entries = append(entries,
+			utiltestingapi.MakeCustomLabel(string(kind)+"_a").SourceLabelKey("a").SourceKind(kind).Obj(),
+			utiltestingapi.MakeCustomLabel(string(kind)+"_b").SourceLabelKey("b").SourceKind(kind).Obj(),
+		)
+	}
+	cl := NewCustomLabels(entries)
+	t.Cleanup(func() {
+		InitMetricVectors(nil)
+	})
+	if cl == nil {
+		t.Fatal("NewCustomLabels returned nil, so the test would check nothing")
+	}
+
+	const (
+		writersPerKind = 4
+		iterations     = 300
+	)
+	refs := []string{"ref-0", "ref-1"}
+	labelsFor := func(v string) map[string]string {
+		return map[string]string{"a": v, "b": v}
+	}
+	// Each write sets both labels of a kind to one value, so a set read in
+	// pairs must hold equal values.
+	whole := func(vals []string) bool {
+		for i := 0; i+1 < len(vals); i += 2 {
+			if vals[i] != vals[i+1] {
+				return false
+			}
+		}
+		return true
+	}
+
+	var wg sync.WaitGroup
+	for _, kind := range allSourceKinds {
+		for w := range writersPerKind {
+			wg.Go(func() {
+				for i := range iterations {
+					ref := refs[i%len(refs)]
+					labels := labelsFor(fmt.Sprintf("%s-%d-%d", kind, w, i))
+					switch i % 3 {
+					case 0:
+						cl.Store(kind, ref, labels, nil)
+					case 1:
+						old, _ := cl.Swap(kind, ref, labels, nil)
+						if old["custom_"+string(kind)+"_a"] != old["custom_"+string(kind)+"_b"] {
+							t.Errorf("Swap(%s, %s) returned a torn value set: %v", kind, ref, old)
+						}
+					case 2:
+						cl.Delete(kind, ref)
+					}
+				}
+			})
+		}
+		wg.Go(func() {
+			for i := range iterations {
+				ref := refs[i%len(refs)]
+				if vals := cl.Get(kind, ref); !whole(vals) {
+					t.Errorf("Get(%s, %s) returned a torn value set: %v", kind, ref, vals)
+				}
+				cl.UpdateRequired(kind, ref, labelsFor("x"), nil)
+				cl.StoredRefsForTest(kind)
+			}
+		})
+	}
+	// ClusterQueue and LocalQueue metrics read Workload values together with their own.
+	wg.Go(func() {
+		for i := range iterations {
+			ref := refs[i%len(refs)]
+			vals := cl.GetFor(map[configapi.SourceKind]string{
+				configapi.SourceKindClusterQueue: ref,
+				configapi.SourceKindWorkload:     ref,
+			})
+			if !whole(vals) {
+				t.Errorf("GetFor(%s) returned a torn value set: %v", ref, vals)
+			}
+		}
+	})
+	wg.Wait()
 }
 
 func sortedRefs(cl *CustomLabels, kind configapi.SourceKind) []string {

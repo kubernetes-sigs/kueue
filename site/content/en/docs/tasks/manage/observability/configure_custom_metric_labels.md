@@ -132,8 +132,20 @@ Using the configuration above with `name: team`:
 ## Example: break down workloads by type
 
 `Workload` labels split a workload count metric by a label or annotation carried
-by individual workloads instead of by a queue. Currently they apply to the
-`kueue_admitted_active_workloads` metric.
+by individual workloads instead of by a queue. They apply to these metrics:
+
+- `kueue_pending_workloads` and `kueue_local_queue_pending_workloads`
+- `kueue_admitted_workloads_total` and `kueue_local_queue_admitted_workloads_total`
+- `kueue_admission_wait_time_seconds` and
+  `kueue_local_queue_admission_wait_time_seconds`
+- `kueue_admitted_active_workloads` and
+  `kueue_local_queue_admitted_active_workloads`
+- `kueue_cohort_subtree_admitted_workloads_total`
+- `kueue_cohort_subtree_admitted_active_workloads`, next to the ClusterQueue
+  labels. A Cohort gets a series for a set of values when a workload with
+  those values is first admitted in its subtree, so a ClusterQueue with no
+  admitted workloads adds no series. As with `kueue_admitted_active_workloads`,
+  the series then stays, at 0 once those workloads finish or are deleted.
 
 Using the `workload_type` entry from the configuration above:
 

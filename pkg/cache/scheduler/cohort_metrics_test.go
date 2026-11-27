@@ -32,6 +32,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -2126,4 +2127,540 @@ func TestCohortAdmittedWorkloadsRelabelSynchronizesWithCacheLock(t *testing.T) {
 		t.Fatalf("admittedWorkloadsCount = %d, want 3", wantAdmitted)
 	}
 	expectGaugeSum(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{"cohort": "a"}, float64(wantAdmitted))
+}
+
+func TestCohortSubtreeAdmittedActiveWorkloadsWorkloadLabels(t *testing.T) {
+	now := time.Now()
+	flavorQuotas := *utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()
+	admittedWithLabels := func(name string, cq kueue.ClusterQueueReference, labels map[string]string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "ns").
+			Labels(labels).
+			Request(corev1.ResourceCPU, "1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Obj()).
+				Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	admitted := func(name string, cq kueue.ClusterQueueReference, kind string) *kueue.Workload {
+		return admittedWithLabels(name, cq, map[string]string{"kind": kind})
+	}
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").ResourceGroup(flavorQuotas)
+	cq2 := utiltestingapi.MakeClusterQueue("cq2").ResourceGroup(flavorQuotas)
+	teamAndKind := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").Obj(),
+		utiltestingapi.MakeCustomLabel("kind").SourceKind(configapi.SourceKindWorkload).TrackedValues("training", "inference").Obj(),
+	}
+	series := func(cohort kueue.CohortReference, team, kind string) map[string]string {
+		return map[string]string{"cohort": string(cohort), "custom_team": team, "custom_kind": kind}
+	}
+	teamOnly := func(cohort kueue.CohortReference, team string) map[string]string {
+		return map[string]string{"cohort": string(cohort), "custom_team": team}
+	}
+	cohortOnly := func(cohort kueue.CohortReference) map[string]string {
+		return map[string]string{"cohort": string(cohort)}
+	}
+	relabel := func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels, cq *kueue.ClusterQueue) {
+		t.Helper()
+		customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+		if err := cache.UpdateClusterQueue(log, cq); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	type seriesValue struct {
+		labels map[string]string
+		value  float64
+	}
+	type seriesCount struct {
+		labels map[string]string
+		count  int
+	}
+	cases := map[string]struct {
+		// entries defaults to teamAndKind.
+		entries   []configapi.ControllerMetricsCustomLabel
+		cohorts   []*kueue.Cohort
+		cqs       []*kueue.ClusterQueue
+		workloads []*kueue.Workload
+		change    func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels)
+		// wantAdmitted is the subtree admitted count of each Cohort, which the
+		// Cohort's series must also sum to.
+		wantAdmitted map[kueue.CohortReference]int
+		wantValues   []seriesValue
+		wantCounts   []seriesCount
+	}{
+		"two workload values in one cluster queue": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "training"),
+				admitted("wl3", "cq1", "inference"),
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 3},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", "training"), value: 2},
+				{labels: series("a", "alpha", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{{labels: cohortOnly("a"), count: 2}},
+		},
+		"nested cohorts both carry the breakdown": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("child").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("root").Label("team", "beta").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+				admitted("wl3", "cq2", "training"),
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"child": 2, "root": 3},
+			wantValues: []seriesValue{
+				{labels: series("child", "alpha", "training"), value: 1},
+				{labels: series("child", "alpha", "inference"), value: 1},
+				{labels: series("root", "alpha", "training"), value: 1},
+				{labels: series("root", "alpha", "inference"), value: 1},
+				{labels: series("root", "beta", "training"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: cohortOnly("child"), count: 2},
+				{labels: cohortOnly("root"), count: 3},
+			},
+		},
+		"untracked and missing values share the untracked series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "finetune"),
+				admittedWithLabels("wl2", "cq1", nil),
+				admitted("wl3", "cq1", "training"),
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 3},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", configapi.UntrackedCustomLabelValue), value: 2},
+				{labels: series("a", "alpha", "training"), value: 1},
+			},
+			wantCounts: []seriesCount{{labels: cohortOnly("a"), count: 2}},
+		},
+		"a workload label change moves the count and leaves the old series at zero": {
+			cohorts:   []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:       []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{admitted("wl1", "cq1", "training")},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, series("a", "alpha", "training"), 1)
+				if !cache.AddOrUpdateWorkload(t.Context(), log, admitted("wl1", "cq1", "inference")) {
+					t.Fatal("workload wl1 not updated")
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", "training"), value: 0},
+				{labels: series("a", "alpha", "inference"), value: 1},
+			},
+		},
+		"a workload deletion leaves its series at zero": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				if err := cache.DeleteWorkload(log, workload.NewReference("ns", "wl2")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", "training"), value: 1},
+				{labels: series("a", "alpha", "inference"), value: 0},
+			},
+		},
+		"a rebuild keeps the incremental series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				if !cache.AddOrUpdateWorkload(t.Context(), log, admitted("wl2", "cq1", "inference")) {
+					t.Fatal("workload wl2 not updated")
+				}
+				// Clear first so the values cannot come from the incremental reports.
+				kueuemetrics.ClearCohortSubtreeAdmittedActiveWorkloads("a")
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("a").Obj()); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 2},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", "training"), value: 1},
+				{labels: series("a", "alpha", "inference"), value: 1},
+			},
+		},
+		"a resync reports every workload series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+			},
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				kueuemetrics.ClearCohortSubtreeAdmittedActiveWorkloads("a")
+				cache.ResyncClusterQueueGaugeMetrics("cq1")
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 2},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", "training"), value: 1},
+				{labels: series("a", "alpha", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{{labels: cohortOnly("a"), count: 2}},
+		},
+		"a cluster queue relabel moves every workload series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "training"),
+				admitted("wl3", "cq1", "inference"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("a").Label("team", "beta").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 3},
+			wantValues: []seriesValue{
+				{labels: series("a", "beta", "training"), value: 2},
+				{labels: series("a", "beta", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("a", "alpha"), count: 0},
+				{labels: cohortOnly("a"), count: 2},
+			},
+		},
+		"a cluster queue relabel keeps old series another cluster queue still reports": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+				admitted("wl3", "cq2", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("a").Label("team", "beta").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 3},
+			wantValues: []seriesValue{
+				{labels: series("a", "alpha", "training"), value: 1},
+				{labels: series("a", "beta", "training"), value: 1},
+				{labels: series("a", "beta", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: series("a", "alpha", "inference"), count: 0},
+				{labels: cohortOnly("a"), count: 3},
+			},
+		},
+		"a nested relabel deletes the old child series and keeps the root one a sibling reports": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("child").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("root").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq2", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("child").Label("team", "beta").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"child": 1, "root": 2},
+			wantValues: []seriesValue{
+				{labels: series("child", "beta", "training"), value: 1},
+				{labels: series("root", "alpha", "training"), value: 1},
+				{labels: series("root", "beta", "training"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("child", "alpha"), count: 0},
+				{labels: cohortOnly("child"), count: 1},
+				{labels: cohortOnly("root"), count: 2},
+			},
+		},
+		"a nested relabel keeps a zero root series a sibling still reports": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("child").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("root").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq2", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				if err := cache.DeleteWorkload(log, workload.NewReference("ns", "wl2")); err != nil {
+					t.Fatal(err)
+				}
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("child").Label("team", "beta").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"child": 1, "root": 1},
+			wantValues: []seriesValue{
+				{labels: series("child", "beta", "training"), value: 1},
+				{labels: series("root", "alpha", "training"), value: 0},
+				{labels: series("root", "beta", "training"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("child", "alpha"), count: 0},
+				{labels: cohortOnly("child"), count: 1},
+				{labels: cohortOnly("root"), count: 2},
+			},
+		},
+		"a cluster queue moved to another cohort takes its series along": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("a").Obj(),
+				utiltestingapi.MakeCohort("b").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "beta").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+				admitted("wl3", "cq2", "training"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, customLabels *kueuemetrics.CustomLabels) {
+				relabel(t, log, cache, customLabels, cq1.Clone().Cohort("b").Label("team", "alpha").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1, "b": 2},
+			wantValues: []seriesValue{
+				{labels: series("a", "beta", "training"), value: 1},
+				{labels: series("b", "alpha", "training"), value: 1},
+				{labels: series("b", "alpha", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("a", "alpha"), count: 0},
+				{labels: cohortOnly("a"), count: 1},
+			},
+		},
+		"a reparented cohort takes its series to the new root": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("root2").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root1").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("child").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+			},
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("child").Parent("root2").Obj()); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"root1": 0, "root2": 2, "child": 2},
+			wantValues: []seriesValue{
+				{labels: series("child", "alpha", "training"), value: 1},
+				{labels: series("child", "alpha", "inference"), value: 1},
+				{labels: series("root2", "alpha", "training"), value: 1},
+				{labels: series("root2", "alpha", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{{labels: cohortOnly("root1"), count: 0}},
+		},
+		"a deleted cluster queue drops its series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "beta").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+				admitted("wl3", "cq2", "inference"),
+			},
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Label("team", "alpha").Obj())
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1},
+			wantValues:   []seriesValue{{labels: series("a", "beta", "inference"), value: 1}},
+			wantCounts: []seriesCount{
+				{labels: teamOnly("a", "alpha"), count: 0},
+				{labels: cohortOnly("a"), count: 1},
+			},
+		},
+		"a deleted cluster queue with residual pod accounting decrements each workload series": {
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").Label("team", "alpha").Obj(),
+				cq2.Clone().Cohort("a").Label("team", "alpha").Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "training"),
+				admitted("wl3", "cq1", "inference"),
+				admitted("wl4", "cq2", "training"),
+			},
+			change: func(t *testing.T, _ logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
+				deleted := cache.hm.ClusterQueue("cq1")
+				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Label("team", "alpha").Obj())
+				// The rebuild after the delete hides the decrements, so check them on the removed queue.
+				if deleted.admittedWorkloadsCount != 0 {
+					t.Errorf("deleted cq1 admittedWorkloadsCount = %d, want 0", deleted.admittedWorkloadsCount)
+				}
+				entries := 0
+				for _, count := range deleted.admittedWorkloadLabelCounts.Iter() {
+					entries++
+					if count != 0 {
+						t.Errorf("deleted cq1 still counts %d admitted workloads for a Workload label set", count)
+					}
+				}
+				if entries != 2 {
+					t.Errorf("deleted cq1 tracks %d Workload label sets, want 2", entries)
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1},
+			wantValues:   []seriesValue{{labels: series("a", "alpha", "training"), value: 1}},
+			wantCounts: []seriesCount{
+				{labels: series("a", "alpha", "inference"), count: 0},
+				{labels: cohortOnly("a"), count: 1},
+			},
+		},
+		"a deleted cohort keeps its series on the implicit replacement only": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("child").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("child").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+			},
+			change: func(t *testing.T, log logr.Logger, cache *Cache, _ *kueuemetrics.CustomLabels) {
+				cache.DeleteCohort("child")
+				if !cache.AddOrUpdateWorkload(t.Context(), log, admitted("wl3", "cq1", "training")) {
+					t.Fatal("workload wl3 not added")
+				}
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"root": 0, "child": 3},
+			wantValues: []seriesValue{
+				{labels: series("child", "alpha", "training"), value: 2},
+				{labels: series("child", "alpha", "inference"), value: 1},
+			},
+			wantCounts: []seriesCount{{labels: cohortOnly("root"), count: 0}},
+		},
+		"workload labels only": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("kind").SourceKind(configapi.SourceKindWorkload).TrackedValues("training", "inference").Obj(),
+			},
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Label("team", "alpha").Obj()},
+			workloads: []*kueue.Workload{
+				admitted("wl1", "cq1", "training"),
+				admitted("wl2", "cq1", "inference"),
+				admitted("wl3", "cq1", "inference"),
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 3},
+			wantValues: []seriesValue{
+				{labels: map[string]string{"cohort": "a", "custom_kind": "training"}, value: 1},
+				{labels: map[string]string{"cohort": "a", "custom_kind": "inference"}, value: 2},
+			},
+			wantCounts: []seriesCount{{labels: cohortOnly("a"), count: 2}},
+		},
+		"six cluster queue labels and two workload labels keep every value": {
+			entries: []configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("l1").Obj(),
+				utiltestingapi.MakeCustomLabel("l2").Obj(),
+				utiltestingapi.MakeCustomLabel("l3").Obj(),
+				utiltestingapi.MakeCustomLabel("l4").Obj(),
+				utiltestingapi.MakeCustomLabel("l5").Obj(),
+				utiltestingapi.MakeCustomLabel("l6").Obj(),
+				utiltestingapi.MakeCustomLabel("kind").SourceKind(configapi.SourceKindWorkload).TrackedValues("training").Obj(),
+				utiltestingapi.MakeCustomLabel("tier").SourceKind(configapi.SourceKindWorkload).TrackedValues("gold").Obj(),
+			},
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs: []*kueue.ClusterQueue{
+				cq1.Clone().Cohort("a").
+					Label("l1", "v1").Label("l2", "v2").Label("l3", "v3").
+					Label("l4", "v4").Label("l5", "v5").Label("l6", "v6").
+					Obj(),
+			},
+			workloads: []*kueue.Workload{
+				admittedWithLabels("wl1", "cq1", map[string]string{"kind": "training", "tier": "gold"}),
+			},
+			wantAdmitted: map[kueue.CohortReference]int{"a": 1},
+			wantValues: []seriesValue{{
+				labels: map[string]string{
+					"cohort":    "a",
+					"custom_l1": "v1", "custom_l2": "v2", "custom_l3": "v3",
+					"custom_l4": "v4", "custom_l5": "v5", "custom_l6": "v6",
+					"custom_kind": "training", "custom_tier": "gold",
+				},
+				value: 1,
+			}},
+			wantCounts: []seriesCount{{labels: cohortOnly("a"), count: 1}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			defer kueuemetrics.InitMetricVectors(nil)
+
+			entries := tc.entries
+			if entries == nil {
+				entries = teamAndKind
+			}
+			customLabels := kueuemetrics.NewCustomLabels(entries)
+			cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
+			for _, ch := range tc.cohorts {
+				if err := cache.AddOrUpdateCohort(ch); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, cq := range tc.cqs {
+				customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, wl := range tc.workloads {
+				if !cache.AddOrUpdateWorkload(ctx, log, wl) {
+					t.Fatalf("workload %s not added", wl.Name)
+				}
+			}
+			if tc.change != nil {
+				tc.change(t, log, cache, customLabels)
+			}
+			for _, want := range tc.wantValues {
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, want.labels, want.value)
+			}
+			for _, want := range tc.wantCounts {
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, want.count, want.labels)
+			}
+			for name, want := range tc.wantAdmitted {
+				ch := cache.hm.Cohort(name)
+				if ch == nil {
+					t.Fatalf("cohort %s not found", name)
+				}
+				if ch.admittedWorkloadsCount != want {
+					t.Errorf("cohort %s admittedWorkloadsCount = %d, want %d", name, ch.admittedWorkloadsCount, want)
+				}
+				expectGaugeSum(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, cohortOnly(name), float64(want))
+			}
+		})
+	}
 }

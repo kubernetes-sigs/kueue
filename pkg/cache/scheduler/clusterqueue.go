@@ -19,6 +19,7 @@ package scheduler
 import (
 	"errors"
 	"fmt"
+	"iter"
 	"maps"
 	"math"
 	"slices"
@@ -131,6 +132,10 @@ type clusterQueue struct {
 	// incremental counts compare against this snapshot.
 	reportedLabelVals []string
 
+	// admittedWorkloadLabelCounts counts admitted Workloads by Workload custom-label
+	// values, read from the Workload object on each add and remove.
+	admittedWorkloadLabelCounts *metrics.LabelValsTracker
+
 	lqMetrics *metrics.LocalQueueMetricsConfig
 
 	// lqAdmittedActiveResync serializes the rebuilds of the LocalQueue admitted
@@ -160,6 +165,23 @@ func (c *clusterQueue) appliedCustomLabelValues() []string {
 		return c.reportedLabelVals
 	}
 	return c.GetCustomLabelValues()
+}
+
+// admittedLabelVals yields each Cohort subtree series of c, with cqVals as its
+// ClusterQueue values, and the admitted Workloads behind it. Without Workload
+// labels, c has one series holding all its admitted Workloads.
+func (c *clusterQueue) admittedLabelVals(cqVals []string) iter.Seq2[metrics.CQWorkloadVals, int] {
+	return func(yield func(metrics.CQWorkloadVals, int) bool) {
+		if !c.customLabels.KindConfigured(cfg.SourceKindWorkload) {
+			yield(metrics.NewCQWorkloadVals(cqVals, metrics.EmptyValsSet()), c.admittedWorkloadsCount)
+			return
+		}
+		for wlVals, count := range c.admittedWorkloadLabelCounts.Iter() {
+			if !yield(metrics.NewCQWorkloadVals(cqVals, wlVals), count) {
+				return
+			}
+		}
+	}
 }
 
 // parentAndRootCohort returns the names of the CQ's parent cohort and root cohort.
@@ -679,14 +701,29 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
-	c.reportCohortSubtreeAdmittedActiveWorkloads()
+	if !c.customLabels.KindConfigured(cfg.SourceKindWorkload) {
+		// With Workload labels, updateWorkloadUsage reports the series of each admitted Workload.
+		c.reportCohortSubtreeAdmittedActiveWorkloads(metrics.NewCQWorkloadVals(c.appliedCustomLabelValues(), metrics.EmptyValsSet()))
+	}
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.GetCustomLabelValues(), c.roleTracker)
 }
 
-func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
-	clVals := c.appliedCustomLabelValues()
+func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads(vals metrics.CQWorkloadVals) {
+	labelVals := c.customLabels.CQWorkloadLabelValues(vals)
 	for ancestor := range c.Parent().PathSelfToRoot() {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedCountForLabels(clVals), clVals, c.roleTracker)
+		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedCountForLabels(vals), labelVals, c.roleTracker)
+	}
+}
+
+// resyncCohortSubtreeAdmittedActiveWorkloads re-reports the series of every
+// Workload label values set admitted in c. Without Workload labels,
+// reportActiveWorkloads reports the one series of c.
+func (c *clusterQueue) resyncCohortSubtreeAdmittedActiveWorkloads() {
+	if !c.customLabels.KindConfigured(cfg.SourceKindWorkload) {
+		return
+	}
+	for vals := range c.admittedLabelVals(c.appliedCustomLabelValues()) {
+		c.reportCohortSubtreeAdmittedActiveWorkloads(vals)
 	}
 }
 
@@ -807,8 +844,14 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 
 		incr := op.asSignedOne()
-		c.Parent().updateAdmittedWorkloadsCount(incr, c.appliedCustomLabelValues())
+		wlVals := c.customLabels.MakeValsSet(cfg.SourceKindWorkload, wi.Obj.Labels, wi.Obj.Annotations)
+		vals := metrics.NewCQWorkloadVals(c.appliedCustomLabelValues(), wlVals)
+		c.Parent().updateAdmittedWorkloadsCount(incr, vals)
 		c.admittedWorkloadsCount += incr
+		if c.customLabels.KindConfigured(cfg.SourceKindWorkload) {
+			c.admittedWorkloadLabelCounts.Add(wlVals, incr)
+			c.reportCohortSubtreeAdmittedActiveWorkloads(vals)
+		}
 
 		wlRef := workload.Key(wi.Obj)
 		c.reportAdmittedActiveWorkloads(wlRef, wi.Obj, incr)
