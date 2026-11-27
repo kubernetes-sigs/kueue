@@ -5062,6 +5062,48 @@ func TestHasPodsScheduledCondition(t *testing.T) {
 	}
 }
 
+func TestIsPodsReady(t *testing.T) {
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"nil workload": {
+			workload: nil,
+		},
+		"no conditions": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"only another condition": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+				Obj(),
+		},
+		"pods ready true": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+				Obj(),
+			want: true,
+		},
+		"pods ready false": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse}).
+				Obj(),
+		},
+		"pods ready unknown": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionUnknown}).
+				Obj(),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := IsPodsReady(tc.workload); got != tc.want {
+				t.Errorf("IsPodsReady() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCurrentPodsScheduledCondition(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	admittedAt := fakeClock.Now()

@@ -24,7 +24,9 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -53,18 +56,30 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 	cases := map[string]struct {
 		// relabelTo relabels the Workload after the write; empty deletes it.
 		relabelTo string
+		podsReady bool
 		// wantStored is the Workload's stored values after the admission report.
 		wantStored []string
 		// wantActive is the admitted active gauge per "kind" then, on both queues.
 		wantActive map[string]float64
+		// wantPodsReady is the pods-ready active gauge per "kind" then, on both queues.
+		wantPodsReady map[string]float64
 	}{
 		"Workload deleted": {
-			wantActive: map[string]float64{"training": 0, "inference": 0},
+			wantActive:    map[string]float64{"training": 0, "inference": 0},
+			wantPodsReady: map[string]float64{"training": 0},
 		},
 		"Workload relabeled": {
-			relabelTo:  "inference",
-			wantStored: []string{"inference"},
-			wantActive: map[string]float64{"training": 0, "inference": 1},
+			relabelTo:     "inference",
+			wantStored:    []string{"inference"},
+			wantActive:    map[string]float64{"training": 0, "inference": 1},
+			wantPodsReady: map[string]float64{"training": 0, "inference": 0},
+		},
+		"Workload relabeled and PodsReady": {
+			relabelTo:     "inference",
+			podsReady:     true,
+			wantStored:    []string{"inference"},
+			wantActive:    map[string]float64{"training": 0, "inference": 1},
+			wantPodsReady: map[string]float64{"training": 0, "inference": 1},
 		},
 	}
 
@@ -117,6 +132,14 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 							return nil
 						}
 						relabeled.Labels["kind"] = tc.relabelTo
+						if tc.podsReady {
+							apimeta.SetStatusCondition(&relabeled.Status.Conditions, metav1.Condition{
+								Type:               kueue.WorkloadPodsReady,
+								Status:             metav1.ConditionTrue,
+								LastTransitionTime: metav1.Now(),
+								Reason:             "PodsReady",
+							})
+						}
 						if !cqCache.AddOrUpdateWorkload(ctx, log, &relabeled) {
 							t.Error("Expected the cache to take the relabeled workload")
 						}
@@ -175,6 +198,37 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 					t.Errorf("local_queue_admitted_active_workloads{custom_wl_kind=%q} before the delete = %v (err %v), want %v", kind, v, err, want)
 				}
 			}
+			sortDataPoints := cmpopts.SortSlices(func(a, b testingmetrics.MetricDataPoint) bool {
+				return a.Less(&b)
+			})
+			wantCQPodsReadyBefore := make([]testingmetrics.MetricDataPoint, 0, len(tc.wantPodsReady))
+			wantLQPodsReadyBefore := make([]testingmetrics.MetricDataPoint, 0, len(tc.wantPodsReady))
+			wantCQPodsReadyAfter := make([]testingmetrics.MetricDataPoint, 0, len(tc.wantPodsReady))
+			wantLQPodsReadyAfter := make([]testingmetrics.MetricDataPoint, 0, len(tc.wantPodsReady))
+			for kind, want := range tc.wantPodsReady {
+				cqLabels := map[string]string{"cluster_queue": cq.Name, "replica_role": role, "custom_wl_kind": kind}
+				lqLabels := map[string]string{"name": lq.Name, "namespace": lq.Namespace, "replica_role": role, "custom_wl_kind": kind}
+				wantCQPodsReadyBefore = append(wantCQPodsReadyBefore, testingmetrics.MetricDataPoint{Labels: cqLabels, Value: want})
+				wantLQPodsReadyBefore = append(wantLQPodsReadyBefore, testingmetrics.MetricDataPoint{Labels: lqLabels, Value: want})
+				wantCQPodsReadyAfter = append(wantCQPodsReadyAfter, testingmetrics.MetricDataPoint{Labels: cqLabels, Value: 0})
+				wantLQPodsReadyAfter = append(wantLQPodsReadyAfter, testingmetrics.MetricDataPoint{Labels: lqLabels, Value: 0})
+			}
+			if diff := cmp.Diff(
+				wantCQPodsReadyBefore,
+				testingmetrics.CollectFilteredGaugeVec(metrics.PodsReadyActiveWorkloads, map[string]string{"cluster_queue": cq.Name}),
+				sortDataPoints,
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("Unexpected pods_ready_active_workloads before the delete (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(
+				wantLQPodsReadyBefore,
+				testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": lq.Name, "namespace": lq.Namespace}),
+				sortDataPoints,
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("Unexpected local_queue_pods_ready_active_workloads before the delete (-want,+got):\n%s", diff)
+			}
 
 			if err := cqCache.DeleteWorkload(log, key); err != nil {
 				t.Fatalf("Deleting the workload from the cache: %v", err)
@@ -189,6 +243,22 @@ func TestAdmissionReportAfterWorkloadEvent(t *testing.T) {
 				if v, err := testutil.GetGaugeMetricValue(metrics.LocalQueueAdmittedActiveWorkloads.WithLabelValues(lq.Name, lq.Namespace, role, kind)); err != nil || v != 0 {
 					t.Errorf("local_queue_admitted_active_workloads{custom_wl_kind=%q} = %v (err %v), want 0", kind, v, err)
 				}
+			}
+			if diff := cmp.Diff(
+				wantCQPodsReadyAfter,
+				testingmetrics.CollectFilteredGaugeVec(metrics.PodsReadyActiveWorkloads, map[string]string{"cluster_queue": cq.Name}),
+				sortDataPoints,
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("Unexpected pods_ready_active_workloads after the delete (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(
+				wantLQPodsReadyAfter,
+				testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": lq.Name, "namespace": lq.Namespace}),
+				sortDataPoints,
+				cmpopts.EquateEmpty(),
+			); diff != "" {
+				t.Errorf("Unexpected local_queue_pods_ready_active_workloads after the delete (-want,+got):\n%s", diff)
 			}
 			if v, err := testutil.GetCounterMetricValue(metrics.LocalQueueAdmittedWorkloadsTotal.WithLabelValues(lq.Name, lq.Namespace, "", role, "training")); err != nil || v != 1 {
 				t.Errorf("local_queue_admitted_workloads_total{custom_wl_kind=\"training\"} = %v (err %v), want 1", v, err)

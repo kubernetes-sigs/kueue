@@ -743,6 +743,7 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 
 	ReportClusterQueueStatus(cqName, CQStatusActive, nil, nil)
 	ReportAdmittedActiveWorkloads(cqName, 3, nil, nil)
+	ReportPodsReadyActiveWorkloads(cqName, 2, nil, nil)
 	ReportReservingActiveWorkloads(cqName, 1, nil, nil)
 	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
 	ReportPendingWorkloads(cqName, PendingStatusActive, 4, nil, nil)
@@ -750,6 +751,7 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PodsReadyActiveWorkloads, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ReservingActiveWorkloads, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
@@ -758,6 +760,7 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PodsReadyActiveWorkloads, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ReservingActiveWorkloads, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
@@ -1072,5 +1075,174 @@ func TestFeatureEnabledMetricName(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("Series named kueue_feature_enabled: got %d, want %d", got, want)
+	}
+}
+
+func TestPodsReadyActiveWorkloadsMetrics(t *testing.T) {
+	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+		utiltestingapi.MakeCustomLabel("lq_team").SourceKind(configapi.SourceKindLocalQueue).Obj(),
+		utiltestingapi.MakeCustomLabel("wl_type").SourceLabelKey("company.com/wl-type").
+			SourceKind(configapi.SourceKindWorkload).TrackedValues("batch", "inference").Obj(),
+	})
+	t.Cleanup(func() { InitMetricVectors(nil) })
+
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() { ctrlmetrics.Registry = originalRegistry })
+
+	Register()
+
+	const cqName kueue.ClusterQueueReference = "cq-pods-ready"
+	lqRef := LocalQueueReference{Name: "lq-pods-ready", Namespace: "ns-pods-ready"}
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	cl.CQStore(cqName, map[string]string{"team": "platform"}, nil)
+	cl.Store(configapi.SourceKindLocalQueue, "ns-pods-ready/lq-pods-ready", map[string]string{"lq_team": "ml"}, nil)
+	cl.Store(configapi.SourceKindWorkload, "ns-pods-ready/wl-batch", map[string]string{"company.com/wl-type": "batch"}, nil)
+
+	cqVals := cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns-pods-ready/wl-batch",
+	})
+	lqVals := cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindLocalQueue: "ns-pods-ready/lq-pods-ready",
+		configapi.SourceKindWorkload:   "ns-pods-ready/wl-batch",
+	})
+
+	// Reporting via .Add accumulates positive and negative deltas.
+	ReportPodsReadyActiveWorkloads(cqName, 1, cqVals, followerTracker)
+	ReportPodsReadyActiveWorkloads(cqName, 1, cqVals, followerTracker)
+	ReportPodsReadyActiveWorkloads(cqName, -1, cqVals, followerTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 1, lqVals, followerTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 1, lqVals, followerTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, -1, lqVals, followerTracker)
+
+	for _, metricName := range []string{"kueue_pods_ready_active_workloads", "kueue_local_queue_pods_ready_active_workloads"} {
+		count, err := testutil.GatherAndCount(registry, metricName)
+		if err != nil {
+			t.Fatalf("Failed to gather %s: %v", metricName, err)
+		}
+		if diff := cmp.Diff(1, count); diff != "" {
+			t.Errorf("Unexpected %s series count (-want,+got):\n%s", metricName, diff)
+		}
+	}
+
+	wantCQFollower := []metrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"cluster_queue":  string(cqName),
+			"replica_role":   roletracker.RoleFollower,
+			"custom_team":    "platform",
+			"custom_wl_type": "batch",
+		},
+		Value: 1,
+	}}
+	if diff := cmp.Diff(wantCQFollower, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)})); diff != "" {
+		t.Errorf("Unexpected PodsReadyActiveWorkloads follower series (-want,+got):\n%s", diff)
+	}
+	wantLQFollower := []metrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"name":           string(lqRef.Name),
+			"namespace":      lqRef.Namespace,
+			"replica_role":   roletracker.RoleFollower,
+			"custom_lq_team": "ml",
+			"custom_wl_type": "batch",
+		},
+		Value: 1,
+	}}
+	if diff := cmp.Diff(wantLQFollower, metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace})); diff != "" {
+		t.Errorf("Unexpected LocalQueuePodsReadyActiveWorkloads follower series (-want,+got):\n%s", diff)
+	}
+
+	// HA role transition clears follower series cleanly.
+	ClearGaugeMetricsForRole(roletracker.RoleFollower)
+	if diff := cmp.Diff([]metrics.MetricDataPoint{}, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)}), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("Unexpected PodsReadyActiveWorkloads series after clearing follower role (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(
+		[]metrics.MetricDataPoint{},
+		metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace}),
+		cmpopts.EquateEmpty(),
+	); diff != "" {
+		t.Errorf("Unexpected LocalQueuePodsReadyActiveWorkloads series after clearing follower role (-want,+got):\n%s", diff)
+	}
+
+	ReportPodsReadyActiveWorkloads(cqName, 3, cqVals, leaderTracker)
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 3, lqVals, leaderTracker)
+	wantCQLeader := []metrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"cluster_queue":  string(cqName),
+			"replica_role":   roletracker.RoleLeader,
+			"custom_team":    "platform",
+			"custom_wl_type": "batch",
+		},
+		Value: 3,
+	}}
+	wantLQLeader := []metrics.MetricDataPoint{{
+		Labels: map[string]string{
+			"name":           string(lqRef.Name),
+			"namespace":      lqRef.Namespace,
+			"replica_role":   roletracker.RoleLeader,
+			"custom_lq_team": "ml",
+			"custom_wl_type": "batch",
+		},
+		Value: 3,
+	}}
+	if diff := cmp.Diff(wantCQLeader, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)})); diff != "" {
+		t.Errorf("Unexpected PodsReadyActiveWorkloads leader series (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantLQLeader, metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace})); diff != "" {
+		t.Errorf("Unexpected LocalQueuePodsReadyActiveWorkloads leader series (-want,+got):\n%s", diff)
+	}
+
+	// Clearing LocalQueue series must not affect the ClusterQueue series.
+	ClearLocalQueuePodsReadyActiveWorkloadsSeries(lqRef)
+	if diff := cmp.Diff(
+		[]metrics.MetricDataPoint{},
+		metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace}),
+		cmpopts.EquateEmpty(),
+	); diff != "" {
+		t.Errorf("Unexpected LocalQueuePodsReadyActiveWorkloads series after ClearLocalQueuePodsReadyActiveWorkloadsSeries (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantCQLeader, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)})); diff != "" {
+		t.Errorf("ClearLocalQueuePodsReadyActiveWorkloadsSeries affected ClusterQueue series (-want,+got):\n%s", diff)
+	}
+
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 1, lqVals, leaderTracker)
+	ClearLocalQueueCacheMetrics(lqRef)
+	if diff := cmp.Diff(
+		[]metrics.MetricDataPoint{},
+		metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace}),
+		cmpopts.EquateEmpty(),
+	); diff != "" {
+		t.Errorf("Unexpected LocalQueuePodsReadyActiveWorkloads series after ClearLocalQueueCacheMetrics (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantCQLeader, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)})); diff != "" {
+		t.Errorf("ClearLocalQueueCacheMetrics affected ClusterQueue series (-want,+got):\n%s", diff)
+	}
+
+	// Clearing ClusterQueue series must not affect the LocalQueue series.
+	ReportLocalQueuePodsReadyActiveWorkloads(lqRef, 1, lqVals, leaderTracker)
+	wantLQLeaderOne := []metrics.MetricDataPoint{{
+		Labels: wantLQLeader[0].Labels,
+		Value:  1,
+	}}
+	ClearClusterQueuePodsReadyActiveWorkloadsSeries(cqName)
+	if diff := cmp.Diff([]metrics.MetricDataPoint{}, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)}), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("Unexpected PodsReadyActiveWorkloads series after ClearClusterQueuePodsReadyActiveWorkloadsSeries (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantLQLeaderOne, metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace})); diff != "" {
+		t.Errorf("ClearClusterQueuePodsReadyActiveWorkloadsSeries affected LocalQueue series (-want,+got):\n%s", diff)
+	}
+
+	ReportPodsReadyActiveWorkloads(cqName, 1, cqVals, leaderTracker)
+	ClearCacheMetrics(string(cqName))
+	if diff := cmp.Diff([]metrics.MetricDataPoint{}, metrics.CollectFilteredGaugeVec(PodsReadyActiveWorkloads, map[string]string{"cluster_queue": string(cqName)}), cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("Unexpected PodsReadyActiveWorkloads series after ClearCacheMetrics (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantLQLeaderOne, metrics.CollectFilteredGaugeVec(LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": string(lqRef.Name), "namespace": lqRef.Namespace})); diff != "" {
+		t.Errorf("ClearCacheMetrics affected LocalQueue series (-want,+got):\n%s", diff)
 	}
 }

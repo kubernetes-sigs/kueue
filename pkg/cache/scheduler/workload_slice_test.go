@@ -22,15 +22,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -257,5 +262,127 @@ func TestReplacedWorkloadSliceUsage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReplacedWorkloadSlicePodsReadyMetric(t *testing.T) {
+	t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+	metrics.InitMetricVectors(nil)
+
+	now := time.Now().Truncate(time.Second)
+	role := roletracker.RoleStandalone
+
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+	base := utiltestingapi.MakeWorkload("", "ns").
+		Queue("lq").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		ControllerReference(jobGVK, "job", "job-uid")
+
+	oldReady := base.Clone().Name("old").UID("old").Creation(now.Add(-3*time.Second)).
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), now).
+		AdmittedAt(true, now).
+		PodsReadyAt(true, now)
+
+	newBase := base.Clone().Name("new").UID("new").Creation(now.Add(-2*time.Second)).
+		Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old").
+		Request(corev1.ResourceCPU, "3").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+		AdmittedAt(true, now)
+
+	newNotReady := newBase.Clone().PodsReadyAt(false, now).Obj()
+	newReady := newBase.Clone().PodsReadyAt(true, now).Obj()
+	oldFinished := oldReady.Clone().Finished().Obj()
+	newFinished := newBase.Clone().PodsReadyAt(true, now).Finished().Obj()
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(
+		utiltesting.NewFakeClient(),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.Everything(),
+		}),
+	)
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+	if err := cache.AddLocalQueue(lq); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+
+	type step struct {
+		name string
+		add  *kueue.Workload
+		del  *kueue.Workload
+		want float64
+	}
+	steps := []step{
+		{
+			name: "old slice is admitted and PodsReady=True",
+			add:  oldReady.Clone().Obj(),
+			want: 1,
+		},
+		{
+			name: "replacement slice not ready covers old slice",
+			add:  newNotReady,
+			want: 0,
+		},
+		{
+			name: "replacement slice ready is deduplicated with old slice",
+			add:  newReady,
+			want: 1,
+		},
+		{
+			name: "replacement slice deleted restores uncovered old slice",
+			del:  newReady,
+			want: 1,
+		},
+		{
+			name: "replacement slice re-added",
+			add:  newReady,
+			want: 1,
+		},
+		{
+			name: "old slice finished while covered",
+			add:  oldFinished,
+			want: 1,
+		},
+		{
+			name: "replacement slice finished",
+			add:  newFinished,
+			want: 0,
+		},
+	}
+
+	cqLabels := map[string]string{"cluster_queue": "cq", "replica_role": role}
+	lqLabels := map[string]string{"name": "lq", "namespace": "ns", "replica_role": role}
+	for i, s := range steps {
+		switch {
+		case s.add != nil:
+			cache.AddOrUpdateWorkload(ctx, log, s.add.DeepCopy())
+		case s.del != nil:
+			if err := cache.DeleteWorkload(log, workload.Key(s.del)); err != nil {
+				t.Fatalf("Step %d (%s): deleting workload: %v", i, s.name, err)
+			}
+		}
+
+		wantCQ := []testingmetrics.MetricDataPoint{{Labels: cqLabels, Value: s.want}}
+		gotCQ := testingmetrics.CollectFilteredGaugeVec(metrics.PodsReadyActiveWorkloads, map[string]string{"cluster_queue": "cq"})
+		if diff := cmp.Diff(wantCQ, gotCQ); diff != "" {
+			t.Errorf("Step %d (%s): unexpected pods_ready_active_workloads (-want,+got):\n%s", i, s.name, diff)
+		}
+		wantLQ := []testingmetrics.MetricDataPoint{{Labels: lqLabels, Value: s.want}}
+		gotLQ := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePodsReadyActiveWorkloads, map[string]string{"name": "lq", "namespace": "ns"})
+		if diff := cmp.Diff(wantLQ, gotLQ); diff != "" {
+			t.Errorf("Step %d (%s): unexpected local_queue_pods_ready_active_workloads (-want,+got):\n%s", i, s.name, diff)
+		}
 	}
 }
