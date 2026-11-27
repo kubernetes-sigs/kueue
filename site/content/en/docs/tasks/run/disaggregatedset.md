@@ -122,7 +122,7 @@ requests of the Pods. Kueue counts the defaults of the LimitRanges in the
 namespace, so an init container without requests can still change them. A
 limit change that keeps the effective requests is accepted, for example raising
 a container limit that has no request while it stays at or below the Pod-level
-limit. To turn this off, disable the `ValidateEffectiveRequestsOnPodTemplateUpdate
+limit. To turn this off, disable the `ValidateEffectiveRequestsOnPodTemplateUpdate`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
 Kueue then rejects every change of a limit that is used as a request.
 
