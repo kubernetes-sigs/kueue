@@ -100,7 +100,7 @@ func managerAndSchedulerSetup(clock clock.WithTickerAndDelayedExecution) framewo
 			}),
 			qcache.WithRequeuerClock(clock),
 		}
-		queues := integration.NewManagerWithRequeuerOption(ctx, mgr.GetClient(), cCache,
+		queues := integration.NewManagerWithRequeuerOptions(ctx, mgr.GetClient(), cCache,
 			requeuerOptions,
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithClock(clock))

@@ -87,7 +87,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 		qcache.WithInadmissibleWorkloadRequeuerConfig(configuration.InadmissibleWorkloadRequeuer),
 	}
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := integration.NewManagerWithRequeuerOption(
+	queues := integration.NewManagerWithRequeuerOptions(
 		ctx,
 		mgr.GetClient(),
 		cCache,
