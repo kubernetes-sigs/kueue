@@ -20,9 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -170,4 +173,22 @@ func ValidateAdmissibility(
 	}
 
 	return nil
+}
+
+// EffectiveRequestsChanged reports whether the quota that Kueue computes for
+// the pods of the two PodSpecs differs, with the adjustments in `in`, such as
+// LimitRange defaults.
+func EffectiveRequestsChanged(newPodSpec, oldPodSpec *corev1.PodSpec, in AdjustmentInputs) bool {
+	return !apiequality.Semantic.DeepEqual(effectiveRequests(newPodSpec, in), effectiveRequests(oldPodSpec, in))
+}
+
+// effectiveRequests returns the effective requests of the pods without the zero
+// requests, which use no quota, so that adding one, for example `memory: 0`, is
+// not a change.
+func effectiveRequests(podSpec *corev1.PodSpec, in AdjustmentInputs) corev1.ResourceList {
+	requests := resources.PodRequests(new(EffectivePodSpec(podSpec, in)))
+	maps.DeleteFunc(requests, func(_ corev1.ResourceName, q apiresource.Quantity) bool {
+		return q.IsZero()
+	})
+	return requests
 }

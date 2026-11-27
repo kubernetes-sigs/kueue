@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -187,6 +189,11 @@ func copyAddedTolerations(remote, local *leaderworkersetv1.LeaderWorkerSet) bool
 	// update all groups as well.
 	copyPartition(remote, local)
 	return true
+}
+
+func sameContainers(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return equality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) &&
+		equality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers)
 }
 
 // copyPartition copies the rolling update partition of the local LeaderWorkerSet

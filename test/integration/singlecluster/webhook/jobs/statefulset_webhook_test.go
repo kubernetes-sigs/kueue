@@ -21,12 +21,15 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
@@ -50,7 +53,12 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			fwk.StartManagerForSpec(ctx, cfg, managerSetup(
-				statefulset.SetupWebhook,
+				func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+					if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
+						return err
+					}
+					return statefulset.SetupWebhook(mgr, opts...)
+				},
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
@@ -111,6 +119,79 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					gomega.MatchError(gomega.ContainSubstring("must not contain more than one topology annotation")),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should reject adding a limit of a resource that the container does not request", func() {
+			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sts)
+
+			created := &appsv1.StatefulSet{}
+			ginkgo.By("Adding a memory limit without a memory request is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), created)).To(gomega.Succeed())
+					created.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}
+					g.Expect(k8sClient.Update(ctx, created)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(
+							gomega.ContainSubstring(
+								"spec.template.spec: Forbidden: "+jobframework.EffectiveRequestsChangedErrMessage,
+							),
+						),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should allow changing the limit of a resource that the container requests", func() {
+			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sts)
+
+			created := &appsv1.StatefulSet{}
+			ginkgo.By("Raising the CPU limit of a container that requests CPU is accepted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), created)).To(gomega.Succeed())
+					created.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("3")
+					g.Expect(k8sClient.Update(ctx, created)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should reject turning an init container into a sidecar when its LimitRange default increases the effective requests", func() {
+			limitRange := utiltesting.MakeLimitRange("limits", ns.Name).
+				WithValue("DefaultRequest", corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, limitRange)
+
+			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("init").Image("pause").Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sts)
+
+			created := &appsv1.StatefulSet{}
+			ginkgo.By("Turning the init container without requests into a sidecar is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), created)).To(gomega.Succeed())
+					created.Spec.Template.Spec.InitContainers[0].RestartPolicy = new(corev1.ContainerRestartPolicyAlways)
+					// A dry run keeps the StatefulSet unchanged when the webhook does not
+					// see the LimitRange yet, so that the next attempt still turns the init
+					// container into a sidecar.
+					g.Expect(k8sClient.Update(ctx, created, client.DryRunAll)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(gomega.ContainSubstring("cannot change the effective resource requests of the pods")),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.When("The default WorkloadPriorityClass is created after the StatefulSet", func() {

@@ -36,8 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-const effectiveRequestsChangedErr = "spec.leaderWorkerTemplate.workerTemplate.spec: Forbidden: " +
-	"containers and init containers cannot change the effective resource requests"
+const effectiveRequestsChangedErr = "spec.leaderWorkerTemplate.workerTemplate.spec: Forbidden: " + jobframework.EffectiveRequestsChangedErrMessage
 
 var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 	var ns *corev1.Namespace
@@ -306,6 +305,48 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 						utiltesting.BeForbiddenError(),
 						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.workerTemplate.spec.containers[1].ports[0].hostPort: Forbidden: host ports cannot be added")),
 					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should reject adding a limit of a resource that the container does not request", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Adding a memory limit without a memory request is rejected by the webhook", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
+						utiltesting.BeForbiddenError(),
+						gomega.MatchError(gomega.ContainSubstring(effectiveRequestsChangedErr)),
+					))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should allow changing the limit of a resource that the container requests", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws", ns.Name).
+				Queue("user-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "2").
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lws)
+
+			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
+			ginkgo.By("Raising the CPU limit of a container that requests CPU is accepted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
+					createdLws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("3")
+					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})

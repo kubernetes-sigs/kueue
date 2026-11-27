@@ -122,9 +122,14 @@ the same and no host port is added. Kueue does not change the Workloads.
 For example, you can change the image or the arguments, move requests between containers, or add
 a container whose requests fit within the current effective requests of the Pods.
 Kueue computes the effective requests as for the quota of the Workloads: limits are used as missing
-requests, then the defaults of the LimitRanges in the namespace fill in the requests that are still
-missing. So adding a container without requests is rejected when a LimitRange sets default requests
-or limits. Requests of zero use no quota, so Kueue ignores them.
+requests, for the containers and for the Pod-level resources, then the defaults of the LimitRanges
+in the namespace fill in the requests that are still missing. With Pod-level resources, the
+effective request of a resource is the larger of the Pod-level request and the requests of the
+containers (init containers count at their peak, sidecar containers together with the regular
+containers).
+So adding a container without requests is rejected when a LimitRange sets default requests or
+limits.
+Requests of zero use no quota, so Kueue ignores them.
 Kueue rejects adding a `hostPort`, because the new Pods could then fail to fit on the nodes that
 Kueue already assigned. You can remove a host port or change the other fields of the ports.
 With `hostNetwork: true`, Kubernetes uses the `containerPort` as the host port when `hostPort` is
@@ -147,6 +152,24 @@ cluster keeps the previous containers.
 
 To turn this off, disable the `AllowMutatingContainersWhenEffectiveRequestsDontChange`
 [feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+
+Since Kueue v0.21, Kueue rejects every change to the Pod templates that changes the effective
+resource requests of the Pods, also when the `AllowMutatingContainersWhenEffectiveRequestsDontChange`
+feature gate is disabled. Besides changes to the requests, this includes:
+
+- Adding, changing or removing a limit of a container that has no request for that resource.
+- Changing a Pod-level limit in `resources.limits` of a resource that has no Pod-level request.
+- Turning an init container into a sidecar container with `restartPolicy: Always`.
+
+A change that leaves the effective requests the same is accepted, for example raising a container
+limit that has no request while the container requests stay at or below the Pod-level limit.
+To change a Pod-level limit later, set the Pod-level request of that resource when you create the
+LeaderWorkerSet: adding a Pod-level request is rejected while Kueue manages the LeaderWorkerSet.
+Earlier versions of Kueue accepted these changes.
+To turn this off, disable the `ValidateEffectiveRequestsOnPodTemplateUpdate`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then rejects only the changes described earlier in this section, so the quota of the
+Workloads can differ from what the new Pods request.
 
 ### e. Group identity
 
