@@ -37,47 +37,9 @@ import (
 
 func TestACReconcile(t *testing.T) {
 	previousTransition := metav1.NewTime(time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC))
-	newTransition := metav1.Time{}
-	check := func(refName string, generation int64, conditions ...metav1.Condition) *kueue.AdmissionCheck {
-		ac := utiltestingapi.MakeAdmissionCheck("buffer-check").
-			ControllerName(kueuealpha.CapacityBufferControllerName).
-			Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", refName).
-			Generation(generation).
-			Obj()
-		ac.Status.Conditions = conditions
-		return ac
-	}
-	active := func(generation int64, transition metav1.Time) metav1.Condition {
-		return metav1.Condition{
-			Type:               kueue.AdmissionCheckActive,
-			Status:             metav1.ConditionTrue,
-			Reason:             "Active",
-			Message:            "The admission check is active",
-			ObservedGeneration: generation,
-			LastTransitionTime: transition,
-		}
-	}
-	inactive := func(generation int64, message string, transition metav1.Time) metav1.Condition {
-		return metav1.Condition{
-			Type:               kueue.AdmissionCheckActive,
-			Status:             metav1.ConditionFalse,
-			Reason:             "BadParametersRef",
-			Message:            message,
-			ObservedGeneration: generation,
-			LastTransitionTime: transition,
-		}
-	}
-
-	const missingA = "capacitybufferconfigs.kueue.x-k8s.io \"missing-a\" not found"
-	const missingB = "capacitybufferconfigs.kueue.x-k8s.io \"missing-b\" not found"
-	otherCondition := metav1.Condition{
-		Type:               "OtherCondition",
-		Status:             metav1.ConditionTrue,
-		Reason:             "Unchanged",
-		Message:            "Unrelated condition",
-		ObservedGeneration: 1,
-		LastTransitionTime: previousTransition,
-	}
+	// Condition uses SetStatusCondition, which fills a zero transition time.
+	// Use a distinct, non-zero marker for expected newly generated timestamps.
+	newTransition := metav1.NewTime(time.Date(2024, time.January, 2, 0, 0, 0, 0, time.UTC))
 
 	cases := map[string]struct {
 		check            *kueue.AdmissionCheck
@@ -86,55 +48,240 @@ func TestACReconcile(t *testing.T) {
 		wantStatusWrites int
 	}{
 		"first valid reference publishes Active": {
-			check:            check("config-a", 1),
-			configs:          []string{"config-a"},
-			wantCheck:        check("config-a", 1, active(1, newTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(1).
+				Obj(),
+			configs: []string{"config-a"},
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+					LastTransitionTime: newTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"first invalid reference publishes error": {
-			check:            check("missing-a", 1),
-			wantCheck:        check("missing-a", 1, inactive(1, missingA, newTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "missing-a").
+				Generation(1).
+				Obj(),
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "missing-a").
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "BadParametersRef",
+					Message:            "capacitybufferconfigs.kueue.x-k8s.io \"missing-a\" not found",
+					ObservedGeneration: 1,
+					LastTransitionTime: newTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"valid reference changes but Active stays True": {
-			check:            check("config-b", 2, active(1, previousTransition), otherCondition),
-			configs:          []string{"config-b"},
-			wantCheck:        check("config-b", 2, active(2, previousTransition), otherCondition),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-b").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Condition(metav1.Condition{
+					Type:               "OtherCondition",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Unchanged",
+					Message:            "Unrelated condition",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
+			configs: []string{"config-b"},
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-b").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 2,
+					LastTransitionTime: previousTransition,
+				}).
+				Condition(metav1.Condition{
+					Type:               "OtherCondition",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Unchanged",
+					Message:            "Unrelated condition",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"invalid reference changes but Active stays False": {
-			check:            check("missing-b", 2, inactive(1, missingA, previousTransition)),
-			wantCheck:        check("missing-b", 2, inactive(2, missingB, previousTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "missing-b").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "BadParametersRef",
+					Message:            "capacitybufferconfigs.kueue.x-k8s.io \"missing-a\" not found",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "missing-b").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "BadParametersRef",
+					Message:            "capacitybufferconfigs.kueue.x-k8s.io \"missing-b\" not found",
+					ObservedGeneration: 2,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"corrects stale reason and message without status transition": {
-			check: check("config-a", 1, metav1.Condition{
-				Type:               kueue.AdmissionCheckActive,
-				Status:             metav1.ConditionTrue,
-				Reason:             "StaleReason",
-				Message:            "stale message",
-				ObservedGeneration: 1,
-				LastTransitionTime: previousTransition,
-			}),
-			configs:          []string{"config-a"},
-			wantCheck:        check("config-a", 1, active(1, previousTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "StaleReason",
+					Message:            "stale message",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
+			configs: []string{"config-a"},
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"False to True changes transition time": {
-			check:            check("config-a", 2, inactive(1, missingA, previousTransition)),
-			configs:          []string{"config-a"},
-			wantCheck:        check("config-a", 2, active(2, newTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "BadParametersRef",
+					Message:            "capacitybufferconfigs.kueue.x-k8s.io \"missing-a\" not found",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
+			configs: []string{"config-a"},
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 2,
+					LastTransitionTime: newTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"True to False changes transition time": {
-			check:            check("missing-b", 2, active(1, previousTransition)),
-			wantCheck:        check("missing-b", 2, inactive(2, missingB, newTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "missing-b").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "missing-b").
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionFalse,
+					Reason:             "BadParametersRef",
+					Message:            "capacitybufferconfigs.kueue.x-k8s.io \"missing-b\" not found",
+					ObservedGeneration: 2,
+					LastTransitionTime: newTransition,
+				}).
+				Obj(),
 			wantStatusWrites: 1,
 		},
 		"unchanged Active condition skips status write": {
-			check:     check("config-a", 1, active(1, previousTransition)),
-			configs:   []string{"config-a"},
-			wantCheck: check("config-a", 1, active(1, previousTransition)),
+			check: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
+			configs: []string{"config-a"},
+			wantCheck: utiltestingapi.MakeAdmissionCheck("buffer-check").
+				ControllerName(kueuealpha.CapacityBufferControllerName).
+				Parameters(kueuealpha.SchemeGroupVersion.Group, "CapacityBufferConfig", "config-a").
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+					LastTransitionTime: previousTransition,
+				}).
+				Obj(),
 		},
 	}
 
@@ -172,12 +319,12 @@ func TestACReconcile(t *testing.T) {
 				t.Fatalf("Getting admission check: %v", err)
 			}
 
-			// A zero expected transition time denotes a newly generated timestamp.
+			// The marker denotes a newly generated transition time.
 			// Validate it before normalizing just that field for the full-object diff.
 			want := tc.wantCheck.DeepCopy()
 			for i := range want.Status.Conditions {
 				condition := &want.Status.Conditions[i]
-				if !condition.LastTransitionTime.IsZero() {
+				if !condition.LastTransitionTime.Equal(&newTransition) {
 					continue
 				}
 				actual := apimeta.FindStatusCondition(got.Status.Conditions, condition.Type)
