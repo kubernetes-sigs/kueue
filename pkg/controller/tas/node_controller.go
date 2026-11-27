@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,6 +64,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/util/tas/ranks"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -607,23 +609,19 @@ func podIndexKey(wl *kueue.Workload, pod *corev1.Pod) (kueue.PodSetReference, st
 }
 
 // podIndexFromLabels returns the pod's index within its PodSet read from the
-// index labels of the topology request, and whether all of them were found.
+// index labels of the topology request, and whether it could be read.
 func podIndexFromLabels(req *kueue.PodSetTopologyRequest, pod *corev1.Pod) (string, bool) {
 	if req == nil || req.PodIndexLabel == nil {
 		return "", false
 	}
-	index, found := pod.Labels[*req.PodIndexLabel]
-	if !found {
+	podIndex, subGroupIndex, err := ranks.IndexesForPod(pod, req)
+	if err != nil {
 		return "", false
 	}
-	if req.SubGroupIndexLabel != nil {
-		subGroup, found := pod.Labels[*req.SubGroupIndexLabel]
-		if !found {
-			return "", false
-		}
-		index = subGroup + "/" + index
+	if subGroupIndex == nil {
+		return strconv.Itoa(podIndex), true
 	}
-	return index, true
+	return fmt.Sprintf("%d/%d", *subGroupIndex, podIndex), true
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.

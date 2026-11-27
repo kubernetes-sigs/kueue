@@ -122,24 +122,19 @@ func ReadRanksForLabels(
 	}
 
 	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabel(pod, *psReq.PodIndexLabel)
+		podIndex, subGroupIndex, err := IndexesForPod(pod, psReq)
 		if err != nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, err
 		}
-		rank := *podIndex - int(offset)
-		if psReq.SubGroupIndexLabel != nil {
-			jobIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
-			if err != nil {
-				// the Pod has no Job index information - ranks cannot be used
-				return nil, err
-			}
-			if *podIndex >= singleJobSize {
+		rank := podIndex - int(offset)
+		if subGroupIndex != nil {
+			if podIndex >= singleJobSize {
 				// the pod index exceeds size, this scenario is not
 				// supported by the rank-based ordering of pods.
-				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", *podIndex, klog.KObj(pod), singleJobSize)
+				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", podIndex, klog.KObj(pod), singleJobSize)
 			}
-			rank = *podIndex + *jobIndex*singleJobSize - int(offset)
+			rank = podIndex + *subGroupIndex*singleJobSize - int(offset)
 		}
 		if rank < 0 {
 			return nil, fmt.Errorf("rank %v of Pod %q is below 0", rank, klog.KObj(pod))
@@ -151,4 +146,26 @@ func ReadRanksForLabels(
 		result[rank] = pod
 	}
 	return result, nil
+}
+
+// IndexesForPod reads the pod's index from the PodIndexLabel of psReq and, when
+// psReq declares a SubGroupIndexLabel, its sub-group index, which must be below
+// SubGroupCount. subGroupIndex is nil when psReq declares no SubGroupIndexLabel.
+// psReq.PodIndexLabel must be set.
+func IndexesForPod(pod *corev1.Pod, psReq *kueue.PodSetTopologyRequest) (podIndex int, subGroupIndex *int, err error) {
+	index, err := utilpod.ReadUIntFromLabel(pod, *psReq.PodIndexLabel)
+	if err != nil {
+		return 0, nil, err
+	}
+	if psReq.SubGroupIndexLabel == nil {
+		return *index, nil, nil
+	}
+	if psReq.SubGroupCount == nil || *psReq.SubGroupCount <= 0 {
+		return 0, nil, fmt.Errorf("%w %q: must be set and greater than 0", ErrInvalidSubGroupCount, *psReq.SubGroupIndexLabel)
+	}
+	subGroupIndex, err = utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.SubGroupIndexLabel, int(*psReq.SubGroupCount))
+	if err != nil {
+		return 0, nil, err
+	}
+	return *index, subGroupIndex, nil
 }
