@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	testingclock "k8s.io/utils/clock/testing"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueuetestalpha1 "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 				admittedCondition := apimeta.FindStatusCondition(longRunningWorkload.Status.Conditions, kueue.WorkloadAdmitted)
 
 				latestTime := admittedCondition.LastTransitionTime.Time
-				if longRunningWorkload.CreationTimestamp.Time.After(latestTime) {
+				if longRunningWorkload.CreationTimestamp.After(latestTime) {
 					// Check latest time explicitly because it is hard to know in advance
 					// bacause of the clock desync for workload creation.
 					latestTime = longRunningWorkload.CreationTimestamp.Time
@@ -143,7 +143,9 @@ var _ = ginkgo.Describe("ConfigurablePreemptions with TimeConstraints", ginkgo.L
 					Request(corev1.ResourceCPU, "1").
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, preemptor)
-				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptor)
+				gomega.Consistently(func(g gomega.Gomega) {
+					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptor)
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("'preemptor' evicts long-running-workload after some time once matching preemption configuration", func() {
