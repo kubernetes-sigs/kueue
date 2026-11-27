@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
+	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -58,6 +59,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltasranks "sigs.k8s.io/kueue/pkg/util/tas/ranks"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -81,17 +83,40 @@ type elasticJobUngater struct {
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 
+// option configures an elastic job ungater.
+type option func(*elasticJobUngater)
+
+// withClock overrides the clock used by the elastic job ungater.
+func withClock(c clock.Clock) option {
+	return func(r *elasticJobUngater) {
+		r.clock = c
+	}
+}
+
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
-func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
+// NewUngater constructs the reconciler that releases pods within elastic admission.
+func NewUngater(c client.Client, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) reconcile.Reconciler {
+	return newUngater(c, roleTracker, customLabels)
+}
+
+func newUngater(c client.Client, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels, opts ...option) *elasticJobUngater {
 	r := &elasticJobUngater{
-		client:            mgr.GetClient(),
+		client:            c,
 		clock:             clock.RealClock{},
 		expectationsStore: expectations.NewStore(ControllerName),
 		roleTracker:       roleTracker,
 		customLabels:      customLabels,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
+	r := newUngater(mgr.GetClient(), roleTracker, customLabels)
 	podHandler := elasticPodHandler{
 		client:            r.client,
 		expectationsStore: r.expectationsStore,
@@ -292,6 +317,15 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
+	assignedDomains := make(map[kueue.PodSetReference]*utiltas.AssignedDomainSet)
+	if features.Enabled(features.TopologyAwareScheduling) && wl.Status.Admission != nil {
+		for _, psa := range wl.Status.Admission.PodSetAssignments {
+			if psa.TopologyAssignment != nil {
+				domains := utiltas.NewAssignedDomainSet(psa.TopologyAssignment)
+				assignedDomains[psa.Name] = &domains
+			}
+		}
+	}
 	for _, p := range pods {
 		if utilpod.IsTerminated(p) {
 			continue
@@ -314,8 +348,12 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 			}
 			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
 		} else {
-			// Already-ungated pods consume quota too.
+			// Already-ungated pods consume quota even when their domain is no
+			// longer assigned: the job controller may not have stopped them yet.
 			ungatedPerPodSet[ps]++
+			if domains := assignedDomains[ps]; domains != nil {
+				domains.ConsumePodDomain(p)
+			}
 		}
 	}
 
@@ -333,9 +371,18 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		room := ungateCap - ungatedPerPodSet[ps]
 		var toUngate []*corev1.Pod
 		if room > 0 {
-			toUngate = sortCandidates(log, candidates, wl, ps)
-			if int32(len(candidates)) > room {
-				toUngate = toUngate[:room]
+			sorted := sortCandidates(log, candidates, wl, ps)
+			domains := assignedDomains[ps]
+			for _, candidate := range sorted {
+				// Skip pre-existing topology-ungated candidates whose stamped domain is
+				// full or no longer in the current TopologyAssignment.
+				if domains != nil && !domains.TryReservePodDomain(log, candidate) {
+					continue
+				}
+				toUngate = append(toUngate, candidate)
+				if int32(len(toUngate)) == room {
+					break
+				}
 			}
 		}
 		log.V(4).Info("Elastic ungating quota accounting for PodSet",
@@ -391,12 +438,27 @@ func (r *elasticJobUngater) releaseReclaimedQuota(ctx context.Context, wl *kueue
 	return nil
 }
 
-// sortCandidates orders by completion index, or by name if any Pod lacks a valid index.
+// sortCandidates orders by completion index, or by name if any Pod lacks a valid index,
+// prioritizing pods whose topology scheduling gate has already been removed.
+// Although TopologyUngater waits for the elastic gate on elastic workloads, pre-existing
+// pods can already be topology-ungated while still elastic-gated (for example after an
+// upgrade from an older Kueue version or a period with ElasticJobsViaWorkloadSlices
+// disabled); prioritizing them avoids leaving both replacements stuck gated.
 func sortCandidates(log logr.Logger, candidates []*corev1.Pod, wl *kueue.Workload, ps kueue.PodSetReference) []*corev1.Pod {
+	var sorted []*corev1.Pod
 	if rankToPod, ok := readRanksFromCandidatesIfAvailable(log, candidates, wl, ps); ok {
-		return sortCandidatesByRanks(rankToPod)
+		sorted = sortCandidatesByRanks(rankToPod)
+	} else {
+		sorted = sortCandidatesByName(candidates)
 	}
-	return sortCandidatesByName(candidates)
+	if features.Enabled(features.TopologyAwareScheduling) {
+		slices.SortStableFunc(sorted, func(a, b *corev1.Pod) int {
+			aGated := utilpod.HasGate(a, kueue.TopologySchedulingGate)
+			bGated := utilpod.HasGate(b, kueue.TopologySchedulingGate)
+			return cmputil.CompareBool(aGated, bGated)
+		})
+	}
+	return sorted
 }
 
 func sortCandidatesByRanks(rankToPod map[int]*corev1.Pod) []*corev1.Pod {

@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,7 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -108,20 +108,7 @@ func TestReconcile(t *testing.T) {
 	errPatchPod0 := errors.New("pod-0 patch error")
 	errPatchPod2 := errors.New("pod-2 patch error")
 
-	testCases := map[string]struct {
-		workloads []kueue.Workload
-		pods      []corev1.Pod
-		// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated.
-		skipDefaultPodSetLabels bool
-		expectUIDs              []types.UID
-		reconcileKey            client.ObjectKey
-		// patchErrs maps a Pod name to the error returned when patching it.
-		patchErrs map[string]error
-		wantPods  []corev1.Pod
-		wantErr   error
-		// wantErrs lists errors that the returned error must all match.
-		wantErrs []error
-	}{
+	testCases := map[string]reconcileTestCase{
 		"ungate single pod": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
@@ -1406,8 +1393,30 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
+	runReconcileTestCases(t, now, testCases)
+}
+
+type reconcileTestCase struct {
+	featureGates map[featuregate.Feature]bool
+	workloads    []kueue.Workload
+	pods         []corev1.Pod
+	// skipDefaultPodSetLabels prevents default PodSet labeling so tests can verify that unlabeled Pods remain gated.
+	skipDefaultPodSetLabels bool
+	expectUIDs              []types.UID
+	reconcileKey            client.ObjectKey
+	// patchErrs maps a Pod name to the error returned when patching it.
+	patchErrs map[string]error
+	wantPods  []corev1.Pod
+	wantErr   error
+	// wantErrs lists errors that the returned error must all match.
+	wantErrs []error
+}
+
+func runReconcileTestCases(t *testing.T, now time.Time, testCases map[string]reconcileTestCase) {
+	t.Helper()
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// Real elastic pods always carry the PodSet label; default it here so the
@@ -1451,11 +1460,7 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
-			ungater := &elasticJobUngater{
-				client:            kClient,
-				clock:             testingclock.NewFakeClock(now),
-				expectationsStore: expectations.NewStore(ControllerName),
-			}
+			ungater := newUngater(kClient, nil, nil, withClock(testingclock.NewFakeClock(now)))
 
 			if len(tc.workloads) == 0 {
 				_, err := ungater.Reconcile(ctx, reconcile.Request{
@@ -1742,12 +1747,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				customLabels.CQStore(cqName, map[string]string{"team": tc.cqTeam}, nil)
 			}
 
-			ungater := &elasticJobUngater{
-				client:            kClient,
-				clock:             testingclock.NewFakeClock(now),
-				expectationsStore: expectations.NewStore(ControllerName),
-				customLabels:      customLabels,
-			}
+			ungater := newUngater(kClient, nil, customLabels, withClock(testingclock.NewFakeClock(now)))
 
 			key := client.ObjectKeyFromObject(&tc.workloads[0])
 			request := reconcile.Request{NamespacedName: key}
@@ -1866,11 +1866,7 @@ func TestUngaterReleasesReclaimedQuota(t *testing.T) {
 			}
 			kClient := clientBuilder.Build()
 
-			ungater := &elasticJobUngater{
-				client:            kClient,
-				clock:             testingclock.NewFakeClock(now),
-				expectationsStore: expectations.NewStore(ControllerName),
-			}
+			ungater := newUngater(kClient, nil, nil, withClock(testingclock.NewFakeClock(now)))
 
 			key := types.NamespacedName{Namespace: wl.Namespace, Name: wl.Name}
 			if _, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key}); err != nil {
