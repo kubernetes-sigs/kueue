@@ -181,7 +181,15 @@ func TestReconcileDRA(t *testing.T) {
 		wantErrorMsg      string
 		wantEvents        []utiltesting.EventRecord
 		beforeReconcile   func(context.Context, client.Client, *qcache.Manager)
-		verify            func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference)
+		// wantQueuedRequests, when set, requires the workload to be pending in the
+		// ClusterQueue with these resource totals.
+		wantQueuedRequests map[corev1.ResourceName]int64
+		// wantAbsentRequests lists resources that must not appear in the queued totals.
+		wantAbsentRequests []corev1.ResourceName
+		// wantInHeap requires the workload to be in the active heap, not inadmissible.
+		wantInHeap bool
+		// wantNoPendingWorkloads requires the ClusterQueue to have no pending workloads.
+		wantNoPendingWorkloads bool
 	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
@@ -355,25 +363,8 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlWithDRAResourceClaimTemplate.Name || wlInfo.Obj.Namespace != wlWithDRAResourceClaimTemplate.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(1) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 1, gpuVal)
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlWithDRAResourceClaimTemplate.Namespace, wlWithDRAResourceClaimTemplate.Name)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1},
 		},
 		"reconcile DRA persists Requeued=True when previously inadmissible workload resources are resolved": {
 			featureGates: map[featuregate.Feature]bool{
@@ -417,35 +408,9 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlStaleInadmissibleDRA.Name || wlInfo.Obj.Namespace != wlStaleInadmissibleDRA.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(1) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 1, gpuVal)
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlStaleInadmissibleDRA.Namespace, wlStaleInadmissibleDRA.Name)
-				}
-
-				wlRef := workload.Key(wlStaleInadmissibleDRA)
-				inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
-				inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
-				if inHeap != true {
-					t.Errorf("Expected workload in heap=%v, got %v", true, inHeap)
-				}
-				if inInadmissible != false {
-					t.Errorf("Expected workload in inadmissible=%v, got %v", false, inInadmissible)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1},
+			wantInHeap:         true,
 		},
 		"reconcile DRA persists Requeued=True when previously DRAResourcesUnresolved workload resources are resolved": {
 			featureGates: map[featuregate.Feature]bool{
@@ -489,35 +454,9 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlStaleDRANotResolved.Name || wlInfo.Obj.Namespace != wlStaleDRANotResolved.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(1) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 1, gpuVal)
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlStaleDRANotResolved.Namespace, wlStaleDRANotResolved.Name)
-				}
-
-				wlRef := workload.Key(wlStaleDRANotResolved)
-				inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
-				inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
-				if inHeap != true {
-					t.Errorf("Expected workload in heap=%v, got %v", true, inHeap)
-				}
-				if inInadmissible != false {
-					t.Errorf("Expected workload in inadmissible=%v, got %v", false, inInadmissible)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1},
+			wantInHeap:         true,
 		},
 		"reconcile DRA workload waiting for backoff should preprocess but not queue": {
 			featureGates: map[featuregate.Feature]bool{
@@ -545,12 +484,8 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(time.Hour)))).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				if got := len(qManager.PendingWorkloadsInfo(cqName)); got != 0 {
-					t.Errorf("Expected no workload(s) in queue, got %d workloads", got)
-				}
-			},
+			wantEvents:             nil,
+			wantNoPendingWorkloads: true,
 		},
 		"reconcile DRA ResourceClaimTemplate requeued after backoff should keep DRA resources in queue": {
 			featureGates: map[featuregate.Feature]bool{
@@ -583,35 +518,9 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				RequeueState(new(int32(1)), nil).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlDRARequeuedAfterBackoff.Name || wlInfo.Obj.Namespace != wlDRARequeuedAfterBackoff.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(1) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 1, gpuVal)
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlDRARequeuedAfterBackoff.Namespace, wlDRARequeuedAfterBackoff.Name)
-				}
-
-				wlRef := workload.Key(wlDRARequeuedAfterBackoff)
-				inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
-				inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
-				if inHeap != true {
-					t.Errorf("Expected workload in heap=%v, got %v", true, inHeap)
-				}
-				if inInadmissible != false {
-					t.Errorf("Expected workload in inadmissible=%v, got %v", false, inInadmissible)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1},
+			wantInHeap:         true,
 		},
 		"reconcile DRA extended resource requeued after backoff should replace extended resource in queue": {
 			featureGates: map[featuregate.Feature]bool{
@@ -642,42 +551,10 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				RequeueState(new(int32(1)), nil).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlDRAExtendedRequeuedAfterBackoff.Name || wlInfo.Obj.Namespace != wlDRAExtendedRequeuedAfterBackoff.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(1) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 1, gpuVal)
-					}
-					if len(wlInfo.TotalRequests) != 0 && wlInfo.TotalRequests[0].Requests != nil {
-						wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
-							if name == corev1.ResourceName("example.com/gpu") {
-								t.Errorf("Expected resource %q to be absent from queued TotalRequests", "example.com/gpu")
-							}
-						})
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlDRAExtendedRequeuedAfterBackoff.Namespace, wlDRAExtendedRequeuedAfterBackoff.Name)
-				}
-
-				wlRef := workload.Key(wlDRAExtendedRequeuedAfterBackoff)
-				inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
-				inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
-				if inHeap != true {
-					t.Errorf("Expected workload in heap=%v, got %v", true, inHeap)
-				}
-				if inInadmissible != false {
-					t.Errorf("Expected workload in inadmissible=%v, got %v", false, inInadmissible)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 1},
+			wantAbsentRequests: []corev1.ResourceName{"example.com/gpu"},
+			wantInHeap:         true,
 		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
@@ -715,25 +592,8 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlMultiPodDRA.Name || wlInfo.Obj.Namespace != wlMultiPodDRA.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(6) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 6, gpuVal)
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlMultiPodDRA.Namespace, wlMultiPodDRA.Name)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 6},
 		},
 		"reconcile DRA firstAvailable alternatives of one count should be charged that count once and queued": {
 			featureGates: map[featuregate.Feature]bool{
@@ -776,25 +636,8 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
-			verify: func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference) {
-				found := false
-				for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
-					if wlInfo.Obj.Name != wlWithFirstAvailable.Name || wlInfo.Obj.Namespace != wlWithFirstAvailable.Namespace {
-						continue
-					}
-					found = true
-					if len(wlInfo.TotalRequests) == 0 || wlInfo.TotalRequests[0].Requests == nil {
-						t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-					} else if gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu"); gpuVal.CmpInt64(2) != 0 {
-						t.Errorf("Expected gpu resource total to be %d, got %s", 2, gpuVal)
-					}
-					break
-				}
-				if !found {
-					t.Errorf("DRA workload %s/%s not found in queue - expected to be queued for processing", wlWithFirstAvailable.Namespace, wlWithFirstAvailable.Name)
-				}
-			},
+			wantEvents:         nil,
+			wantQueuedRequests: map[corev1.ResourceName]int64{"gpu": 2},
 		},
 		"reconcile DRA firstAvailable alternatives of different counts should be inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
@@ -1640,12 +1483,46 @@ func TestReconcileDRA(t *testing.T) {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 
-				if tc.verify != nil {
-					cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
-					if !found {
-						t.Fatalf("LocalQueue not found in queue manager - workload should have been queued")
+				cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
+				if found {
+					pending := qManager.PendingWorkloadsInfo(cqName)
+					if tc.wantNoPendingWorkloads && len(pending) != 0 {
+						t.Errorf("Expected no workload(s) in queue, got %d workloads", len(pending))
 					}
-					tc.verify(t, qManager, cqName)
+					if tc.wantQueuedRequests != nil {
+						idx := slices.IndexFunc(pending, func(info *workload.Info) bool {
+							return info.Obj.Name == testWl.Name && info.Obj.Namespace == testWl.Namespace
+						})
+						if idx < 0 {
+							t.Fatalf("DRA workload %s/%s not found in queue - expected to be queued for processing", testWl.Namespace, testWl.Name)
+						}
+						info := pending[idx]
+						if len(info.TotalRequests) == 0 || info.TotalRequests[0].Requests == nil {
+							t.Fatalf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
+						}
+						gotRequests := info.TotalRequests[0].Requests
+						for name, want := range tc.wantQueuedRequests {
+							if got := gotRequests.ResourceValue(name); got.CmpInt64(want) != 0 {
+								t.Errorf("Expected %s resource total to be %d, got %s", name, want, got)
+							}
+						}
+						gotRequests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
+							if slices.Contains(tc.wantAbsentRequests, name) {
+								t.Errorf("Expected resource %q to be absent from queued TotalRequests", name)
+							}
+						})
+					}
+					if tc.wantInHeap {
+						wlRef := workload.Key(testWl)
+						if !workloadRefInDump(qManager.Dump(), cqName, wlRef) {
+							t.Errorf("Expected workload in heap")
+						}
+						if workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef) {
+							t.Errorf("Expected workload not in inadmissible")
+						}
+					}
+				} else if tc.wantQueuedRequests != nil || tc.wantInHeap || tc.wantNoPendingWorkloads {
+					t.Fatalf("LocalQueue not found in queue manager - workload should have been queued")
 				}
 			})
 		}
