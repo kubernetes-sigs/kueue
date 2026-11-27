@@ -18,7 +18,7 @@ package core
 
 import (
 	"context"
-	stderrors "errors"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -34,7 +34,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1226,15 +1226,8 @@ type reconcileTestCase struct {
 	additionalObjects         []client.Object
 	cq                        *kueue.ClusterQueue
 	lq                        *kueue.LocalQueue
-	resourceClaims            []*resourcev1.ResourceClaim
-	resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 	patchErr                  error
 	listErr                   error
-	wantDRAResourceTotal      *int64
-	wantAbsentDRAResources    []corev1.ResourceName
-	wantWorkloadsInQueue      *int
-	wantWorkloadInHeap        *bool
-	wantWorkloadInadmissible  *bool
 	wantPendingWorkloads      map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info
 	wantWorkload              *kueue.Workload
 	wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
@@ -1244,6 +1237,7 @@ type reconcileTestCase struct {
 	wantResult                reconcile.Result
 	reconcilerOpts            []Option
 	beforeReconcile           func(context.Context, client.Client, *qcache.Manager)
+	verify                    func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference)
 }
 
 func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
@@ -1963,7 +1957,7 @@ func TestUpdateSettlesAfsEntryPenaltyPerReservation(t *testing.T) {
 }
 
 func TestReconcile(t *testing.T) {
-	errTest := stderrors.New("test error")
+	errTest := errors.New("test error")
 	_, log := utiltesting.ContextWithLog(t)
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -3719,13 +3713,6 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					})
 				}
 				objs = append(objs, tc.additionalObjects...)
-				for _, rc := range tc.resourceClaims {
-					objs = append(objs, rc)
-				}
-
-				for _, rct := range tc.resourceClaimTemplates {
-					objs = append(objs, rct)
-				}
 
 				// Create a stub owner object so that the FinishOrphanedWorkloads
 				// check does not incorrectly mark them as orphaned.
@@ -3805,25 +3792,6 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					setupLocalQueue(ctx, t, cl, qManager, tc.lq, tc.shouldDeleteLQ)
 				}
 
-				if needsDRAMapperSetup(tc, testWl) {
-					draConfig := []configapi.DeviceClassMapping{
-						{
-							Name:             corev1.ResourceName("foo"),
-							DeviceClassNames: []corev1.ResourceName{"foo.example.com"},
-						},
-						{
-							Name:             corev1.ResourceName("gpu"),
-							DeviceClassNames: []corev1.ResourceName{"gpu.example.com", "gpu-class"},
-						},
-					}
-					draMapper := dra.NewResourceMapper()
-					err := draMapper.PopulateFromConfiguration(draConfig)
-					if err != nil {
-						t.Fatalf("Failed to initialize DRA mapper: %v", err)
-					}
-					reconciler.draMapper = draMapper
-				}
-
 				if tc.beforeReconcile != nil {
 					tc.beforeReconcile(ctx, cl, qManager)
 				}
@@ -3832,7 +3800,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 				// wantError and wantErrorMsg are checked independently, so a case can
 				// assert both causes of a joined error.
-				if tc.wantError != nil && !stderrors.Is(gotError, tc.wantError) {
+				if tc.wantError != nil && !errors.Is(gotError, tc.wantError) {
 					t.Errorf("unexpected error: want %v, got %v", tc.wantError, gotError)
 				}
 				if tc.wantErrorMsg != "" && (gotError == nil || !strings.Contains(gotError.Error(), tc.wantErrorMsg)) {
@@ -3849,7 +3817,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				if tc.wantWorkload != nil {
 					gotWorkload := &kueue.Workload{}
 					if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
-						if !errors.IsNotFound(err) {
+						if !apierrors.IsNotFound(err) {
 							t.Fatalf("Could not get Workloads after reconcile: %v", err)
 						}
 						t.Fatalf("expected workload to persist")
@@ -3900,78 +3868,12 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					}
 				}
 
-				// For DRA tests, verify that workloads are properly queued/cached
-				if needsDRAQueueVerification(tc, testWl) {
-					workloadKey := client.ObjectKeyFromObject(testWl)
-
-					if cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl)); found {
-						pendingWorkloads := qManager.PendingWorkloadsInfo(cqName)
-
-						if tc.wantWorkloadsInQueue != nil {
-							if len(pendingWorkloads) != *tc.wantWorkloadsInQueue {
-								t.Errorf("Expected exactly %d workload(s) in queue, got %d workloads", *tc.wantWorkloadsInQueue, len(pendingWorkloads))
-								for i, wl := range pendingWorkloads {
-									t.Logf("Workload %d: %s/%s", i, wl.Obj.Namespace, wl.Obj.Name)
-								}
-							}
-						}
-
-						var foundInQueue bool
-						for _, wlInfo := range pendingWorkloads {
-							if wlInfo.Obj.Name == workloadKey.Name && wlInfo.Obj.Namespace == workloadKey.Namespace {
-								foundInQueue = true
-								if wlInfo.TotalRequests != nil && (tc.wantDRAResourceTotal != nil || len(tc.wantAbsentDRAResources) > 0) {
-									t.Logf("DRA workload found in queue with TotalRequests: %+v", wlInfo.TotalRequests)
-
-									if tc.wantDRAResourceTotal != nil {
-										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu")
-											if gpuVal.Sign() > 0 {
-												if gpuVal.CmpInt64(*tc.wantDRAResourceTotal) != 0 {
-													t.Errorf("Expected gpu resource total to be %d, got %s", *tc.wantDRAResourceTotal, gpuVal)
-												}
-											} else {
-												t.Errorf("Expected gpu resource in DRA workload TotalRequests, but not found")
-											}
-										} else {
-											t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
-										}
-									}
-									for _, resName := range tc.wantAbsentDRAResources {
-										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											var found bool
-											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
-												if name == resName {
-													found = true
-												}
-											})
-											if found {
-												t.Errorf("Expected resource %q to be absent from queued TotalRequests", resName)
-											}
-										}
-									}
-								}
-								break
-							}
-						}
-						if tc.wantWorkloadsInQueue != nil && *tc.wantWorkloadsInQueue > 0 && !foundInQueue {
-							t.Errorf("DRA workload not found in queue - expected to be queued for processing")
-						}
-
-						wlRef := workload.Key(testWl)
-						if tc.wantWorkloadInHeap != nil || tc.wantWorkloadInadmissible != nil {
-							inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
-							inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
-							if tc.wantWorkloadInHeap != nil && inHeap != *tc.wantWorkloadInHeap {
-								t.Errorf("Expected workload in heap=%v, got %v", *tc.wantWorkloadInHeap, inHeap)
-							}
-							if tc.wantWorkloadInadmissible != nil && inInadmissible != *tc.wantWorkloadInadmissible {
-								t.Errorf("Expected workload in inadmissible=%v, got %v", *tc.wantWorkloadInadmissible, inInadmissible)
-							}
-						}
-					} else if tc.lq != nil {
-						t.Errorf("LocalQueue not found in queue manager - DRA workload should have been queued")
+				if tc.verify != nil {
+					cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
+					if !found {
+						t.Fatalf("LocalQueue not found in queue manager - workload should have been queued")
 					}
+					tc.verify(t, qManager, cqName)
 				}
 			})
 		}
@@ -4165,36 +4067,6 @@ func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManag
 			t.Fatalf("couldn't delete the local queue: %v", err)
 		}
 	}
-}
-
-func needsDRAMapperSetup(tc reconcileTestCase, testWl *kueue.Workload) bool {
-	if testWl == nil || testWl.Namespace != "ns" || len(testWl.Spec.PodSets) == 0 {
-		return false
-	}
-	if len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
-		return true
-	}
-	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		for _, obj := range tc.additionalObjects {
-			if _, ok := obj.(*resourcev1.DeviceClass); ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func needsDRAQueueVerification(tc reconcileTestCase, testWl *kueue.Workload) bool {
-	if !features.Enabled(features.KueueDRAIntegration) || testWl == nil || len(testWl.Spec.PodSets) == 0 {
-		return false
-	}
-	return len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 ||
-		len(tc.resourceClaimTemplates) > 0 ||
-		tc.wantDRAResourceTotal != nil ||
-		len(tc.wantAbsentDRAResources) > 0 ||
-		tc.wantWorkloadsInQueue != nil ||
-		tc.wantWorkloadInHeap != nil ||
-		tc.wantWorkloadInadmissible != nil
 }
 
 func workloadRefInDump(dump map[kueue.ClusterQueueReference][]workload.Reference, cqName kueue.ClusterQueueReference, wlRef workload.Reference) bool {
