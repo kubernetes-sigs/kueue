@@ -96,6 +96,9 @@ func managerAndSchedulerSetup(clock clock.WithTickerAndDelayedExecution) framewo
 		preemptionExpectations := preemptexpectations.New()
 		requeuerOptions := []qcache.RequeuerOption{
 			qcache.WithInadmissibleWorkloadRequeuerConfig(&config.InadmissibleWorkloadRequeuer{
+				// Use a 0 batchPeriod so immediate requeues do not stall on a fakeClock
+				// and delayed requeues fire at the exact scheduled time which is necessary for
+				// tests with fakeClock manipulations.
 				BatchPeriod: &metav1.Duration{Duration: 0},
 			}),
 			qcache.WithRequeuerClock(clock),
