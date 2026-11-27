@@ -31,8 +31,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -45,11 +47,14 @@ const (
 	mixedCohort  = "mixed-cohort"
 
 	was           = "was"
+	shallow       = "shallow"
 	native        = "native"
 	nativeDefault = "native-default"
 	shared        = "shared"
 	sharedNative  = "shared-native"
+	sharedShallow = "shared-shallow"
 	sharedWAS     = "shared-was"
+	hostPortPool  = "hostport"
 	mutable       = "mutable"
 )
 
@@ -121,9 +126,9 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 		clusterQueues   []*kueue.ClusterQueue
 	)
 
-	createNode := func(name, cpu string) *corev1.Node {
+	createNodeInPool := func(name, pool, cpu string) *corev1.Node {
 		n := testingnode.MakeNode(name).
-			Label(poolLabelKey, name).
+			Label(poolLabelKey, pool).
 			Label(corev1.LabelHostname, name).
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:  resource.MustParse(cpu),
@@ -134,6 +139,10 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 		integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*n})
 		nodes = append(nodes, n)
 		return n
+	}
+
+	createNode := func(name, cpu string) *corev1.Node {
+		return createNodeInPool(name, name, cpu)
 	}
 
 	createFlavor := func(name string) *kueue.ResourceFlavor {
@@ -210,21 +219,25 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 		ginkgo.It("Should route each ClusterQueue to its configured planner, including shared flavors", func() {
 			createNode(nativeDefault, "2")
 			createNode(native, "2")
+			createNode(shallow, "2")
 			createNode(was, "2")
-			createNode(shared, "2")
+			createNode(shared, "3")
 
 			createFlavor(nativeDefault)
 			createFlavor(native)
+			createFlavor(shallow)
 			createFlavor(was)
 			createFlavor(shared)
 
 			createCQ(nativeDefault, "", nativeDefault, "2")
 			createCQ(native, kueue.KueueNative, native, "2")
+			createCQ(shallow, kueue.KubeSchedulerShallowIntegration, shallow, "2")
 			createCQ(was, kueue.KubeSchedulerDeepIntegration, was, "2")
 			createCQ(sharedNative, kueue.KueueNative, shared, "1")
+			createCQ(sharedShallow, kueue.KubeSchedulerShallowIntegration, shared, "1")
 			createCQ(sharedWAS, kueue.KubeSchedulerDeepIntegration, shared, "1")
 
-			for _, name := range []string{nativeDefault, native, was, sharedNative, sharedWAS} {
+			for _, name := range []string{nativeDefault, native, shallow, was, sharedNative, sharedShallow, sharedWAS} {
 				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).ClusterQueue(name).Obj()
 				behavioral.MustCreate(ctx, k8sClient, lq)
 			}
@@ -243,37 +256,131 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 
 			wlNativeDefault := makeWL(nativeDefault, nativeDefault, true)
 			wlNative := makeWL(native, native, true)
+			wlShallow := makeWL(shallow, shallow, true)
 			wlWAS := makeWL(was, was, false)
 			wlSharedNative := makeWL(sharedNative, sharedNative, true)
+			wlSharedShallow := makeWL(sharedShallow, sharedShallow, true)
 			wlSharedWAS := makeWL(sharedWAS, sharedWAS, false)
 
-			for _, wl := range []*kueue.Workload{wlNativeDefault, wlNative, wlWAS, wlSharedNative, wlSharedWAS} {
+			for _, wl := range []*kueue.Workload{wlNativeDefault, wlNative, wlShallow, wlWAS, wlSharedNative, wlSharedShallow, wlSharedWAS} {
 				behavioral.MustCreate(ctx, k8sClient, wl)
 			}
 
 			expectWorkloadAdmittedOnNode(wlNativeDefault, nativeDefault, nativeDefault, nativeDefault)
 			expectWorkloadAdmittedOnNode(wlNative, native, native, native)
+			expectWorkloadAdmittedOnNode(wlShallow, shallow, shallow, shallow)
 			expectWorkloadAdmittedOnNode(wlWAS, was, was, was)
 			expectWorkloadAdmittedOnNode(wlSharedNative, sharedNative, shared, shared)
+			expectWorkloadAdmittedOnNode(wlSharedShallow, sharedShallow, shared, shared)
 			expectWorkloadAdmittedOnNode(wlSharedWAS, sharedWAS, shared, shared)
 
 			expectPlannerLog(ns.Name, wlNativeDefault.Name, kueue.KueueNative)
 			expectPlannerLog(ns.Name, wlNative.Name, kueue.KueueNative)
+			expectPlannerLog(ns.Name, wlShallow.Name, kueue.KubeSchedulerShallowIntegration)
 			expectPlannerLog(ns.Name, wlWAS.Name, kueue.KubeSchedulerDeepIntegration)
 			expectPlannerLog(ns.Name, wlSharedNative.Name, kueue.KueueNative)
+			expectPlannerLog(ns.Name, wlSharedShallow.Name, kueue.KubeSchedulerShallowIntegration)
 			expectPlannerLog(ns.Name, wlSharedWAS.Name, kueue.KubeSchedulerDeepIntegration)
 		})
 
-		ginkgo.It("Should respect shared-flavor topology booking between native and deep-integration planners", func() {
+		ginkgo.It("Should differentiate evaluators on HostPort conflicts across native, shallow, and deep planners", func() {
+			const (
+				n1Name   = "hostport-n1"
+				n2Name   = "hostport-n2"
+				hostPort = 8080
+			)
+
+			createNodeInPool(n1Name, hostPortPool, "4")
+
+			// A Pod outside Kueue holds hostPort 8080 on n1. Create it before the queues
+			// and wait until the manager cache observes it so the simulator sees it before
+			// evaluating any workloads.
+			holder := testingpod.MakePod("port-holder", ns.Name).
+				NodeName(n1Name).
+				Port(hostPort, hostPort, corev1.ProtocolTCP).
+				TerminationGracePeriod(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, holder)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cached corev1.Pod
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(holder), &cached)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			createFlavor(hostPortPool)
+
+			createCQ(native, kueue.KueueNative, hostPortPool, "4")
+			createCQ(shallow, kueue.KubeSchedulerShallowIntegration, hostPortPool, "4")
+			createCQ(was, kueue.KubeSchedulerDeepIntegration, hostPortPool, "4")
+
+			for _, name := range []string{native, shallow, was} {
+				lq := utiltestingapi.MakeLocalQueue(name, ns.Name).ClusterQueue(name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, lq)
+			}
+
+			makeHostPortWL := func(name string, lq kueue.LocalQueueName) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(lq).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						Containers(*utiltesting.MakeContainer().
+							Name("c").
+							WithResourceReq(corev1.ResourceCPU, "1").
+							Port(hostPort, hostPort, corev1.ProtocolTCP).
+							Obj()).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+			}
+
+			_ = fwk.ObservedLogs.TakeAll()
+
+			wlNative := makeHostPortWL("wl-hostport-native", native)
+			wlShallow := makeHostPortWL("wl-hostport-shallow", shallow)
+			wlWAS := makeHostPortWL("wl-hostport-was", was)
+
+			ginkgo.By("verifying Native admits on n1 while Shallow and Deep reject n1 when n1 is the only node", func() {
+				behavioral.MustCreate(ctx, k8sClient, wlNative)
+				expectWorkloadAdmittedOnNode(wlNative, native, hostPortPool, n1Name)
+				expectPlannerLog(ns.Name, wlNative.Name, kueue.KueueNative)
+
+				behavioral.MustCreate(ctx, k8sClient, wlShallow)
+				expectPlannerLog(ns.Name, wlShallow.Name, kueue.KubeSchedulerShallowIntegration)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlShallow)
+
+				behavioral.MustCreate(ctx, k8sClient, wlWAS)
+				expectPlannerLog(ns.Name, wlWAS.Name, kueue.KubeSchedulerDeepIntegration)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlWAS)
+			})
+
+			ginkgo.By("verifying Shallow and Deep avoid n1 and place on n2 once a conflict-free node is available", func() {
+				gomega.Expect(k8sClient.Delete(ctx, wlWAS)).To(gomega.Succeed())
+				createNodeInPool(n2Name, hostPortPool, "4")
+
+				expectWorkloadAdmittedOnNode(wlShallow, shallow, hostPortPool, n2Name)
+				gomega.Expect(k8sClient.Delete(ctx, wlShallow)).To(gomega.Succeed())
+
+				wlWAS2 := makeHostPortWL("wl-hostport-was-2", was)
+				behavioral.MustCreate(ctx, k8sClient, wlWAS2)
+				expectWorkloadAdmittedOnNode(wlWAS2, was, hostPortPool, n2Name)
+				expectPlannerLog(ns.Name, wlWAS2.Name, kueue.KubeSchedulerDeepIntegration)
+			})
+		})
+
+		ginkgo.It("Should respect shared-flavor topology booking across native, shallow, and deep planners", func() {
 			createNode(native, "4")
+			createNode(shallow, "4")
 			createNode(was, "4")
 			createNode(shared, "4")
 
 			createFlavor(native)
+			createFlavor(shallow)
 			createFlavor(was)
 			createFlavor(shared)
 
 			createCQ(native, kueue.KueueNative, native, "4",
+				withCohort(mixedCohort),
+				withExtraFlavor(shared, "4"),
+			)
+			createCQ(shallow, kueue.KubeSchedulerShallowIntegration, shallow, "4",
 				withCohort(mixedCohort),
 				withExtraFlavor(shared, "4"),
 			)
@@ -282,54 +389,103 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				withExtraFlavor(shared, "4"),
 			)
 
-			behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(native, ns.Name).ClusterQueue(native).Obj())
-			behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(was, ns.Name).ClusterQueue(was).Obj())
+			for _, name := range []string{native, shallow, was} {
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(name, ns.Name).ClusterQueue(name).Obj())
+			}
 
-			makeSharedWL := func(name string, lq kueue.LocalQueueName) *kueue.Workload {
+			makeSharedWL := func(name string, lq kueue.LocalQueueName, cpu string) *kueue.Workload {
 				return utiltestingapi.MakeWorkload(name, ns.Name).
 					Queue(lq).
 					PodSets(*utiltestingapi.MakePodSet("main", 1).
 						NodeSelector(map[string]string{poolLabelKey: shared}).
 						RequiredTopologyRequest(corev1.LabelHostname).
-						Request(corev1.ResourceCPU, "4").
+						Request(corev1.ResourceCPU, cpu).
 						Obj()).
 					Obj()
 			}
 
-			ginkgo.By("admitting a WAS workload on the shared node and verifying a Native workload is blocked", func() {
+			ginkgo.By("verifying a Deep workload blocks Native and Shallow on the shared node", func() {
 				_ = fwk.ObservedLogs.TakeAll()
-				wlWAS := makeSharedWL("wl-was", was)
+				wlWAS := makeSharedWL("wl-was", was, "4")
 				behavioral.MustCreate(ctx, k8sClient, wlWAS)
 				expectWorkloadAdmittedOnNode(wlWAS, was, shared, shared)
 				expectPlannerLog(ns.Name, wlWAS.Name, kueue.KubeSchedulerDeepIntegration)
 
-				wlNative := makeSharedWL("wl-native", native)
+				wlNative := makeSharedWL("wl-native", native, "4")
+				wlShallow := makeSharedWL("wl-shallow", shallow, "4")
 				behavioral.MustCreate(ctx, k8sClient, wlNative)
+				behavioral.MustCreate(ctx, k8sClient, wlShallow)
 				expectPlannerLog(ns.Name, wlNative.Name, kueue.KueueNative)
-				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlNative)
+				expectPlannerLog(ns.Name, wlShallow.Name, kueue.KubeSchedulerShallowIntegration)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlNative, wlShallow)
 
+				gomega.Expect(k8sClient.Delete(ctx, wlNative)).To(gomega.Succeed())
 				gomega.Expect(k8sClient.Delete(ctx, wlWAS)).To(gomega.Succeed())
-				expectWorkloadAdmittedOnNode(wlNative, native, shared, shared)
+				expectWorkloadAdmittedOnNode(wlShallow, shallow, shared, shared)
 
-				ginkgo.By("verifying a subsequent WAS workload is blocked while the Native workload holds the shared node", func() {
+				ginkgo.By("verifying a Shallow workload blocks Native and Deep on the shared node", func() {
 					_ = fwk.ObservedLogs.TakeAll()
-					wlWAS2 := makeSharedWL("wl-was-2", was)
+					wlNative2 := makeSharedWL("wl-native-2", native, "4")
+					wlWAS2 := makeSharedWL("wl-was-2", was, "4")
+					behavioral.MustCreate(ctx, k8sClient, wlNative2)
 					behavioral.MustCreate(ctx, k8sClient, wlWAS2)
+					expectPlannerLog(ns.Name, wlNative2.Name, kueue.KueueNative)
 					expectPlannerLog(ns.Name, wlWAS2.Name, kueue.KubeSchedulerDeepIntegration)
-					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlWAS2)
+					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlNative2, wlWAS2)
 
-					gomega.Expect(k8sClient.Delete(ctx, wlNative)).To(gomega.Succeed())
-					expectWorkloadAdmittedOnNode(wlWAS2, was, shared, shared)
+					gomega.Expect(k8sClient.Delete(ctx, wlWAS2)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, wlShallow)).To(gomega.Succeed())
+					expectWorkloadAdmittedOnNode(wlNative2, native, shared, shared)
+
+					ginkgo.By("verifying a Native workload blocks Shallow and Deep on the shared node", func() {
+						_ = fwk.ObservedLogs.TakeAll()
+						wlShallow2 := makeSharedWL("wl-shallow-2", shallow, "4")
+						wlWAS3 := makeSharedWL("wl-was-3", was, "4")
+						behavioral.MustCreate(ctx, k8sClient, wlShallow2)
+						behavioral.MustCreate(ctx, k8sClient, wlWAS3)
+						expectPlannerLog(ns.Name, wlShallow2.Name, kueue.KubeSchedulerShallowIntegration)
+						expectPlannerLog(ns.Name, wlWAS3.Name, kueue.KubeSchedulerDeepIntegration)
+						behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlShallow2, wlWAS3)
+
+						gomega.Expect(k8sClient.Delete(ctx, wlShallow2)).To(gomega.Succeed())
+						gomega.Expect(k8sClient.Delete(ctx, wlNative2)).To(gomega.Succeed())
+						expectWorkloadAdmittedOnNode(wlWAS3, was, shared, shared)
+					})
 				})
+			})
+
+			ginkgo.By("verifying partial capacity is shared across all 3 planners without over-committing", func() {
+				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+				_ = fwk.ObservedLogs.TakeAll()
+
+				wlPartNative := makeSharedWL("wl-part-native", native, "2")
+				wlPartShallow := makeSharedWL("wl-part-shallow", shallow, "1")
+				wlPartWAS := makeSharedWL("wl-part-was", was, "1")
+				for _, wl := range []*kueue.Workload{wlPartNative, wlPartShallow, wlPartWAS} {
+					behavioral.MustCreate(ctx, k8sClient, wl)
+				}
+				expectWorkloadAdmittedOnNode(wlPartNative, native, shared, shared)
+				expectWorkloadAdmittedOnNode(wlPartShallow, shallow, shared, shared)
+				expectWorkloadAdmittedOnNode(wlPartWAS, was, shared, shared)
+
+				wlOverflow := makeSharedWL("wl-part-overflow", shallow, "1")
+				behavioral.MustCreate(ctx, k8sClient, wlOverflow)
+				expectPlannerLog(ns.Name, wlOverflow.Name, kueue.KubeSchedulerShallowIntegration)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlOverflow)
+
+				gomega.Expect(k8sClient.Delete(ctx, wlPartWAS)).To(gomega.Succeed())
+				expectWorkloadAdmittedOnNode(wlOverflow, shallow, shared, shared)
 			})
 		})
 
-		ginkgo.It("Should support cross-planner preemption in both directions and resolve contention on a shared victim", func() {
+		ginkgo.It("Should support cross-planner preemption in all directions across native, shallow, and deep planners", func() {
 			createNode(native, "4")
+			createNode(shallow, "4")
 			createNode(was, "4")
 			createNode(shared, "4")
 
 			createFlavor(native)
+			createFlavor(shallow)
 			createFlavor(was)
 			createFlavor(shared)
 
@@ -346,14 +502,20 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				withPreemption(preemptionPolicy),
 				withExtraFlavor(shared, "0"),
 			)
+			cqShallowObj := createCQ(shallow, kueue.KubeSchedulerShallowIntegration, shallow, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "0"),
+			)
 			cqWASObj := createCQ(was, kueue.KubeSchedulerDeepIntegration, was, "4",
 				withCohort(mixedCohort),
 				withPreemption(preemptionPolicy),
 				withExtraFlavor(shared, "4"),
 			)
 
-			behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(native, ns.Name).ClusterQueue(native).Obj())
-			behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(was, ns.Name).ClusterQueue(was).Obj())
+			for _, name := range []string{native, shallow, was} {
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(name, ns.Name).ClusterQueue(name).Obj())
+			}
 
 			makeSharedWL := func(name string, lq kueue.LocalQueueName, prio int32, cpu string) *kueue.Workload {
 				return utiltestingapi.MakeWorkload(name, ns.Name).
@@ -367,41 +529,42 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 					Obj()
 			}
 
-			updateSharedQuotas := func(nativeShared, wasShared string) {
+			updateSharedQuota := func(cqObj *kueue.ClusterQueue, quota string) {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqNativeObj), cqNativeObj)).To(gomega.Succeed())
-					cqNativeObj.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse(nativeShared)
-					g.Expect(k8sClient.Update(ctx, cqNativeObj)).To(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWASObj), cqWASObj)).To(gomega.Succeed())
-					cqWASObj.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse(wasShared)
-					g.Expect(k8sClient.Update(ctx, cqWASObj)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqObj), cqObj)).To(gomega.Succeed())
+					cqObj.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse(quota)
+					g.Expect(k8sClient.Update(ctx, cqObj)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
 
-			ginkgo.By("WAS preemptor evicting both a Native victim and a WAS victim", func() {
+			updateSharedQuotas := func(nativeShared, shallowShared, wasShared string) {
+				updateSharedQuota(cqNativeObj, nativeShared)
+				updateSharedQuota(cqShallowObj, shallowShared)
+				updateSharedQuota(cqWASObj, wasShared)
+			}
+
+			ginkgo.By("Deep preemptor evicting both a Native victim and a Shallow victim", func() {
 				_ = fwk.ObservedLogs.TakeAll()
 				victimNative := makeSharedWL("victim-native-1", native, 1, "2")
-				victimWAS := makeSharedWL("victim-was-1", was, 1, "2")
+				victimShallow := makeSharedWL("victim-shallow-1", shallow, 1, "2")
 				behavioral.MustCreate(ctx, k8sClient, victimNative)
-				behavioral.MustCreate(ctx, k8sClient, victimWAS)
+				behavioral.MustCreate(ctx, k8sClient, victimShallow)
 				expectWorkloadAdmittedOnNode(victimNative, native, shared, shared)
-				expectWorkloadAdmittedOnNode(victimWAS, was, shared, shared)
+				expectWorkloadAdmittedOnNode(victimShallow, shallow, shared, shared)
 				expectPlannerLog(ns.Name, victimNative.Name, kueue.KueueNative)
-				expectPlannerLog(ns.Name, victimWAS.Name, kueue.KubeSchedulerDeepIntegration)
+				expectPlannerLog(ns.Name, victimShallow.Name, kueue.KubeSchedulerShallowIntegration)
 
 				preemptorWAS := makeSharedWL("preemptor-was-1", was, 10, "4")
 				behavioral.MustCreate(ctx, k8sClient, preemptorWAS)
 				expectPlannerLog(ns.Name, preemptorWAS.Name, kueue.KubeSchedulerDeepIntegration)
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimNative, victimWAS)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimNative, victimShallow)
 				expectWorkloadAdmittedOnNode(preemptorWAS, was, shared, shared)
 
 				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			})
 
-			ginkgo.By("Native preemptor evicting both a WAS victim and a Native victim", func() {
-				updateSharedQuotas("4", "0")
+			ginkgo.By("Shallow preemptor evicting both a Native victim and a Deep victim", func() {
+				updateSharedQuotas("0", "4", "0")
 				_ = fwk.ObservedLogs.TakeAll()
 				victimNative := makeSharedWL("victim-native-2", native, 1, "2")
 				victimWAS := makeSharedWL("victim-was-2", was, 1, "2")
@@ -412,33 +575,179 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 				expectPlannerLog(ns.Name, victimNative.Name, kueue.KueueNative)
 				expectPlannerLog(ns.Name, victimWAS.Name, kueue.KubeSchedulerDeepIntegration)
 
-				preemptorNative := makeSharedWL("preemptor-native-2", native, 10, "4")
-				behavioral.MustCreate(ctx, k8sClient, preemptorNative)
-				expectPlannerLog(ns.Name, preemptorNative.Name, kueue.KueueNative)
+				preemptorShallow := makeSharedWL("preemptor-shallow-2", shallow, 10, "4")
+				behavioral.MustCreate(ctx, k8sClient, preemptorShallow)
+				expectPlannerLog(ns.Name, preemptorShallow.Name, kueue.KubeSchedulerShallowIntegration)
 				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimNative, victimWAS)
-				expectWorkloadAdmittedOnNode(preemptorNative, native, shared, shared)
+				expectWorkloadAdmittedOnNode(preemptorShallow, shallow, shared, shared)
 
 				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			})
 
-			ginkgo.By("WAS and Native preemptors contending for the same borrowing victim, higher-priority WAS wins", func() {
-				updateSharedQuotas("2", "2")
+			ginkgo.By("Native preemptor evicting both a Shallow victim and a Deep victim", func() {
+				updateSharedQuotas("4", "0", "0")
 				_ = fwk.ObservedLogs.TakeAll()
-				victimShared := makeSharedWL("victim-shared", was, 1, "4")
-				behavioral.MustCreate(ctx, k8sClient, victimShared)
-				expectWorkloadAdmittedOnNode(victimShared, was, shared, shared)
-				expectPlannerLog(ns.Name, victimShared.Name, kueue.KubeSchedulerDeepIntegration)
+				victimShallow := makeSharedWL("victim-shallow-3", shallow, 1, "2")
+				victimWAS := makeSharedWL("victim-was-3", was, 1, "2")
+				behavioral.MustCreate(ctx, k8sClient, victimShallow)
+				behavioral.MustCreate(ctx, k8sClient, victimWAS)
+				expectWorkloadAdmittedOnNode(victimShallow, shallow, shared, shared)
+				expectWorkloadAdmittedOnNode(victimWAS, was, shared, shared)
+				expectPlannerLog(ns.Name, victimShallow.Name, kueue.KubeSchedulerShallowIntegration)
+				expectPlannerLog(ns.Name, victimWAS.Name, kueue.KubeSchedulerDeepIntegration)
 
-				preemptorWAS := makeSharedWL("preemptor-was-3", was, 10, "4")
-				preemptorNative := makeSharedWL("preemptor-native-3", native, 5, "4")
-				behavioral.MustCreate(ctx, k8sClient, preemptorWAS)
+				preemptorNative := makeSharedWL("preemptor-native-3", native, 10, "4")
 				behavioral.MustCreate(ctx, k8sClient, preemptorNative)
-
-				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimShared)
-				expectWorkloadAdmittedOnNode(preemptorWAS, was, shared, shared)
-				expectPlannerLog(ns.Name, preemptorWAS.Name, kueue.KubeSchedulerDeepIntegration)
-				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptorNative)
+				expectPlannerLog(ns.Name, preemptorNative.Name, kueue.KueueNative)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimShallow, victimWAS)
+				expectWorkloadAdmittedOnNode(preemptorNative, native, shared, shared)
 			})
+		})
+
+		ginkgo.It("Should resolve 3-way preemption contention for a shared borrowing victim across native, shallow, and deep planners", func() {
+			createNode(native, "4")
+			createNode(shallow, "4")
+			createNode(was, "4")
+			createNode(shared, "4")
+
+			createFlavor(native)
+			createFlavor(shallow)
+			createFlavor(was)
+			createFlavor(shared)
+
+			preemptionPolicy := kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+				},
+			}
+
+			createCQ(native, kueue.KueueNative, native, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "1"),
+			)
+			createCQ(shallow, kueue.KubeSchedulerShallowIntegration, shallow, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "1"),
+			)
+			createCQ(was, kueue.KubeSchedulerDeepIntegration, was, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "2"),
+			)
+
+			for _, name := range []string{native, shallow, was} {
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(name, ns.Name).ClusterQueue(name).Obj())
+			}
+
+			makeSharedWL := func(name string, lq kueue.LocalQueueName, prio int32, cpu string) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(lq).
+					Priority(prio).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						NodeSelector(map[string]string{poolLabelKey: shared}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, cpu).
+						Obj()).
+					Obj()
+			}
+
+			_ = fwk.ObservedLogs.TakeAll()
+			victimShared := makeSharedWL("victim-shared", was, 1, "4")
+			behavioral.MustCreate(ctx, k8sClient, victimShared)
+			expectWorkloadAdmittedOnNode(victimShared, was, shared, shared)
+			expectPlannerLog(ns.Name, victimShared.Name, kueue.KubeSchedulerDeepIntegration)
+
+			preemptorWAS := makeSharedWL("preemptor-was-4", was, 15, "4")
+			preemptorShallow := makeSharedWL("preemptor-shallow-4", shallow, 10, "4")
+			preemptorNative := makeSharedWL("preemptor-native-4", native, 5, "4")
+			behavioral.MustCreate(ctx, k8sClient, preemptorWAS)
+			behavioral.MustCreate(ctx, k8sClient, preemptorShallow)
+			behavioral.MustCreate(ctx, k8sClient, preemptorNative)
+
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, victimShared)
+			expectWorkloadAdmittedOnNode(preemptorWAS, was, shared, shared)
+			expectPlannerLog(ns.Name, preemptorWAS.Name, kueue.KubeSchedulerDeepIntegration)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptorShallow, preemptorNative)
+		})
+
+		ginkgo.It("Should support cohort borrowing and reclamation across native, shallow, and deep planners", func() {
+			createNode(native, "4")
+			createNode(shallow, "4")
+			createNode(was, "4")
+			createNode(shared, "4")
+
+			createFlavor(native)
+			createFlavor(shallow)
+			createFlavor(was)
+			createFlavor(shared)
+
+			preemptionPolicy := kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+				},
+			}
+
+			createCQ(native, kueue.KueueNative, native, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "2"),
+			)
+			createCQ(shallow, kueue.KubeSchedulerShallowIntegration, shallow, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "0"),
+			)
+			createCQ(was, kueue.KubeSchedulerDeepIntegration, was, "4",
+				withCohort(mixedCohort),
+				withPreemption(preemptionPolicy),
+				withExtraFlavor(shared, "2"),
+			)
+
+			for _, name := range []string{native, shallow, was} {
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue(name, ns.Name).ClusterQueue(name).Obj())
+			}
+
+			makeSharedWL := func(name string, lq kueue.LocalQueueName, prio int32, cpu string) *kueue.Workload {
+				return utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(lq).
+					Priority(prio).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						NodeSelector(map[string]string{poolLabelKey: shared}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, cpu).
+						Obj()).
+					Obj()
+			}
+
+			_ = fwk.ObservedLogs.TakeAll()
+
+			// Deep uses its 2 CPU nominal quota and borrows 2 CPU from Native.
+			wlWAS := makeSharedWL("wl-cohort-was", was, 1, "4")
+			behavioral.MustCreate(ctx, k8sClient, wlWAS)
+			expectWorkloadAdmittedOnNode(wlWAS, was, shared, shared)
+			expectPlannerLog(ns.Name, wlWAS.Name, kueue.KubeSchedulerDeepIntegration)
+
+			// Shallow has 0 nominal quota on shared; it borrows all 4 CPU via BorrowWithinCohort
+			// by preempting the lower-priority borrowing Deep workload.
+			wlShallow := makeSharedWL("wl-cohort-shallow", shallow, 10, "4")
+			behavioral.MustCreate(ctx, k8sClient, wlShallow)
+			expectPlannerLog(ns.Name, wlShallow.Name, kueue.KubeSchedulerShallowIntegration)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlWAS)
+			expectWorkloadAdmittedOnNode(wlShallow, shallow, shared, shared)
+
+			// Native has lower priority than Shallow, but reclaims its 2 CPU nominal quota
+			// via ReclaimWithinCohort: Any.
+			wlNative := makeSharedWL("wl-cohort-native", native, 5, "2")
+			behavioral.MustCreate(ctx, k8sClient, wlNative)
+			expectPlannerLog(ns.Name, wlNative.Name, kueue.KueueNative)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlShallow)
+			expectWorkloadAdmittedOnNode(wlNative, native, shared, shared)
 		})
 	})
 
@@ -510,6 +819,12 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 			ginkgo.Entry("KubeSchedulerDeepIntegration -> KueueNative", kueue.KubeSchedulerDeepIntegration, kueue.KueueNative),
 			ginkgo.Entry("unannotated (default KueueNative) -> KubeSchedulerDeepIntegration", kueue.AssignmentPlannerName(""), kueue.KubeSchedulerDeepIntegration),
 			ginkgo.Entry("KubeSchedulerDeepIntegration -> unannotated (default KueueNative)", kueue.KubeSchedulerDeepIntegration, kueue.AssignmentPlannerName("")),
+			ginkgo.Entry("KueueNative -> KubeSchedulerShallowIntegration", kueue.KueueNative, kueue.KubeSchedulerShallowIntegration),
+			ginkgo.Entry("KubeSchedulerShallowIntegration -> KueueNative", kueue.KubeSchedulerShallowIntegration, kueue.KueueNative),
+			ginkgo.Entry("unannotated (default KueueNative) -> KubeSchedulerShallowIntegration", kueue.AssignmentPlannerName(""), kueue.KubeSchedulerShallowIntegration),
+			ginkgo.Entry("KubeSchedulerShallowIntegration -> unannotated (default KueueNative)", kueue.KubeSchedulerShallowIntegration, kueue.AssignmentPlannerName("")),
+			ginkgo.Entry("KubeSchedulerShallowIntegration -> KubeSchedulerDeepIntegration", kueue.KubeSchedulerShallowIntegration, kueue.KubeSchedulerDeepIntegration),
+			ginkgo.Entry("KubeSchedulerDeepIntegration -> KubeSchedulerShallowIntegration", kueue.KubeSchedulerDeepIntegration, kueue.KubeSchedulerShallowIntegration),
 		)
 
 		ginkgo.DescribeTable("Should automatically requeue inadmissible workloads onto the new planner after switching",
@@ -545,6 +860,12 @@ var _ = ginkgo.Describe("Dynamic per-ClusterQueue Assignment Planner Routing", f
 			ginkgo.Entry("KubeSchedulerDeepIntegration -> KueueNative", kueue.KubeSchedulerDeepIntegration, kueue.KueueNative),
 			ginkgo.Entry("unannotated (default KueueNative) -> KubeSchedulerDeepIntegration", kueue.AssignmentPlannerName(""), kueue.KubeSchedulerDeepIntegration),
 			ginkgo.Entry("KubeSchedulerDeepIntegration -> unannotated (default KueueNative)", kueue.KubeSchedulerDeepIntegration, kueue.AssignmentPlannerName("")),
+			ginkgo.Entry("KueueNative -> KubeSchedulerShallowIntegration", kueue.KueueNative, kueue.KubeSchedulerShallowIntegration),
+			ginkgo.Entry("KubeSchedulerShallowIntegration -> KueueNative", kueue.KubeSchedulerShallowIntegration, kueue.KueueNative),
+			ginkgo.Entry("unannotated (default KueueNative) -> KubeSchedulerShallowIntegration", kueue.AssignmentPlannerName(""), kueue.KubeSchedulerShallowIntegration),
+			ginkgo.Entry("KubeSchedulerShallowIntegration -> unannotated (default KueueNative)", kueue.KubeSchedulerShallowIntegration, kueue.AssignmentPlannerName("")),
+			ginkgo.Entry("KubeSchedulerShallowIntegration -> KubeSchedulerDeepIntegration", kueue.KubeSchedulerShallowIntegration, kueue.KubeSchedulerDeepIntegration),
+			ginkgo.Entry("KubeSchedulerDeepIntegration -> KubeSchedulerShallowIntegration", kueue.KubeSchedulerDeepIntegration, kueue.KubeSchedulerShallowIntegration),
 		)
 	})
 })
