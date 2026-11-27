@@ -1538,8 +1538,7 @@ Sometimes node failures are only transient and the node might recover, and so re
 immediately to NotReady condition could result in unnecessary node replacements.
 
 For that reason we introduce two heuristics for marking nodes to replace for a given workload:
-1. when the node is NotReady for over 30s (the default until v0.19; since v0.21 used only when
-the `TASReplaceNodeOnPodTermination` feature gate is disabled; see
+1. when the node is NotReady for over 30s (the default until v0.19; removed in v0.21; see
 [Sunsetting fixed-time marking](#sunsetting-fixed-time-marking-since-v019))
 2. when the node is NotReady and all of the workload's Pods scheduled on that node are terminated
 or terminating (used when the `TASReplaceNodeOnPodTermination` feature gate is enabled which is
@@ -1562,8 +1561,9 @@ termination) is therefore the default marking trigger since v0.19.
 The `TASReplaceNodeDueToNotReadyOverFixedTime` feature gate kept the fixed-time
 heuristic available during the transition. It was Beta (enabled by default) in v0.17
 and v0.18 backports, Deprecated (disabled by default) in v0.19 and v0.20, and was
-removed in v0.21. Since v0.21, fixed-time marking applies only when
-`TASReplaceNodeOnPodTermination` is disabled. Nodes that are deleted or lack a Ready
+removed in v0.21. Since v0.21, Kueue does not wait a fixed NotReady duration in any
+configuration. When `TASReplaceNodeOnPodTermination` is disabled, a node is marked as
+soon as it is NotReady, regardless of Pod state. Nodes that are deleted or lack a Ready
 condition are still marked immediately in all configurations.
 
 Kueue tries to find a replacement for a failed node until success (or until it gets

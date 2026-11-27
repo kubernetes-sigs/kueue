@@ -176,14 +176,6 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		readyCondition = utiltas.GetNodeCondition(node, corev1.NodeReady)
 	}
 
-	if readyCondition != nil && readyCondition.Status != corev1.ConditionTrue {
-		timeSinceNotReady := r.clock.Now().Sub(readyCondition.LastTransitionTime.Time)
-		remainingTime := NodeFailureDelay - timeSinceNotReady
-		if remainingTime > 0 && !features.Enabled(features.TASReplaceNodeOnPodTermination) {
-			return ctrl.Result{RequeueAfter: remainingTime}, nil
-		}
-	}
-
 	affectedWorkloads, err := r.getWorkloadsOnNodeFromTASAssignment(ctx, req.Name)
 	if err != nil {
 		return ctrl.Result{}, err
