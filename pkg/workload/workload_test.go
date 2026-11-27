@@ -3963,16 +3963,14 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns2").
 				Request(corev1.ResourceCPU, "2").
 				Request(corev1.ResourceMemory, "1Gi").Obj(),
-			wantSame:     true,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: true,
 		},
 		"different resource requests": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
 				Request(corev1.ResourceCPU, "1").Obj(),
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Request(corev1.ResourceCPU, "2").Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		// 3 Pods x 4e18 and 3 Pods x 5e18 both saturate to MaxInt64, so only the
 		// per-Pod requests tell the two Workloads apart.
@@ -3991,8 +3989,7 @@ func TestSchedulingHash(t *testing.T) {
 				map[kueue.PodSetReference]corev1.ResourceList{
 					kueue.DefaultPodSetName: {"example.com/gpu": resource.MustParse("5E")},
 				}, nil)},
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		"different pod counts": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4001,8 +3998,7 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		"different workload priorities": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4011,8 +4007,7 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Priority(200).
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame:     false,
-			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+			wantSame: false,
 		},
 		"same raw priority but different effective priority": {
 			wl1: func() *kueue.Workload {
@@ -4025,11 +4020,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Priority(100).
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.PriorityBoost:                true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.PriorityBoost: true},
 		},
 		"same spec, different allowed flavors annotation, concurrent admission enabled produces different hash": {
 			wl1: func() *kueue.Workload {
@@ -4044,11 +4036,8 @@ func TestSchedulingHash(t *testing.T) {
 				wl.Annotations = map[string]string{controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "flavor2"}
 				return wl
 			}(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.ConcurrentAdmission:          true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
 		"same spec, replacing different workload slices produces different hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4058,9 +4047,6 @@ func TestSchedulingHash(t *testing.T) {
 				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
 				Request(corev1.ResourceCPU, "1").Obj(),
 			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-			},
 		},
 		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4069,11 +4055,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing: true,
-				features.ElasticJobsViaWorkloadSlices: false,
-			},
+			wantSame:     true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 		},
 		"different PodSet names when the name is part of the hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4082,11 +4065,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet("f8172213", 1).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: false},
 		},
 		"different PodSet names when the name is ignored": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4095,11 +4075,8 @@ func TestSchedulingHash(t *testing.T) {
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				PodSets(*utiltestingapi.MakePodSet("f8172213", 1).
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			wantSame: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-			},
+			wantSame:     true,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 		},
 		// Position still matters: requests are matched to PodSets by index.
 		"PodSet requests swapped between the same names when the name is ignored": {
@@ -4113,11 +4090,8 @@ func TestSchedulingHash(t *testing.T) {
 					*utiltestingapi.MakePodSet("a", 1).Request(corev1.ResourceCPU, "2").Obj(),
 					*utiltestingapi.MakePodSet("b", 1).Request(corev1.ResourceCPU, "1").Obj(),
 				).Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 		},
 		// The Pod group case: same two roles, distinct per-Workload names that sort
 		// into opposite positions, so the ordered descriptions differ.
@@ -4132,11 +4106,8 @@ func TestSchedulingHash(t *testing.T) {
 					*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "2").Obj(),
 					*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
 				).Obj(),
-			wantSame: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:                 true,
-				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
-			},
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashingIgnorePodSetName: true},
 		},
 	}
 	for name, tc := range cases {
@@ -4161,9 +4132,6 @@ func TestSchedulingHash(t *testing.T) {
 
 	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
 		_, log := utiltesting.ContextWithLog(t)
-		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-			features.SchedulingEquivalenceHashing: true,
-		})
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
@@ -4192,9 +4160,6 @@ func TestSchedulingHash(t *testing.T) {
 
 func TestUpdateSchedulingHashReuse(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.SchedulingEquivalenceHashing: true,
-	})
 
 	// This helper hands back a different shape at an unchanged ResourceVersion,
 	// which production never does, so that reuse is observable. Only priority

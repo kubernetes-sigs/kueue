@@ -37,7 +37,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -2313,7 +2312,6 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cq, _ := newClusterQueue(ctx,
 				&kueue.ClusterQueue{
@@ -2339,7 +2337,6 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 }
 
 func TestGetNoFitReason(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 	cases := map[string]struct {
 		conditionReason        string
 		requeueReason          RequeueReason

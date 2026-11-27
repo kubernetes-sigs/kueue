@@ -2196,7 +2196,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (stale status -> bypassed status)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:      true,
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: true,
 			},
@@ -2234,7 +2233,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled and UnadmittedWorkloadsExplicitStatus is disabled (no status stamped on creation)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:      true,
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: false,
 			},
@@ -2260,7 +2258,6 @@ func TestReconcile(t *testing.T) {
 		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is enabled (keep detailed scheduler message)": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulingEquivalenceHashing:      true,
 				features.UnadmittedWorkloadsObservability:  true,
 				features.UnadmittedWorkloadsExplicitStatus: true,
 			},
