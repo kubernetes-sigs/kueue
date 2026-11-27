@@ -26,7 +26,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -155,8 +154,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 	// TestScheduleForPreserveFlavorScanProgress instead, which drives cycles directly and
 	// covers both gate states under churn as well as the no-churn outcome.
 	ginkgo.It("should admit the workload on the second flavor when the first flavor's topology cannot fit it", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityPreserveScanProgress, true)
-
 		var blocker, pending *kueue.Workload
 
 		ginkgo.By("creating a workload that occupies the whole node of the first flavor", func() {
@@ -203,8 +200,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 	})
 
 	ginkgo.It("should fall back to preemption on the first flavor when the second flavor has ghost quota but fails TAS placement", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityPreserveScanProgress, true)
-
 		ginkgo.By("updating clusterQueue with WhenCanPreempt: TryNextFlavor and saturated quota on first flavor", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var cq kueue.ClusterQueue

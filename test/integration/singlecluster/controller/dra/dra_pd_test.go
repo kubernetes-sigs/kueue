@@ -567,8 +567,6 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", func() {
 		})
 
 		ginkgo.It("Should reject extended resource when DeviceClass has counters", framework.SlowSpec, func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
-
 			ginkgo.By("Creating a DeviceClass with extendedResourceName and counters mapping")
 			dc := testingdra.MakeDeviceClass("gpu-er-counter.example.com").
 				ExtendedResourceName("example.com/gpu-counter").

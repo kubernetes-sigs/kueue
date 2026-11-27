@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -46,7 +45,6 @@ var _ = ginkgo.Describe("StatefulSet admission gate and scale-to-zero", ginkgo.L
 	)
 
 	ginkgo.BeforeEach(func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionGatedBy, true)
 		fwk.StartManagerForSpec(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"})))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-gated-")
 		flavor = utiltestingapi.MakeResourceFlavor("fl").Obj()

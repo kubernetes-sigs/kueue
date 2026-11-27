@@ -883,7 +883,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - single gate": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -891,7 +890,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - trailing space": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -899,7 +897,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - space before comma": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -907,7 +904,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - space after comma": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -915,7 +911,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - leading space": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -923,7 +918,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - multiple gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -931,7 +925,6 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"invalid AdmissionGatedBy Annotation - invalid format": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -942,7 +935,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - duplicate gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -953,7 +945,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - gate name too long": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -964,7 +955,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - space in path component": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -975,7 +965,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - space in domain component": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -986,7 +975,6 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy Annotation - multiple gates where one is invalid": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1015,7 +1003,6 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy Annotation with feature gate enabled - empty string": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1736,7 +1723,6 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - reject adding gates after creation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1751,7 +1737,6 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - allow removing single gate": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1763,7 +1748,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - allow removing all gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1775,7 +1759,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - allow removing one gate from multiple": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1788,7 +1771,6 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 		},
 		"AdmissionGatedBy Annotation - reject injecting new gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -1804,7 +1786,6 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"AdmissionGatedBy Annotation - allow reordering gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
