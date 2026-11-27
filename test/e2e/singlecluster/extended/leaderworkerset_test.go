@@ -1197,7 +1197,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				TerminationGracePeriod(1).
 				Obj()
 
-			ginkgo.By("Create a LeaderWorkerSet with queue-name set on the pod templates", func() {
+			ginkgo.By("Create a LeaderWorkerSet with queue-name set on the leader and worker templates", func() {
 				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
@@ -1347,7 +1347,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				TerminationGracePeriod(1).
 				Obj()
 
-			ginkgo.By("Create a LeaderWorkerSet with queue-name set on the pod templates", func() {
+			ginkgo.By("Create a LeaderWorkerSet with queue-name set on the leader template", func() {
 				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
