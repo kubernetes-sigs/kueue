@@ -31,6 +31,7 @@ As a batch administrator, you can learn how to:
 - As a batch administrator, you can learn how to [use third-party certificate authority with Kueue](manage/productization/cert_manager).
 - As a batch administrator, you can learn how to [set up Dynamic Resource Allocation](manage/setup_dra) for DRA device quota management.
 - [Optimize scheduler parameters](manage/optimize_scheduler_parameters), such as the batch period of the inadmissible workload requeuer.
+- As a batch administrator, you can learn how to [use custom preemption configurations](manage/setup_configurable_preemption) with `PreemptionConfig` and `PreemptionLimit`.
 
 ### Batch user
 
