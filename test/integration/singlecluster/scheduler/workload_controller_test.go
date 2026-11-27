@@ -641,6 +641,39 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
+		ginkgo.It("Should retry an inadmissible workload when RuntimeClass overhead decreases", func() {
+			ginkgo.By("Creating a workload that requests 6 CPU including overhead, exceeding the 5 CPU quota")
+			wl := utiltestingapi.MakeWorkload("pending", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "4").
+				RuntimeClass(runtimeClass.Name).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+
+			var before kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &before)).To(gomega.Succeed())
+			gomega.Expect(workload.HasQuotaReservation(&before)).To(gomega.BeFalse())
+
+			ginkgo.By("Reducing only the RuntimeClass overhead so the workload fits the existing quota")
+			var updatedRC nodev1.RuntimeClass
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &updatedRC)).To(gomega.Succeed())
+			updatedRC.Overhead.PodFixed[corev1.ResourceCPU] = resource.MustParse("1")
+			gomega.Expect(k8sClient.Update(ctx, &updatedRC)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying admission with the updated requests without changing the workload spec")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			var admitted kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &admitted)).To(gomega.Succeed())
+			gomega.Expect(admitted.Generation).To(gomega.Equal(before.Generation))
+			gomega.Expect(admitted.Spec).To(gomega.Equal(before.Spec))
+			gomega.Expect(admitted.Status.Admission).NotTo(gomega.BeNil())
+			gomega.Expect(admitted.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+			cpu := admitted.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU]
+			gomega.Expect(cpu.Cmp(resource.MustParse("5"))).To(gomega.BeZero())
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+		})
+
 		ginkgo.It("Should sync the resource requests with the new overhead", framework.SlowSpec, func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).

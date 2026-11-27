@@ -411,7 +411,11 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
-			!draRequestsChanged(oldInfo, wInfo) {
+			// RuntimeClass overhead and LimitRange defaults can change the effective
+			// requests without modifying the Workload object or its generation.
+			// Such changes must retry a previously inadmissible Workload.
+			equality.Semantic.DeepEqual(oldInfo.EffectivePodSpecs, wInfo.EffectivePodSpecs) &&
+			workload.Semantic.DeepEqual(oldInfo.TotalRequests, wInfo.TotalRequests) {
 			c.workloads.UpdateInadmissible(key, oldInfo, wInfo)
 			return
 		}

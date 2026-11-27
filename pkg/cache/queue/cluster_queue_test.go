@@ -250,6 +250,134 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	}
 }
 
+func TestPushOrUpdateRetriesInadmissibleOnEffectiveResourceChange(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	wl := utiltestingapi.MakeWorkload("runtime-wl", defaultNamespace).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+
+	withOverhead := func(cpu string) *workload.Info {
+		spec := *wl.Spec.PodSets[0].Template.Spec.DeepCopy()
+		spec.Overhead = corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(cpu),
+		}
+		return workload.NewInfo(log, wl.DeepCopy(),
+			workload.WithEffectivePodSpecs([]corev1.PodSpec{spec}))
+	}
+
+	original := withOverhead("1500m")
+	key := workload.Key(original.Obj)
+	// Model a NoFit evaluation. A RuntimeClass update changes only the
+	// effective view, not the Workload's spec or metadata.generation.
+	cq.workloads.InsertInadmissible(key, original)
+	updated := withOverhead("100m")
+	if diff := cmp.Diff(original.Obj, updated.Obj); diff != "" {
+		t.Fatalf("Workload changed unexpectedly (-want,+got):\\n%s", diff)
+	}
+	cq.PushOrUpdate(updated)
+
+	if active, _ := cq.Dump(); len(active) != 1 {
+		t.Fatalf("effective resource change should retry the Workload; active=%v", active)
+	}
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 0 {
+		t.Fatalf("Workload should leave inadmissible after effective resource change: %v", inadmissible)
+	}
+	if got, want := cq.pendingResources()[corev1.ResourceCPU],
+		updated.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); !got.Equal(want) {
+		t.Errorf("pending CPU after retry = %s, want %s", got, want)
+	}
+}
+
+func TestPushOrUpdateKeepsUnchangedEffectiveResourcesInadmissible(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	wl := utiltestingapi.MakeWorkload("unchanged-wl", defaultNamespace).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	original := workload.NewInfo(log, wl.DeepCopy())
+	cq.workloads.InsertInadmissible(workload.Key(wl), original)
+
+	// An unrelated resource event must not churn an unchanged NoFit entry.
+	cq.PushOrUpdate(workload.NewInfo(log, wl.DeepCopy()))
+
+	if active, _ := cq.Dump(); len(active) != 0 {
+		t.Fatalf("unchanged Workload was unexpectedly retried: %v", active)
+	}
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 1 {
+		t.Fatalf("unchanged Workload should remain inadmissible: %v", inadmissible)
+	}
+}
+
+func TestPushOrUpdateEffectiveResourceChangeRespectsBackoff(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	wl := utiltestingapi.MakeWorkload("backoff-wl", defaultNamespace).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").Obj()).
+		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(time.Hour)))).
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadRequeued,
+			Status: metav1.ConditionFalse,
+			Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+		}).
+		Obj()
+	withOverhead := func(cpu string) *workload.Info {
+		spec := *wl.Spec.PodSets[0].Template.Spec.DeepCopy()
+		spec.Overhead = corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(cpu),
+		}
+		return workload.NewInfo(log, wl.DeepCopy(),
+			workload.WithEffectivePodSpecs([]corev1.PodSpec{spec}))
+	}
+	original := withOverhead("1500m")
+	cq.workloads.InsertInadmissible(workload.Key(wl), original)
+
+	cq.PushOrUpdate(withOverhead("100m"))
+
+	if active, _ := cq.Dump(); len(active) != 0 {
+		t.Fatalf("Workload in backoff should not be retried: %v", active)
+	}
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 1 {
+		t.Fatalf("Workload in backoff should stay inadmissible: %v", inadmissible)
+	}
+}
+
+func TestUpdateInadmissibleReaccountsEffectiveResourceChanges(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+	wl := utiltestingapi.MakeWorkload("adjusted-wl", defaultNamespace).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	withOverhead := func(cpu string) *workload.Info {
+		spec := *wl.Spec.PodSets[0].Template.Spec.DeepCopy()
+		spec.Overhead = corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(cpu),
+		}
+		return workload.NewInfo(log, wl.DeepCopy(),
+			workload.WithEffectivePodSpecs([]corev1.PodSpec{spec}))
+	}
+	original := withOverhead("1500m")
+	updated := withOverhead("100m")
+	key := workload.Key(wl)
+	cq.workloads.InsertInadmissible(key, original)
+
+	cq.workloads.UpdateInadmissible(key, original, updated)
+	if got, want := cq.pendingResources()[corev1.ResourceCPU],
+		updated.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); !got.Equal(want) {
+		t.Errorf("pending CPU after replacing inadmissible Info = %s, want %s", got, want)
+	}
+
+	cq.Delete(log, key)
+	if got := cq.pendingResources()[corev1.ResourceCPU]; got.Sign() != 0 {
+		t.Errorf("pending CPU after deletion = %s, want zero", got)
+	}
+}
+
 func TestPushOrUpdateRequeueStateChanged(t *testing.T) {
 	now := time.Now()
 	ctx, log := utiltesting.ContextWithLog(t)
