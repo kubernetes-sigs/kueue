@@ -2839,6 +2839,249 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		// The reconciler gets the pending probe, but the job starts on the slice the probe replaces.
+		// This is the state after a preempted slice's probe is readmitted partially and a new probe is created.
+		"suspended elastic job starts on the admitted slice while its scale-up probe is pending": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Suspend(false).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "admitted").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
+		},
+		// With the gate off, the job is not workload-slicing enabled, so it must not start on the slice the probe replaces.
+		// Otherwise reconcileNotAdmittedJob would stop it again on the next reconcile.
+		// Without a prebuilt workload, the gate-off path deletes one of the two workloads before this check.
+		"suspended elastic job does not start on the replaced slice while ElasticJobsViaWorkloadSlices is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("probe").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("probe").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					ControllerReference(gvk, "job", "test-uid").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+		},
+		// A prebuilt probe is returned without normalizeActiveSlices, so its predecessor need not be the newest admitted slice.
+		// The job must not start on an admitted slice that the probe does not replace.
+		"suspended elastic job does not start on an admitted slice its prebuilt scale-up probe does not replace": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("probe").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				PrebuiltWorkloadLabel("probe").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("other").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					AdmittedAt(true, now).
+					Obj(),
+				*baseWorkloadWrapper.Clone().
+					Name("replaced").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					AdmittedAt(true, now).
+					FinishedAt(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/replaced").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("other").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					AdmittedAt(true, now).
+					Obj(),
+				*baseWorkloadWrapper.Clone().
+					Name("replaced").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					AdmittedAt(true, now).
+					FinishedAt(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					ControllerReference(gvk, "job", "test-uid").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/replaced").
+					Obj(),
+			},
+		},
+		// A predecessor that is being deleted must not start the job.
+		// The job stays suspended until the probe is admitted on its own.
+		"suspended elastic job does not start on a terminating slice while its scale-up probe is pending": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					ControllerReference(gvk, "job", "test-uid").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					DeletionTimestamp(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("probe", "ns").
+					Queue(localQueueName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Obj(),
+			},
+		},
+		// The slice is deactivated but not yet evicted, so it still holds its admission.
+		// Its pending scale-up probe was already dropped because of the deactivation.
+		// The reconciler gets the deactivated slice, which must not start the job.
+		"suspended elastic job does not start on a deactivated admitted slice whose scale-up probe is dropped": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Active(false).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWorkloadWrapper.Clone().
+					Name("admitted").
+					Active(false).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+		},
 		"non-matching admitted workload is deleted": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -5291,6 +5534,13 @@ func TestReconciler(t *testing.T) {
 				if tc.job != nil {
 					objs = append(objs, tc.job)
 				}
+				// The fake client drops the deletion timestamp on Create, so a terminating Workload is seeded at build time.
+				// Its controller reference must be set in the test case.
+				for i := range tc.workloads {
+					if !tc.workloads[i].DeletionTimestamp.IsZero() {
+						objs = append(objs, tc.workloads[i].DeepCopy())
+					}
+				}
 
 				kClient := clientBuilder.
 					WithObjects(objs...).
@@ -5306,6 +5556,9 @@ func TestReconciler(t *testing.T) {
 				}
 
 				for _, testWl := range tc.workloads {
+					if !testWl.DeletionTimestamp.IsZero() {
+						continue
+					}
 					controller := metav1.GetControllerOfNoCopy(&testWl)
 					if prebuiltWorkload == "" && controller == nil {
 						if err := ctrl.SetControllerReference(tc.job, &testWl, kClient.Scheme()); err != nil {

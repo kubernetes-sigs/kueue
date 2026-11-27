@@ -74,6 +74,10 @@ import (
 
 const (
 	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
+
+	// replacedSliceLookupRetryDelay is how long a workload waits to be retried after the workload slice it replaces could not be read.
+	// It matches the base delay of the queue manager's retry for failed Namespace lookups.
+	replacedSliceLookupRetryDelay = 5 * time.Second
 )
 
 var (
@@ -999,6 +1003,19 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
+	} else if workloadslicing.IsPendingReplacementBeingDeleted(h.Obj) {
+		e.inadmissibleMsg = "The scale-up workload slice is being deleted"
+		// A status write would only delay the deletion, which is conditioned on the resourceVersion.
+		e.skipStatusUpdate = true
+	} else if deactivated, err := workloadslicing.PendingReplacementOfDeactivatedSlice(ctx, s.client, h.Obj); err != nil {
+		log.Error(err, "Failed to get the workload slice that the workload replaces")
+		e.inadmissibleMsg = err.Error()
+		e.skipStatusUpdate = true
+		// The read failure is transient and no event is bound to follow it, so the workload is retried after a delay.
+		e.retryAt = new(s.clock.Now().Add(replacedSliceLookupRetryDelay))
+	} else if deactivated {
+		e.inadmissibleMsg = "The workload slice that this workload replaces is deactivated"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
 	} else if assignment, targets, retryAt, err := s.getAssignments(ctx, log, &e.Info, snap); err != nil {
 		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
@@ -1223,7 +1240,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return
 		}
 
-		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
+		if apierrors.IsConflict(err) && admitsWithStrictPatch(e.Obj) {
 			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
 			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
 				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
@@ -1248,7 +1265,7 @@ func (s *Scheduler) patchWorkloadAdmission(
 		workloadpatching.WithRetryOnConflict(),
 		workloadpatching.WithLooseOnApply(),
 	}
-	if workload.NeedsSecondPass(wl) {
+	if admitsWithStrictPatch(wl) {
 		// Send the workload's resourceVersion, without retry, so a write based on an outdated copy fails with Conflict instead of overwriting newer state.
 		patchOptions = []workloadpatching.PatchStatusOption{
 			workloadpatching.WithStrictPatch(),
@@ -1260,6 +1277,15 @@ func (s *Scheduler) patchWorkloadAdmission(
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
 		return true, nil
 	}, patchOptions...)
+}
+
+// admitsWithStrictPatch reports whether the admission of wl is written with the resourceVersion that this pass read, without retry.
+// A second pass must not overwrite newer state.
+// A pending scale-up replacement can be deleted by the job reconciler at any time.
+// That deletion is conditioned on a copy without a quota reservation, so an admission that lands first keeps the replacement.
+// An admission computed before the deletion fails with Conflict, and the workload is nominated again from a fresh copy.
+func admitsWithStrictPatch(wl *kueue.Workload) bool {
+	return workload.NeedsSecondPass(wl) || workloadslicing.IsPendingReplacement(wl)
 }
 
 func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload, replacedNodeName string) {
