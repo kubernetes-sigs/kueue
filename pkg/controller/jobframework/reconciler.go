@@ -91,7 +91,10 @@ var (
 	ErrManagedOwnersChainLimitReached = errors.New("managed owner chain limit reached")
 	ErrNoMatchingWorkloads            = errors.New("no matching workloads")
 	ErrExtraWorkloads                 = errors.New("extra workloads")
-	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
+	// errWorkloadKeptForPendingStop ends a reconcile that keeps a non-matching
+	// Workload because the job's stop still has to restore its PodSetsInfo.
+	errWorkloadKeptForPendingStop = errors.New("workload kept for a pending stop")
+	ErrPrebuiltWorkloadNotFound   = errors.New("prebuilt workload not found")
 )
 
 type WorkloadRetentionPolicy struct {
@@ -453,6 +456,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// Attempt to retrieve an existing workload (if any) for this job.
 	wl, err := r.ensureOneWorkload(ctx, job, object)
+	if errors.Is(err, errWorkloadKeptForPendingStop) {
+		return ctrl.Result{}, nil
+	}
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -510,6 +516,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if done, result, err := r.reconcileEvicted(ctx, job, wl); done {
+		return result, err
+	}
+
+	if done, result, err := r.reconcilePendingStop(ctx, job, wl); done {
 		return result, err
 	}
 
@@ -701,6 +711,13 @@ func (r *JobReconciler) reconcileDeletedWorkload(ctx context.Context, job Generi
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted"); err != nil {
 			return true, ctrl.Result{}, fmt.Errorf("suspending job with deleted Workload: %w", err)
 		}
+		if jps, ok := job.(JobWithPendingStop); ok && jps.IsStopPending() {
+			// The job's stop has not restored the PodSetsInfo yet, and it is
+			// read from this Workload. JobWithPendingStop requires the job to
+			// be reconciled again once the stop can complete.
+			ctrl.LoggerFrom(ctx).V(3).Info("Keeping the deleted workload's finalizer until the job's stop completes")
+			return true, ctrl.Result{}, nil
+		}
 		return true, ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
 	return false, ctrl.Result{}, nil
@@ -809,6 +826,25 @@ func (r *JobReconciler) reconcileEvicted(ctx context.Context, job GenericJob, wl
 		}
 		requeueAfter, err := r.handleWorkloadAfterDeactivatedPolicy(ctx, job, wl)
 		return true, ctrl.Result{RequeueAfter: requeueAfter}, err
+	}
+	return false, ctrl.Result{}, nil
+}
+
+// reconcilePendingStop completes a stop that is waiting for the job's active
+// Pods. While it is pending the job does not count as suspended, so a Workload
+// admitted in the meantime would otherwise be taken for a running job and the
+// job would stay suspended.
+func (r *JobReconciler) reconcilePendingStop(ctx context.Context, job GenericJob, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
+	jps, ok := job.(JobWithPendingStop)
+	if !ok || !jps.IsStopPending() {
+		return false, ctrl.Result{}, nil
+	}
+	if err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Completing a pending stop"); err != nil {
+		return true, ctrl.Result{}, fmt.Errorf("completing a pending stop: %w", err)
+	}
+	if jps.IsStopPending() {
+		ctrl.LoggerFrom(ctx).V(3).Info("Job's stop is waiting for its active Pods to terminate")
+		return true, ctrl.Result{}, nil
 	}
 	return false, ctrl.Result{}, nil
 }
@@ -1433,6 +1469,14 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
+			}
+			if jps, ok := job.(JobWithPendingStop); ok && w != nil && jps.IsStopPending() {
+				// w holds the only copy of the PodSetsInfo the pending stop
+				// restores, so it is not deleted yet. JobWithPendingStop
+				// requires the job to be reconciled again once the stop can
+				// complete; that reconcile restores from w and deletes it.
+				ctrl.LoggerFrom(ctx).V(3).Info("Keeping the non-matching workload until the job's stop completes", "workload", klog.KObj(w))
+				return nil, errWorkloadKeptForPendingStop
 			}
 		}
 	}
