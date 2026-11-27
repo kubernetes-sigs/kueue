@@ -57,18 +57,6 @@ func Test_GetResourceRequests(t *testing.T) {
 		DeviceRequest("device-request", "test-deviceclass-2", 1).
 		Obj()
 
-	// defaultWorkload is used by test cases that do not set newWorkload.
-	defaultWorkload := utiltestingapi.MakeWorkload("wl", "ns1").
-		PodSets(*utiltestingapi.MakePodSet("main", 1).
-			PodSpec(corev1.PodSpec{
-				Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-				ResourceClaims: []corev1.PodResourceClaim{
-					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-					{Name: "req-2", ResourceClaimName: new("claim-2")},
-				},
-			}).Obj()).
-		Obj()
-
 	// Common lookup functions for reuse across test cases
 	defaultLookup := func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 		if dc == "test-deviceclass-1" {
@@ -82,8 +70,7 @@ func Test_GetResourceRequests(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		// newWorkload, when set, is used instead of defaultWorkload.
-		newWorkload  *kueue.Workload
+		workload     *kueue.Workload
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
 		// mappings replaces the default res-1/res-2 mappings when set.
@@ -97,7 +84,7 @@ func Test_GetResourceRequests(t *testing.T) {
 	}{
 		"An Exactly request on a logical resource named cpu is charged in whole units": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -113,7 +100,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		"A prioritized list on a logical resource named cpu is charged in whole units like an Exactly request": {
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -136,6 +123,16 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		"Single claim template with single device": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
+						ResourceClaims: []corev1.PodResourceClaim{
+							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+							{Name: "req-2", ResourceClaimName: new("claim-2")},
+						},
+					}).Obj()).
+				Obj(),
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				m := map[corev1.ResourceName]corev1.ResourceName{
@@ -152,6 +149,16 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		"Unmapped DeviceClass returns error": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
+						ResourceClaims: []corev1.PodResourceClaim{
+							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+							{Name: "req-2", ResourceClaimName: new("claim-2")},
+						},
+					}).Obj()).
+				Obj(),
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			lookup:       noLookup,
 			mappings:     []configapi.DeviceClassMapping{},
@@ -160,7 +167,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		"Two containers each using different claim templates": {
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -201,7 +208,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"Two containers sharing one claim template": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -235,7 +242,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -257,7 +264,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"Init and regular container sharing one template": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						InitContainers: []corev1.Container{
@@ -293,7 +300,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					AllocationModeAll().
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -324,7 +331,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -357,7 +364,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("new-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -385,7 +392,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("old-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -415,7 +422,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("new-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -440,7 +447,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -472,7 +479,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("new-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -501,7 +508,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("other-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -529,7 +536,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -561,7 +568,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/selected", "true").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -589,7 +596,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Pool("pool-1", 1, 2).
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -614,7 +621,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -650,7 +657,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -689,7 +696,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -716,7 +723,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					CounterConsumption("gpu-0", "memory", "10Gi").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -747,7 +754,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					CounterConsumption("gpu-0", "memory", "10Gi").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -777,7 +784,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -802,7 +809,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -844,7 +851,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("nic-2").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -877,7 +884,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -907,7 +914,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -936,7 +943,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -966,7 +973,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1000,7 +1007,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/big", "false").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1032,7 +1039,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/big", "false").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1065,7 +1072,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/big", "true").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1102,7 +1109,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/big", "false").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1134,7 +1141,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1167,7 +1174,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1201,7 +1208,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1235,7 +1242,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1270,7 +1277,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1304,7 +1311,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "c").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1340,7 +1347,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/value", "yes").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1375,7 +1382,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "c").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1410,7 +1417,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "a").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1448,7 +1455,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "c").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1490,7 +1497,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/value", "no").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1532,7 +1539,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/value", "no").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1563,7 +1570,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "c").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1603,7 +1610,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1648,7 +1655,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "w").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1691,7 +1698,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1736,7 +1743,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Devices("dev-other", 6, "test-driver/group", "other").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1783,7 +1790,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Devices("dev-other", 39970, "test-driver/id", "other").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1839,7 +1846,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/eligible", "no").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1861,7 +1868,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1886,7 +1893,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"nonexistent-driver\"").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1908,7 +1915,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("this is not valid CEL!!!").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1942,7 +1949,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/big", "true").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1967,7 +1974,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -1987,7 +1994,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					FirstAvailableRequest("req", "test-deviceclass-1").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2017,7 +2024,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				},
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2048,7 +2055,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/value", "yes").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2080,7 +2087,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2117,7 +2124,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2162,7 +2169,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "d").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2204,7 +2211,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "c").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2243,7 +2250,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "b").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2285,7 +2292,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/id", "c").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2307,7 +2314,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2327,7 +2334,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2352,7 +2359,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2372,7 +2379,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		"A request on a nonexistent DeviceClass returns error": {
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2390,7 +2397,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		"A request on a nonexistent DeviceClass is charged when skipDeviceCheck is true": {
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2415,7 +2422,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2452,7 +2459,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2473,7 +2480,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2496,7 +2503,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2517,7 +2524,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("channel.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2535,7 +2542,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("channel", "channel.example.com", 1).
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2560,7 +2567,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("channel.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2583,7 +2590,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("channel.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2607,7 +2614,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2629,7 +2636,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2660,7 +2667,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic-a.example.com").Obj(),
 				testingdra.MakeDeviceClass("nic-b.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2684,7 +2691,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("nic-a.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2722,7 +2729,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic-a.example.com").Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2764,7 +2771,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2788,7 +2795,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2818,7 +2825,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic-a.example.com").Obj(),
 				testingdra.MakeDeviceClass("nic-b.example.com").Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2850,7 +2857,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/nic", "false").
 					Obj(),
 			},
-			newWorkload: utiltestingapi.MakeWorkload("wl", "ns1").
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
@@ -2908,11 +2915,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				}).
 				WithObjects(objs...).Build()
 
-			wl := defaultWorkload
-			if tc.newWorkload != nil {
-				wl = tc.newWorkload
-			}
-			wl = wl.DeepCopy()
+			wl := tc.workload.DeepCopy()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			if testMapper == nil {
