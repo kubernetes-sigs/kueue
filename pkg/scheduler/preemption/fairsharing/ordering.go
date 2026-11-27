@@ -199,19 +199,28 @@ func (t *TargetClusterQueueOrdering) isBorrowing(drs schdcache.DRS) bool {
 }
 
 // nextTarget is a recursive algorithm for finding the next
-// TargetClusterQueue.  It finds the child with the highest DRS,
-// returning it if it is a ClusterQueue, or entering the recursive
-// call if it is a Cohort.  When several children share the highest
-// DRS, it returns the target whose next candidate workload comes first
-// in the candidates ordering, entering each tied Cohort to find its
+// TargetClusterQueue.  It collects the children with the highest DRS
+// and returns the target whose next candidate workload comes first in
+// the candidates ordering, entering each such Cohort to find its
 // target, so that the choice doesn't depend on map iteration order and
-// respects priority.  The return of nil doesn't mean that there are no more
-// candidate ClusterQueues; an iteration may have only pruned nodes
+// respects priority.  The return of nil doesn't mean that there are no
+// more candidate ClusterQueues; an iteration may have only pruned nodes
 // from the tree.
-func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot) *TargetClusterQueue {
-	var highestCq *schdcache.ClusterQueueSnapshot
-	highestCqDrs := schdcache.NegativeDRS()
-	for _, cq := range cohort.ChildCQs() {
+func (t *TargetClusterQueueOrdering) nextTarget(parent *schdcache.CohortSnapshot) *TargetClusterQueue {
+	var highestCqs []*schdcache.ClusterQueueSnapshot
+	var highestCohorts []*schdcache.CohortSnapshot
+	highestDrs := schdcache.NegativeDRS()
+	keepHighest := func(drs schdcache.DRS) bool {
+		cmp := schdcache.CompareDRS(drs, highestDrs)
+		if cmp > 0 {
+			highestDrs = drs
+			highestCqs = highestCqs[:0]
+			highestCohorts = highestCohorts[:0]
+		}
+		return cmp >= 0
+	}
+
+	for _, cq := range parent.ChildCQs() {
 		if t.prunedClusterQueues.Has(cq) {
 			continue
 		}
@@ -219,27 +228,17 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		drs := cq.DominantResourceShare()
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
-		switch {
-		case (!t.isBorrowing(drs) && cq != t.preemptorCq) || !t.hasWorkload(cq):
+		if (!t.isBorrowing(drs) && cq != t.preemptorCq) || !t.hasWorkload(cq) {
 			t.prunedClusterQueues.Insert(cq)
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", klog.KRef("", string(cq.GetName())), "drs", drs)
 			}
-		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
-			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
-			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
-			if policy.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, t.clock.Now()) < 0 {
-				highestCq = cq
-			}
-		case schdcache.CompareDRS(drs, highestCqDrs) == 1:
-			highestCqDrs = drs
-			highestCq = cq
+		} else if keepHighest(drs) {
+			highestCqs = append(highestCqs, cq)
 		}
 	}
 
-	var highestCohorts []*schdcache.CohortSnapshot
-	highestCohortDrs := schdcache.NegativeDRS()
-	for _, cohort := range cohort.ChildCohorts() {
+	for _, cohort := range parent.ChildCohorts() {
 		if t.prunedCohorts.Has(cohort) {
 			continue
 		}
@@ -258,81 +257,64 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Pruning Cohort during Target ordering", "cohort", klog.KRef("", string(cohort.GetName())), "drs", drs)
 			}
-		} else {
-			switch schdcache.CompareDRS(drs, highestCohortDrs) {
-			case 1:
-				highestCohortDrs = drs
-				highestCohorts = []*schdcache.CohortSnapshot{cohort}
-			case 0:
-				highestCohorts = append(highestCohorts, cohort)
-			}
+		} else if keepHighest(drs) {
+			highestCohorts = append(highestCohorts, cohort)
 		}
 	}
 
 	// None of the children are valid candidates (i.e. all
 	// children pruned), so this Cohort is pruned.
-	if len(highestCohorts) == 0 && highestCq == nil {
-		t.prunedCohorts.Insert(cohort)
+	if len(highestCqs) == 0 && len(highestCohorts) == 0 {
+		t.prunedCohorts.Insert(parent)
 		if logV := t.log.V(6); logV.Enabled() {
-			logV.Info("Pruning Cohort during Target ordering as all children are pruned", "cohort", klog.KRef("", string(cohort.GetName())))
+			logV.Info("Pruning Cohort during Target ordering as all children are pruned", "cohort", klog.KRef("", string(parent.GetName())))
 		}
 		return nil
 	}
 
-	// When a ClusterQueue and Cohorts share the highest DRS, the
-	// ClusterQueue's next candidate is compared with the best target
-	// within those Cohorts by the candidates ordering, as between
-	// ClusterQueues and between Cohorts.
-	if len(highestCohorts) > 0 && highestCq != nil && schdcache.CompareDRS(highestCohortDrs, highestCqDrs) == 0 {
-		cqTarget := &TargetClusterQueue{ordering: t, targetCq: highestCq}
-		best := t.bestTargetOf(highestCohorts, highestCohortDrs)
-		if best == nil || policy.CandidatesOrdering(t.log, false, t.nextCandidate(cqTarget), t.nextCandidate(best), t.preemptorCq.Name, t.clock.Now()) < 0 {
-			if logV := t.log.V(6); logV.Enabled() {
-				logV.Info("Selected ClusterQueue over Cohorts with the same highest DRS", "clusterQueue", klog.KRef("", string(highestCq.GetName())), "drs", highestCqDrs)
-			}
-			return cqTarget
-		}
-		return best
-	}
-	if len(highestCohorts) > 0 && schdcache.CompareDRS(highestCohortDrs, highestCqDrs) > 0 {
-		if len(highestCohorts) == 1 {
-			if logV := t.log.V(6); logV.Enabled() {
-				logV.Info("Selected Cohort with highest DRS", "cohort", klog.KRef("", string(highestCohorts[0].GetName())), "drs", highestCohortDrs)
-			}
-			return t.nextTarget(highestCohorts[0])
-		}
-		return t.bestTargetOf(highestCohorts, highestCohortDrs)
+	highestCq := t.bestTargetOf(highestCqs, highestCohorts)
+	if highestCq == nil {
+		// The highest-DRS Cohorts got pruned. A lower-DRS child may
+		// still have a target.
+		return nil
 	}
 	if logV := t.log.V(6); logV.Enabled() {
-		logV.Info("Selected ClusterQueue with highest DRS", "clusterQueue", klog.KRef("", string(highestCq.GetName())), "drs", highestCqDrs)
+		logV.Info("Selected ClusterQueue during Target ordering",
+			"cohort", klog.KRef("", string(parent.GetName())),
+			"clusterQueue", klog.KRef("", string(highestCq.GetName())), "childDRS", highestDrs)
 	}
-	return &TargetClusterQueue{
-		ordering: t,
-		targetCq: highestCq,
-	}
+	return &TargetClusterQueue{ordering: t, targetCq: highestCq}
 }
 
-// bestTargetOf finds the next target in each of the Cohorts, which
-// share the same DRS, and returns the one whose next candidate
-// workload comes first in the candidates ordering.  It returns nil
-// when all of these Cohorts got pruned instead.
-func (t *TargetClusterQueueOrdering) bestTargetOf(cohorts []*schdcache.CohortSnapshot, drs schdcache.DRS) *TargetClusterQueue {
-	var best *TargetClusterQueue
+// bestTargetOf finds the next target in each of the Cohorts and
+// returns, among these targets and the ClusterQueues, the one whose
+// next candidate workload comes first in the candidates ordering.  A
+// Cohort wins a tie with a ClusterQueue.  It returns nil when there
+// are no ClusterQueues and all of the Cohorts got pruned instead.
+func (t *TargetClusterQueueOrdering) bestTargetOf(
+	cqs []*schdcache.ClusterQueueSnapshot,
+	cohorts []*schdcache.CohortSnapshot,
+) *schdcache.ClusterQueueSnapshot {
+	var highestCq *schdcache.ClusterQueueSnapshot
+	var currentCandWl *workload.Info
+	now := t.clock.Now()
+	consider := func(cq *schdcache.ClusterQueueSnapshot) {
+		newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
+		if currentCandWl == nil ||
+			policy.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, now) < 0 {
+			highestCq, currentCandWl = cq, newCandWl
+		}
+	}
+
 	for _, cohort := range cohorts {
-		target := t.nextTargetWithin(cohort)
-		if target == nil {
-			continue
-		}
-		if best == nil || policy.CandidatesOrdering(t.log, false, t.nextCandidate(target), t.nextCandidate(best), t.preemptorCq.Name, t.clock.Now()) < 0 {
-			best = target
+		if target := t.nextTargetWithin(cohort); target != nil {
+			consider(target.targetCq)
 		}
 	}
-	if best != nil {
-		if logV := t.log.V(6); logV.Enabled() {
-			logV.Info("Selected ClusterQueue among Cohorts with the same highest DRS", "clusterQueue", klog.KRef("", string(best.targetCq.GetName())), "drs", drs)
-		}
+	for _, cq := range cqs {
+		consider(cq)
 	}
-	return best
+	return highestCq
 }
 
 // nextTargetWithin returns the next target in the subtree of the
@@ -344,8 +326,4 @@ func (t *TargetClusterQueueOrdering) nextTargetWithin(cohort *schdcache.CohortSn
 		}
 	}
 	return nil
-}
-
-func (t *TargetClusterQueueOrdering) nextCandidate(target *TargetClusterQueue) *workload.Info {
-	return t.clusterQueueToTarget[target.targetCq.GetName()][0]
 }
