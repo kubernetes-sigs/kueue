@@ -516,13 +516,14 @@ func (a *FlavorAssigner) AssignFlavors(
 }
 
 // AssignTopology updates the assignment based on topology requirements.
-func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, assignment *Assignment) {
+func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, assignment *Assignment, opts ...schdcache.FindTopologyAssignmentsOption) {
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		return
 	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 	if assignment.RepresentativeMode() == Fit {
-		result := assignment.FindTopologyAssignments(ctx, a.cq, tasRequests, schdcache.WithWorkloadInfo(a.wl))
+		findOpts := append([]schdcache.FindTopologyAssignmentsOption{schdcache.WithWorkloadInfo(a.wl)}, opts...)
+		result := assignment.FindTopologyAssignments(ctx, a.cq, tasRequests, findOpts...)
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
 			assignment.ResolvePodSetFailure(
@@ -537,12 +538,15 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 	}
 	if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
 		// Don't preempt other workloads if looking for a failed node replacement
+		findOpts := append([]schdcache.FindTopologyAssignmentsOption{
+			schdcache.WithSimulateEmpty(true),
+			schdcache.WithWorkloadInfo(a.wl),
+		}, opts...)
 		result := assignment.FindTopologyAssignments(
 			ctx,
 			a.cq,
 			tasRequests,
-			schdcache.WithSimulateEmpty(true),
-			schdcache.WithWorkloadInfo(a.wl),
+			findOpts...,
 		)
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit even if

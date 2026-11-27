@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -180,7 +179,6 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 func (c *TASFlavorCache) snapshot(
 	ctx context.Context,
 	log logr.Logger,
-	schedulerSimulator simulator.SchedulerSimulator,
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
@@ -198,7 +196,7 @@ func (c *TASFlavorCache) snapshot(
 		)
 	}
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor, tree, schedulerSimulator, withResourceFormatter(c.resourceFormatter))
+	snapshot := newTASFlavorSnapshot(log, c.flavor, tree, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
 	if aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages

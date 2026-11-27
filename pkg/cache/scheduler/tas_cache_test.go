@@ -12706,14 +12706,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				simulatorSnapshot := newDefaultSimulator()
-				if len(tc.draObjects) > 0 {
-					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{}, true, schddra.SnapshotState{})
+				nativeEvaluator := newNativeNodeEvaluator()
+				var draChecker *schddra.Checker
+				if len(tc.draObjects) > 0 || features.Enabled(features.KueueDRADeviceFeasibility) {
+					draChecker = schddra.NewChecker(client, &schddra.CELCache{}, true, schddra.SnapshotState{})
+					nativeEvaluator = draChecker.WrapNodeFeasibilityEvaluator(nativeEvaluator)
 				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					simulatorSnapshot,
 					aggregatedDomainUsage,
 				)
 				if err != nil {
@@ -12793,7 +12794,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					}
 					wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
 				}
-				var findOpts []FindTopologyAssignmentsOption
+				findOpts := []FindTopologyAssignmentsOption{WithNodeFeasibilityEvaluator(nativeEvaluator), WithDRAChecker(draChecker)}
 				if tc.workload != nil || len(tc.spreadingRules) > 0 {
 					wlObj := tc.workload
 					if wlObj == nil {

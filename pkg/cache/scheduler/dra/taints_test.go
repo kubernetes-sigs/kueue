@@ -213,7 +213,7 @@ func TestDeviceTaintRulesAreNotListed(t *testing.T) {
 					},
 				}).Build()
 
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, tc.served, SnapshotState{})
+			checker := NewChecker(cl, &CELCache{}, tc.served, SnapshotState{}).WrapNodeFeasibilityEvaluator(&passthroughChecker{})
 			requirements := &simulator.PodRequirements{
 				PodTemplate: &corev1.PodTemplateSpec{
 					Namespace: "default",

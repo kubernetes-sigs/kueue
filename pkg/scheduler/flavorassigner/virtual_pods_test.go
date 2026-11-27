@@ -32,7 +32,7 @@ import (
 
 func TestCandidateVirtualPods(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
-	cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+	cq, _ := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
 
 	wl := utiltestingapi.MakeWorkload("wl", "default").
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).

@@ -1087,7 +1087,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 					indexer.IndexDeviceClassExtendedResourceName).
 				Build()
 			inner := &passthroughChecker{}
-			checker := NewChecker(inner, cl, &CELCache{}, true, SnapshotState{})
+			checker := NewChecker(cl, &CELCache{}, true, SnapshotState{}).WrapNodeFeasibilityEvaluator(inner)
 
 			candidateSeq := func(yield func(simulator.Candidate) bool) {
 				for _, c := range tc.candidates {

@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -39,17 +40,19 @@ func NewPlanner(
 	snapshot *schdcache.Snapshot,
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
+	nodeFeasibilityEvaluator simulator.NodeFeasibilityEvaluator,
 ) assignment.Planner {
-	return &nativePlanner{wl, snapshot, preemptor, assigner}
+	return &nativePlanner{wl, snapshot, preemptor, assigner, nodeFeasibilityEvaluator}
 }
 
 var _ assignment.Planner = (*nativePlanner)(nil)
 
 type nativePlanner struct {
-	wl        *workload.Info
-	snapshot  *schdcache.Snapshot
-	preemptor *preemption.Preemptor
-	assigner  *flavorassigner.FlavorAssigner
+	wl                       *workload.Info
+	snapshot                 *schdcache.Snapshot
+	preemptor                *preemption.Preemptor
+	assigner                 *flavorassigner.FlavorAssigner
+	nodeFeasibilityEvaluator simulator.NodeFeasibilityEvaluator
 }
 
 // Plan builds an assignment plan using kueue-native algorithms.
@@ -60,7 +63,7 @@ func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignmen
 	preTASMode := asgn.RepresentativeMode()
 
 	if asgn.RepresentativeMode() != flavorassigner.NoFit {
-		p.assigner.AssignTopology(ctx, log, asgn)
+		p.assigner.AssignTopology(ctx, log, asgn, p.topologyOpts()...)
 	}
 
 	arm := asgn.RepresentativeMode()
@@ -69,7 +72,7 @@ func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignmen
 	}
 
 	if arm == flavorassigner.Preempt {
-		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn)
+		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn, preemption.WithNodeFeasibilityEvaluator(p.nodeFeasibilityEvaluator))
 		faPreemptionTargets := p.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
 			p.updateAssignmentForTAS(ctx, cq, asgn, faPreemptionTargets)
@@ -102,11 +105,16 @@ func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavo
 	if !found {
 		return false
 	}
-	result := asgn.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkloadInfo(p.wl))
+	result := asgn.FindTopologyAssignments(
+		ctx,
+		cq,
+		tasRequests,
+		p.topologyOpts(schdcache.WithWorkloadInfo(p.wl))...,
+	)
 	if quotaMode != flavorassigner.Fit || result.Failure() != nil {
 		// Victims can release quota at different times. Probe with the normal
 		// policy selector, but only wait if no additional eviction is needed.
-		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn)
+		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn, preemption.WithNodeFeasibilityEvaluator(p.nodeFeasibilityEvaluator))
 		targets := p.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(targets) == 0 {
 			return false
@@ -122,7 +130,12 @@ func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavo
 		defer restore()
 		// The fit also waits for these victims, not only for devices being deallocated.
 		onlyDevices = false
-		result = asgn.FindTopologyAssignments(ctx, cq, tasRequests, schdcache.WithWorkloadInfo(p.wl))
+		result = asgn.FindTopologyAssignments(
+			ctx,
+			cq,
+			tasRequests,
+			p.topologyOpts(schdcache.WithWorkloadInfo(p.wl))...,
+		)
 	}
 	if result.Failure() != nil {
 		return false
@@ -162,7 +175,7 @@ func (p *nativePlanner) updateAssignmentForTAS(
 				ctx,
 				cq,
 				tasRequests,
-				schdcache.WithWorkloadInfo(p.wl),
+				p.topologyOpts(schdcache.WithWorkloadInfo(p.wl))...,
 			)
 			revertRemoval()
 		} else {
@@ -176,10 +189,17 @@ func (p *nativePlanner) updateAssignmentForTAS(
 				ctx,
 				cq,
 				tasRequests,
-				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkloadInfo(p.wl),
+				p.topologyOpts(schdcache.WithSimulateEmpty(true), schdcache.WithWorkloadInfo(p.wl))...,
 			)
 		}
 		asgn.UpdateForTASResult(log, cq, p.wl, tasResult)
 	}
+}
+
+func (p *nativePlanner) topologyOpts(extra ...schdcache.FindTopologyAssignmentsOption) []schdcache.FindTopologyAssignmentsOption {
+	return append(
+		extra,
+		schdcache.WithNodeFeasibilityEvaluator(p.nodeFeasibilityEvaluator),
+		schdcache.WithDRAChecker(p.snapshot.DRAChecker),
+	)
 }

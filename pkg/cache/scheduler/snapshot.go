@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -59,6 +60,8 @@ type Snapshot struct {
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SchedulerSimulator       simulator.SchedulerSimulator
+	NativeNodeEvaluator      simulator.NodeFeasibilityEvaluator
+	DRAChecker               *schddra.Checker
 
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
@@ -87,11 +90,9 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.removeUsage(cq, wl.Usage())
-		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			if checker, ok := deviceCheckerOf(s.SchedulerSimulator); ok && checker.RemoveWorkload(workload.Key(wl.Obj)) {
-				// Its devices are free now, so the cached feasibility no longer holds.
-				s.forgetSimulatedFeasibility()
-			}
+		if s.DRAChecker != nil && s.DRAChecker.RemoveWorkload(workload.Key(wl.Obj)) {
+			// Its devices are free now, so the cached feasibility no longer holds.
+			s.forgetSimulatedFeasibility()
 		}
 	}
 }
@@ -103,10 +104,8 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	if !cq.released.Has(workload.Key(wl.Obj)) {
 		s.AddUsage(cq, wl.Usage())
-		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			if checker, ok := deviceCheckerOf(s.SchedulerSimulator); ok && checker.AddWorkload(workload.Key(wl.Obj)) {
-				s.forgetSimulatedFeasibility()
-			}
+		if s.DRAChecker != nil && s.DRAChecker.AddWorkload(workload.Key(wl.Obj)) {
+			s.forgetSimulatedFeasibility()
 		}
 	}
 }
@@ -324,28 +323,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		var err error
-		nodes := c.tasCache.nodesCache.getAllNodes()
-		assumed := c.assumedWorkloads()
-		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
-			ctx,
-			nodes,
-			c.podTracker,
-			simulator.WithAssumedWorkloads(assumed),
-		)
-		if err != nil {
+		if err := c.setupTAS(ctx, &snap); err != nil {
 			return nil, err
-		}
-		// Wrapping here rather than inside a simulator keeps the device check on
-		// whichever one is configured, so it does not depend on the scheduler library.
-		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed, schddra.SnapshotState{
-				Nodes:              nodes,
-				Pods:               c.podTracker,
-				AssumedWorkloads:   assumed,
-				Ownership:          podOwnership,
-				DRABackedResources: c.draBackedResources,
-			})
 		}
 	}
 
@@ -406,7 +385,6 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SchedulerSimulator,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {
@@ -449,6 +427,53 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
 	return &snap, nil
+}
+
+func (c *Cache) setupTAS(ctx context.Context, snap *Snapshot) error {
+	nodes := c.tasCache.nodesCache.getAllNodes()
+	assumed := c.assumedWorkloads()
+
+	// Set up native NodeFeasibilityEvaluator
+	snap.NativeNodeEvaluator = newNativeNodeEvaluator()
+
+	// Set up SchedulerSimulator
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		if c.simulatorFactory == nil {
+			return errors.New("scheduler-library simulator not configured")
+		}
+		var err error
+		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
+			ctx,
+			nodes,
+			c.podTracker,
+			simulator.WithAssumedWorkloads(assumed),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If DRA supported, wrap eligible objects with the DRA Checker
+	if features.Enabled(features.KueueDRADeviceFeasibility) {
+		snap.DRAChecker = schddra.NewChecker(
+			c.client,
+			&c.draSelectorsCache,
+			c.deviceTaintRulesServed,
+			schddra.SnapshotState{
+				Nodes:              nodes,
+				Pods:               c.podTracker,
+				AssumedWorkloads:   assumed,
+				Ownership:          podOwnership,
+				DRABackedResources: c.draBackedResources,
+			},
+		)
+		snap.NativeNodeEvaluator = snap.DRAChecker.WrapNodeFeasibilityEvaluator(snap.NativeNodeEvaluator)
+		if snap.SchedulerSimulator != nil {
+			snap.SchedulerSimulator = snap.DRAChecker.WrapSchedulerSimulator(snap.SchedulerSimulator)
+		}
+	}
+
+	return nil
 }
 
 func (c *Cache) assumedWorkloads() []*kueue.Workload {
@@ -657,25 +682,28 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 	if len(selected) == 0 {
 		return revertDevices, freedDevices, freedDevices
 	}
-	var revertPods func() error
-	// The device check also holds the devices of these Pods, so it releases them too.
-	_, checksDevices := deviceCheckerOf(s.SchedulerSimulator)
-	if features.Enabled(features.SchedulerLibraryIntegration) || (features.Enabled(features.KueueDRADeviceFeasibility) && checksDevices) {
-		podSimulator, ok := s.SchedulerSimulator.(simulator.PodPreemptingSimulator)
-		if !ok {
-			revertDevices()
-			return func() {}, false, false
-		}
-		revertPods, err = podSimulator.PreemptPods(ctx, podRefs)
+
+	var revertSimPods func() error
+	if s.SchedulerSimulator != nil {
+		revertSimPods, err = s.SchedulerSimulator.PreemptPods(ctx, podRefs)
 		if err != nil {
 			log.V(3).Info("Could not simulate residual TAS Pod release", "error", err)
 			revertDevices()
 			return func() {}, false, false
 		}
-		if revertPods != nil {
-			s.forgetSimulatedFeasibility()
-		}
 	}
+
+	// The device check also holds the devices of these Pods, so it releases them too.
+	var revertDRAPods func()
+	if s.DRAChecker != nil {
+		revertDRAPods = s.DRAChecker.PreemptPods(podRefs)
+	}
+
+	needsFeasibilitySync := revertDRAPods != nil || revertSimPods != nil
+	if needsFeasibilitySync {
+		s.forgetSimulatedFeasibility()
+	}
+
 	seen := make(map[*TASFlavorSnapshot]struct{})
 	for _, cq := range s.ClusterQueues() {
 		for _, flavor := range cq.TASFlavors {
@@ -695,13 +723,19 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 		}
 	}
 	adjust(true)
+
 	return func() {
 		adjust(false)
 		revertDevices()
-		if revertPods != nil {
-			if err := revertPods(); err != nil {
+		if revertDRAPods != nil {
+			revertDRAPods()
+		}
+		if revertSimPods != nil {
+			if err := revertSimPods(); err != nil {
 				log.V(3).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)
 			}
+		}
+		if needsFeasibilitySync {
 			s.forgetSimulatedFeasibility()
 		}
 	}, true, false
@@ -711,14 +745,10 @@ func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.L
 // a preemptor deciding whether to wait for its victims. Without it the preemptor would
 // choose more victims for devices that are about to be free.
 func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload) (revert func(), released bool, err error) {
-	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+	if s.DRAChecker == nil {
 		return func() {}, false, nil
 	}
-	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
-	if !ok {
-		return func() {}, false, nil
-	}
-	takeBack, released, err := checker.ReleaseFreeingDevices(ctx, wl)
+	takeBack, released, err := s.DRAChecker.ReleaseFreeingDevices(ctx, wl)
 	if err != nil || !released {
 		return func() {}, false, err
 	}
@@ -732,11 +762,10 @@ func (s *Snapshot) releaseFreeingDevices(ctx context.Context, wl *kueue.Workload
 // TakeFreeDevices takes, for the rest of the cycle, the devices of the Pods in psas that
 // are free now. A Workload that preempts takes them, while its victims keep theirs.
 func (s *Snapshot) TakeFreeDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment) {
-	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
-	if !ok || wl == nil {
+	if s.DRAChecker == nil || wl == nil {
 		return
 	}
-	took, err := checker.ReserveFreePods(ctx, workload.Key(wl), devicePlacements(checker, wl, psas))
+	took, err := s.DRAChecker.ReserveFreePods(ctx, workload.Key(wl), devicePlacements(s.DRAChecker, wl, psas))
 	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not take the free devices of a preempting Workload", "workload", klog.KObj(wl))
 	}
@@ -750,11 +779,10 @@ func (s *Snapshot) TakeFreeDevices(ctx context.Context, wl *kueue.Workload, psas
 // place of what wl and the replaced Workloads hold, because wl may be placed again. It
 // returns false when the Pods do not fit, and then nothing changes.
 func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
-	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
-	if !ok || wl == nil {
+	if s.DRAChecker == nil || wl == nil {
 		return true
 	}
-	revert, fits, err := checker.ReplacePods(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
+	revert, fits, err := s.DRAChecker.ReplacePods(ctx, workload.Key(wl), replaced, devicePlacements(s.DRAChecker, wl, psas))
 	if err != nil {
 		// Placement resolved the same claims on the same device state, so this is not expected.
 		ctrl.LoggerFrom(ctx).Error(err, "Could not take the devices of a Workload", "workload", klog.KObj(wl))
@@ -771,11 +799,10 @@ func (s *Snapshot) ReplaceDevices(ctx context.Context, wl *kueue.Workload, psas 
 // free. It changes nothing, so the cached feasibility still holds. A check that fails
 // reports no fit, as placement does, so the Workload is not admitted without its devices.
 func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []kueue.PodSetAssignment, replaced ...workload.Reference) bool {
-	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
-	if !ok || wl == nil {
+	if s.DRAChecker == nil || wl == nil {
 		return true
 	}
-	fits, err := checker.PodsFit(ctx, workload.Key(wl), replaced, devicePlacements(checker, wl, psas))
+	fits, err := s.DRAChecker.PodsFit(ctx, workload.Key(wl), replaced, devicePlacements(s.DRAChecker, wl, psas))
 	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "Could not check the devices of a Workload", "workload", klog.KObj(wl))
 		return false
@@ -785,8 +812,10 @@ func (s *Snapshot) DevicesFit(ctx context.Context, wl *kueue.Workload, psas []ku
 
 // UsesDevices reports whether a Pod of wl takes devices that the device check counts.
 func (s *Snapshot) UsesDevices(wl *kueue.Workload) bool {
-	checker, ok := deviceCheckerOf(s.SchedulerSimulator)
-	return ok && slices.ContainsFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool { return checker.UsesDevices(&ps.Template.Spec) })
+	if s.DRAChecker == nil {
+		return false
+	}
+	return slices.ContainsFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool { return s.DRAChecker.UsesDevices(&ps.Template.Spec) })
 }
 
 // devicePlacements places the Pods of each PodSet assignment on its nodes. The leader of
@@ -820,16 +849,6 @@ func devicePlacements(checker *schddra.Checker, wl *kueue.Workload, psas []kueue
 		placements = append(placements, schddra.NewDevicePlacement(workers.PodSet, wl.Namespace, nodeCounts[workers.PodSet.Name]))
 	}
 	return placements
-}
-
-// deviceCheckerOf returns the device check wrapping sim, when KueueDRADeviceFeasibility
-// put one there.
-func deviceCheckerOf(sim simulator.SchedulerSimulator) (*schddra.Checker, bool) {
-	if !features.Enabled(features.KueueDRADeviceFeasibility) {
-		return nil, false
-	}
-	checker, ok := sim.(*schddra.Checker)
-	return checker, ok
 }
 
 // podOwnership tells the device check whether a Pod belongs to an admitted Workload,

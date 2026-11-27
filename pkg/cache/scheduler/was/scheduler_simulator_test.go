@@ -639,7 +639,6 @@ func TestPreemptPodsOnlyRemovesSelectedPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating WAS snapshot: %v", err)
 	}
-	podSimulator := sim.(simulator.PodPreemptingSimulator)
 	feasible := func(port int32) bool {
 		candidate := corev1.PodTemplateSpec{Spec: *first.Spec.DeepCopy()}
 		candidate.Spec.Containers[0].Ports[0].HostPort = port
@@ -659,7 +658,7 @@ func TestPreemptPodsOnlyRemovesSelectedPod(t *testing.T) {
 	replacement := first.DeepCopy()
 	replacement.UID = "replaced-uid"
 	podTracker.Track(replacement)
-	wrongRevert, err := podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: "replaced-uid"}})
+	wrongRevert, err := sim.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: "replaced-uid"}})
 	if err != nil {
 		t.Fatalf("probing a replaced Pod: %v", err)
 	}
@@ -669,7 +668,7 @@ func TestPreemptPodsOnlyRemovesSelectedPod(t *testing.T) {
 	if err := wrongRevert(); err != nil {
 		t.Fatalf("restoring replaced-Pod probe: %v", err)
 	}
-	revert, err := podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: first.UID}})
+	revert, err := sim.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: first.UID}})
 	if err != nil {
 		t.Fatalf("removing selected Pod: %v", err)
 	}
@@ -686,8 +685,7 @@ func TestPreemptPodsOnlyRemovesSelectedPod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating replacement snapshot: %v", err)
 	}
-	podSimulator = sim.(simulator.PodPreemptingSimulator)
-	wrongRevert, err = podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: first.UID}})
+	wrongRevert, err = sim.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: first.UID}})
 	if err != nil {
 		t.Fatalf("probing the old UID in the next snapshot: %v", err)
 	}
@@ -697,7 +695,7 @@ func TestPreemptPodsOnlyRemovesSelectedPod(t *testing.T) {
 	if err := wrongRevert(); err != nil {
 		t.Fatalf("restoring old-UID probe: %v", err)
 	}
-	revert, err = podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(replacement), UID: replacement.UID}})
+	revert, err = sim.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(replacement), UID: replacement.UID}})
 	if err != nil {
 		t.Fatalf("probing the new UID in the next snapshot: %v", err)
 	}

@@ -4407,7 +4407,7 @@ func TestPreemption(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				for _, name := range tc.deletedAfterSnapshot {
 					if err := cl.Delete(ctx, utiltestingapi.MakeWorkload(name, "").Obj()); err != nil {
@@ -4647,7 +4647,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
@@ -4989,7 +4989,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, tc.assignment, WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 				if len(targets) == 0 {
@@ -5398,7 +5398,7 @@ func TestPreemptionWithPodsQuota(t *testing.T) {
 			}
 
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
-			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment)
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment, WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator))
 			var got []string
 			for _, target := range preemptor.GetTargetsWithStrategy(ctx, strategies) {
 				got = append(got, target.WorkloadInfo.Obj.Name)
@@ -5463,7 +5463,7 @@ func setupPreemptionStrategy(t *testing.T, incomingCPU string) (PreemptionStrate
 	})
 
 	preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil, nil)
-	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment) {
+	for s := range preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment, WithNodeFeasibilityEvaluator(snapshot.NativeNodeEvaluator)) {
 		return s, snapshot
 	}
 	t.Fatal("expected at least one PreemptionStrategy")

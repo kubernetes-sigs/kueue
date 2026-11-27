@@ -1854,7 +1854,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {

@@ -1141,7 +1141,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			if len(assignment.PodSets) == 0 {
 				assignment = defaultAssignment
 			}
-			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment)
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment, WithNodeFeasibilityEvaluator(snapshotWorkingCopy.NativeNodeEvaluator))
 			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 			// The targets are compared as a sorted list, rather than as a set, so that
 			// duplicated targets are reported as well.

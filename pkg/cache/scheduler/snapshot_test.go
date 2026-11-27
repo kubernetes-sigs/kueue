@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -65,7 +66,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "NativeNodeEvaluator", "DRAChecker", "hostnameLeafTASFlavors", "candidateOrderCache", "residualTASPods"),
 	cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "released"),
 }
 
@@ -1990,7 +1991,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator", "NativeNodeEvaluator", "DRAChecker"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2574,7 +2575,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator", "NativeNodeEvaluator", "DRAChecker"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2595,36 +2596,89 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	}
 }
 
+type stubSimulatorFactory struct{}
+
+type stubSchedulerSimulator struct {
+	simulator.SchedulerSimulator
+}
+
+func (s *stubSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ *podtracker.Tracker, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return &stubSchedulerSimulator{}, nil
+}
+
 // The device check wraps whichever simulator the cache holds, so it is available to a
 // cluster that does not run the scheduler library. Its gate no longer names that one.
 func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 	cases := map[string]struct {
-		simulator      simulator.Factory
-		featureEnabled bool
-		wantChecker    bool
+		simulatorFactory     simulator.Factory
+		draEnabled           bool
+		wantNativeChecker    bool
+		wantSimulatorChecker bool
 	}{
-		"default simulator, gate on":  {featureEnabled: true, wantChecker: true},
-		"default simulator, gate off": {},
-		"another simulator, gate on":  {simulator: newDefaultSimulatorFactory(), featureEnabled: true, wantChecker: true},
+		"native evaluator only, gate on": {
+			draEnabled:        true,
+			wantNativeChecker: true,
+		},
+		"native evaluator only, gate off": {},
+		"with simulator factory, gate on": {
+			simulatorFactory:     &stubSimulatorFactory{},
+			draEnabled:           true,
+			wantNativeChecker:    true,
+			wantSimulatorChecker: true,
+		},
+		"with simulator factory, gate off": {
+			simulatorFactory: &stubSimulatorFactory{},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
+			sliEnabled := tc.simulatorFactory != nil
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.draEnabled)
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, sliEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			opts := []Option{}
-			if tc.simulator != nil {
-				opts = append(opts, WithSimulatorFactory(tc.simulator))
+			if tc.simulatorFactory != nil {
+				opts = append(opts, WithSimulatorFactory(tc.simulatorFactory))
 			}
 			cache := New(utiltesting.NewFakeClient(), opts...)
 			snap, err := cache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("Snapshot() returned error: %v", err)
 			}
-			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
-				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
+			if (snap.DRAChecker != nil) != tc.draEnabled {
+				t.Errorf("snapshot DRAChecker set = %v, want %v", snap.DRAChecker != nil, tc.draEnabled)
+			}
+			if snap.NativeNodeEvaluator == nil {
+				t.Errorf("snapshot NativeNodeEvaluator is nil, want non-nil")
+			}
+			if got := snap.SchedulerSimulator != nil; got != sliEnabled {
+				t.Errorf("snapshot SchedulerSimulator set = %v, want %v", got, sliEnabled)
+			}
+			isDRAWrapped := func(v any) bool {
+				return v != nil && reflect.TypeOf(v).Elem().PkgPath() == "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+			}
+			if got := isDRAWrapped(snap.NativeNodeEvaluator); got != tc.wantNativeChecker {
+				t.Errorf("snapshot NativeNodeEvaluator wrapped by DRA checker = %v, want %v", got, tc.wantNativeChecker)
+			}
+			if got := isDRAWrapped(snap.SchedulerSimulator); got != tc.wantSimulatorChecker {
+				t.Errorf("snapshot SchedulerSimulator wrapped by DRA checker = %v, want %v", got, tc.wantSimulatorChecker)
 			}
 		})
+	}
+}
+
+func TestSnapshotErrorsWhenSimulatorNotConfigured(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cache := New(utiltesting.NewFakeClient())
+	snap, err := cache.Snapshot(ctx)
+	if err == nil {
+		t.Fatalf("Snapshot() returned nil error, want error; snap = %v", snap)
+	}
+	if want := "scheduler-library simulator not configured"; err.Error() != want {
+		t.Errorf("Snapshot() error = %q, want %q", err.Error(), want)
 	}
 }
 

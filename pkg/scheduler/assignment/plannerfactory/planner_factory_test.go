@@ -26,32 +26,61 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+type stubNodeFeasibilityEvaluator struct {
+	simulator.NodeFeasibilityEvaluator
+}
+
+type stubSchedulerSimulator struct {
+	simulator.SchedulerSimulator
+}
+
 func TestNewPlanner(t *testing.T) {
-	nativeType := reflect.TypeOf(native.NewPlanner(nil, nil, nil, nil))
+	nativeType := reflect.TypeOf(native.NewPlanner(nil, nil, nil, nil, nil))
 	wasType := reflect.TypeOf(was.NewPlanner(nil, nil, nil))
+	nativeEval := &stubNodeFeasibilityEvaluator{}
+	schedulerSim := &stubSchedulerSimulator{}
 
 	const usingPlannerLog = "Using Planner"
 
 	cases := map[string]struct {
 		cqPlanner     kueue.AssignmentPlannerName
+		snapshot      *schedcache.Snapshot
 		wantType      reflect.Type
+		wantEvaluator simulator.NodeFeasibilityEvaluator
 		wantErrSubstr string
 	}{
-		"KueueNative returns native planner": {
+		"KueueNative returns native planner with NativeNodeEvaluator": {
+			cqPlanner:     kueue.KueueNative,
+			snapshot:      &schedcache.Snapshot{NativeNodeEvaluator: nativeEval},
+			wantType:      nativeType,
+			wantEvaluator: nativeEval,
+		},
+		"KueueNative returns native planner with SchedulerSimulator when set": {
 			cqPlanner: kueue.KueueNative,
-			wantType:  nativeType,
+			snapshot: &schedcache.Snapshot{
+				NativeNodeEvaluator: nativeEval,
+				SchedulerSimulator:  schedulerSim,
+			},
+			wantType:      nativeType,
+			wantEvaluator: schedulerSim,
 		},
 		"KubeSchedulerDeepIntegration returns was planner": {
 			cqPlanner: kueue.KubeSchedulerDeepIntegration,
-			wantType:  wasType,
+			snapshot: &schedcache.Snapshot{
+				NativeNodeEvaluator: nativeEval,
+				SchedulerSimulator:  schedulerSim,
+			},
+			wantType: wasType,
 		},
 		"unknown planner returns error": {
 			cqPlanner:     kueue.AssignmentPlannerName("UnknownPlanner"),
+			snapshot:      &schedcache.Snapshot{},
 			wantErrSubstr: "unknown assignment planner requested: UnknownPlanner",
 		},
 	}
@@ -64,7 +93,7 @@ func TestNewPlanner(t *testing.T) {
 			}
 
 			plannerLog := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true), ktesting.Verbosity(3)))
-			got, err := NewPlanner(plannerLog, &workload.Info{}, cq, nil, nil, nil)
+			got, err := NewPlanner(plannerLog, &workload.Info{}, cq, tc.snapshot, nil, nil)
 			if tc.wantErrSubstr != "" {
 				if err == nil {
 					t.Fatalf("expected error containing %q, got nil", tc.wantErrSubstr)
@@ -79,6 +108,15 @@ func TestNewPlanner(t *testing.T) {
 			}
 			if gotType := reflect.TypeOf(got); gotType != tc.wantType {
 				t.Errorf("NewPlanner returned %v, want %v", gotType, tc.wantType)
+			}
+			if tc.wantEvaluator != nil {
+				gotEval := reflect.ValueOf(got).Elem().FieldByName("nodeFeasibilityEvaluator")
+				if !gotEval.IsValid() || gotEval.IsNil() {
+					t.Fatalf("NewPlanner returned planner with nil nodeFeasibilityEvaluator, want %T", tc.wantEvaluator)
+				}
+				if gotPtr, wantPtr := gotEval.Elem().Pointer(), reflect.ValueOf(tc.wantEvaluator).Pointer(); gotPtr != wantPtr {
+					t.Errorf("NewPlanner evaluator pointer = %#x (%v), want %#x (%T)", gotPtr, gotEval.Elem().Type(), wantPtr, tc.wantEvaluator)
+				}
 			}
 
 			var gotLogMsgs []string
