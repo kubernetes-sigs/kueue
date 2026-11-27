@@ -219,6 +219,151 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			candidateCQs: []kueue.ClusterQueueReference{"left-cq", "right-cq"},
 			wantOrder:    []kueue.ClusterQueueReference{"left-cq", "right-cq"},
 		},
+		"a ClusterQueue and a Cohort with the same DRS: the lower-priority candidate goes first": {
+			// x-cq and cohort c both borrow 1 of the same quota from root, so they tie.
+			// x-cq's candidate has the lower priority, so x-cq is targeted before c-cq.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("x-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("c-cq").Cohort("c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("c").Parent("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("x1", "ns").Priority(0).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("x-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c1", "ns").Priority(1).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("c-cq", "default", now).Obj(),
+			},
+			preemptorCQ:   "preemptor-cq",
+			candidateCQs:  []kueue.ClusterQueueReference{"x-cq", "c-cq"},
+			wantOrder:     []kueue.ClusterQueueReference{"x-cq", "c-cq"},
+			wantWorkloads: []string{"x1", "c1"},
+		},
+		"a ClusterQueue and a Cohort with the same DRS: the Cohort goes first when its candidate does": {
+			// As above, but c-cq's candidate has the lower priority.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("x-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("c-cq").Cohort("c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("c").Parent("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("x1", "ns").Priority(1).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("x-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c1", "ns").Priority(0).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("c-cq", "default", now).Obj(),
+			},
+			preemptorCQ:   "preemptor-cq",
+			candidateCQs:  []kueue.ClusterQueueReference{"x-cq", "c-cq"},
+			wantOrder:     []kueue.ClusterQueueReference{"c-cq", "x-cq"},
+			wantWorkloads: []string{"c1", "x1"},
+		},
+		"a ClusterQueue ties with a Cohort that gets pruned during the search": {
+			// c-cq borrows but has no candidates, so cohort c is pruned while it is searched,
+			// and x-cq is targeted.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("x-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("c-cq").Cohort("c").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("c").Parent("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("x1", "ns").Priority(1).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("x-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c1", "ns").Priority(0).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("c-cq", "default", now).Obj(),
+			},
+			preemptorCQ:  "preemptor-cq",
+			candidateCQs: []kueue.ClusterQueueReference{"x-cq"},
+			wantOrder:    []kueue.ClusterQueueReference{"x-cq"},
+		},
+		"Cohorts with the same DRS: one pruned during the search, the other targeted": {
+			// Cohorts a and b tie. a-cq borrows but has no candidates, so a is pruned while it
+			// is searched, and b-cq is targeted.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("a-cq").Cohort("a").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("b-cq").Cohort("b").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("a").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("b").Parent("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1", "ns").Priority(0).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("a-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "ns").Priority(1).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("b-cq", "default", now).Obj(),
+			},
+			preemptorCQ:  "preemptor-cq",
+			candidateCQs: []kueue.ClusterQueueReference{"b-cq"},
+			wantOrder:    []kueue.ClusterQueueReference{"b-cq"},
+		},
+		"Cohorts with the same DRS: both pruned during the search, the search retries": {
+			// Cohorts a and b tie, but neither a-cq nor b-cq has candidates, so both are pruned
+			// and the next search returns the preemptor ClusterQueue.
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("a-cq").Cohort("a").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("b-cq").Cohort("b").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2").Obj()).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("a").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("b").Parent("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p1", "ns").Priority(0).Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("preemptor-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a1", "ns").Priority(0).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("a-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "ns").Priority(0).Request(corev1.ResourceCPU, "3").
+					SimpleReserveQuota("b-cq", "default", now).Obj(),
+			},
+			preemptorCQ:  "preemptor-cq",
+			candidateCQs: []kueue.ClusterQueueReference{"preemptor-cq"},
+			wantOrder:    []kueue.ClusterQueueReference{"preemptor-cq"},
+		},
 		"CQ borrowing only on uncontested flavor is pruned": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
