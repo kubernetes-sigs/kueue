@@ -699,10 +699,14 @@ func (ps *PreemptionStrategy) searchTargets(ctx context.Context, plan *partialPl
 			return planned
 		}
 		if !ps.accepts(ctx, targets) {
-			break
+			restoreSnapshot(ps.pCtx.snapshot, targets)
+			return nil
 		}
 		restoreSnapshot(ps.pCtx.snapshot, targets)
 		return targets
+	}
+	if planned := plan.evictionPassAfterUnfitWalk(ctx, targets); planned != nil {
+		return planned
 	}
 	restoreSnapshot(ps.pCtx.snapshot, targets)
 	return nil

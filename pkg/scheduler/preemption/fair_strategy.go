@@ -109,6 +109,10 @@ func fairPreemptionStrategy(
 			return yieldAndRecord(t)
 		}
 
+		if preemptionCtx.shrinkingPlan != nil {
+			preemptionCtx.shrinkingPlan.hasSecondFsStrategy = len(fsStrategies) > 1
+		}
+
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
 		retryCandidates, cont := iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
@@ -339,8 +343,16 @@ func iterateWithFirstFsStrategy(
 		strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
-			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl.Usage())
-			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
+			var (
+				targetNewShare fairsharing.TargetNewShare
+				passed         bool
+			)
+			if preemptionCtx.shrinkingPlan != nil {
+				targetNewShare, passed = preemptionCtx.shrinkingPlan.fairShrinkTarget(candWl, candCQ, fsStrategy, preemptorNewShare, targetOldShare)
+			} else {
+				targetNewShare = candCQ.ComputeTargetShareAfterRemoval(candWl.Usage())
+				passed = fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
+			}
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
 				if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {

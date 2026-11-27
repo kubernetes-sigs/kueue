@@ -30,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -59,6 +60,10 @@ type victim struct {
 	// podSet is the PodSet that partial preemption may shrink, empty when the
 	// victim can only be evicted whole.
 	podSet kueue.PodSetReference
+	// shrinkLimit is the lowest count that the shrink pass may leave to the
+	// victim under the strategy that offered it. It equals v.shrunk() unless the
+	// strategy capped the shrink higher (e.g. to satisfy LessThanOrEqualToFinalShare).
+	shrinkLimit int32
 	// keep is what the plan leaves to the victim right now.
 	keep int32
 	// current is the instance of the victim that is in the snapshot right now,
@@ -138,6 +143,13 @@ type partialPlan struct {
 	// byKey indexes the victims by Workload, for a walk to find a victim that
 	// was offered before.
 	byKey map[workload.Reference]*victim
+	// nextShrinkLimit carries the fair-sharing shrink bound computed by the
+	// strategy for the candidate it is about to yield to shrinkPass.
+	nextShrinkLimit *int32
+	// hasSecondFsStrategy is true when the strategy has a second Fair Sharing
+	// rule (LessThanInitialShare), which allows shrinking a capped victim
+	// further down to its floor if the first rule's shrink bounds are not enough.
+	hasSecondFsStrategy bool
 	// done tells that the plan has nothing to try: no victim can shrink.
 	done bool
 }
@@ -151,6 +163,62 @@ func newPartialPlan(strategy PreemptionStrategy) *partialPlan {
 	return &partialPlan{strategy: strategy, byKey: make(map[workload.Reference]*victim)}
 }
 
+// fairShrinkTarget evaluates fsStrategy for candWl during the shrink pass.
+// For a non-shrinkable candidate it evaluates whole removal. For a shrinkable
+// candidate it finds the lowest retained count in [floor, maxKeep] that passes
+// fsStrategy, so a candidate is not rejected merely because removing it whole
+// (or shrinking it all the way to its floor) would drop its ClusterQueue's
+// share below the preemptor's. When a shrinkable candidate passes, the bound
+// is recorded in nextShrinkLimit for shrinkPass to apply on the yield.
+func (p *partialPlan) fairShrinkTarget(
+	candWl *workload.Info,
+	candCQ *fairsharing.TargetClusterQueue,
+	fsStrategy fairsharing.Strategy,
+	preemptorNewShare fairsharing.PreemptorNewShare,
+	targetOldShare fairsharing.TargetOldShare,
+) (fairsharing.TargetNewShare, bool) {
+	p.nextShrinkLimit = nil
+	podSet, ok := workload.PartialPreemptionPodSet(candWl.Obj, candWl.TotalRequests)
+	if !ok {
+		targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl.Usage())
+		return targetNewShare, fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
+	}
+	floor, _ := workload.PreemptionMinRetainedCount(candWl.Obj, podSet)
+	full := podSetRequestCount(candWl, podSet)
+	maxKeep := full - 1
+	if count, found := workload.PreemptionRetainedCount(candWl.Obj, podSet); found && count < full {
+		maxKeep = min(maxKeep, count)
+	}
+	shareAt := func(keep int32) fairsharing.TargetNewShare {
+		return candCQ.ComputeTargetShareAfterRemoval(usageReleasedByShrink(candWl, podSet, keep))
+	}
+	targetNewShare := shareAt(floor)
+	if fsStrategy(preemptorNewShare, targetOldShare, targetNewShare) {
+		p.nextShrinkLimit = &floor
+		return targetNewShare, true
+	}
+	if floor >= maxKeep {
+		return targetNewShare, false
+	}
+	targetNewShare = shareAt(maxKeep)
+	if !fsStrategy(preemptorNewShare, targetOldShare, targetNewShare) {
+		return targetNewShare, false
+	}
+	// floor fails and maxKeep passes; bisect for the lowest retained count that passes.
+	lo, hi := floor, maxKeep
+	for lo+1 < hi {
+		mid := lo + (hi-lo)/2
+		if midShare := shareAt(mid); fsStrategy(preemptorNewShare, targetOldShare, midShare) {
+			hi = mid
+			targetNewShare = midShare
+		} else {
+			lo = mid
+		}
+	}
+	p.nextShrinkLimit = &hi
+	return targetNewShare, true
+}
+
 // shrinkPass walks the candidates and returns the targets that make the workload
 // fit without a new eviction, the first step of the plan. It returns nil if
 // there are none, and leaves the snapshot as it found it.
@@ -162,8 +230,15 @@ func (p *partialPlan) shrinkPass(ctx context.Context) []*Target {
 	p.strategy.pCtx.shrinkingPlan = p
 	for candidate := range p.strategy.candidates {
 		v := p.observe(candidate)
-		p.setKeep(v, v.shrunk())
+		keep := v.shrunk()
+		if p.nextShrinkLimit != nil {
+			keep = *p.nextShrinkLimit
+			p.nextShrinkLimit = nil
+		}
+		v.shrinkLimit = keep
+		p.setKeep(v, keep)
 	}
+	p.nextShrinkLimit = nil
 	p.strategy.pCtx.shrinkingPlan = nil
 	if !slices.ContainsFunc(p.victims, (*victim).canShrink) {
 		// The search without partial preemption finds the same targets.
@@ -171,9 +246,26 @@ func (p *partialPlan) shrinkPass(ctx context.Context) []*Target {
 		return nil
 	}
 	if !p.fits(ctx) {
-		return nil
+		if !p.canLowerShrinkLimits() {
+			return nil
+		}
+		for _, v := range p.victims {
+			p.setKeep(v, v.shrunk())
+		}
+		if !p.fits(ctx) {
+			return nil
+		}
 	}
 	return p.buildTargets(ctx)
+}
+
+func (p *partialPlan) canLowerShrinkLimits() bool {
+	if !p.hasSecondFsStrategy {
+		return false
+	}
+	return slices.ContainsFunc(p.victims, func(v *victim) bool {
+		return v.shrinkLimit > v.shrunk()
+	})
 }
 
 // walkOrder returns a copy of the candidates that the search without partial
@@ -190,33 +282,14 @@ func (p *partialPlan) walkOrder(walked []*Target) []*Target {
 // top of the shrinks, the second step of the plan. walked are the candidates
 // that the search without partial preemption removed from the snapshot, in
 // that order. The ones that its fill-back did not put back are its targets: the
-// plan evicts no other victim. If evict returns targets, the snapshot is as the
+// plan evicts no other victim. If evictionPass returns targets, the snapshot is as the
 // search found it. Otherwise it is as evictionPass found it.
 func (p *partialPlan) evictionPass(ctx context.Context, walked []*Target) []*Target {
 	if p == nil || p.done {
 		return nil
 	}
-	var evictions []*victim
-	for _, candidate := range walked {
-		if v := p.observe(candidate); v.keep == keepNone {
-			v.eviction = candidate
-			evictions = append(evictions, v)
-		}
-	}
-	for _, v := range p.victims {
-		p.setKeep(v, v.shrunk())
-	}
-	// The workload fits at the latest when all of these are evicted, as in the
-	// search without partial preemption.
-	fits := p.fits(ctx)
-	for i := 0; !fits && i < len(evictions); i++ {
-		p.setKeep(evictions[i], keepNone)
-		fits = p.fits(ctx)
-	}
-	var targets []*Target
-	if fits {
-		targets = p.buildTargets(ctx)
-	}
+	evictions := p.collectPlainEvictions(walked)
+	targets := p.tryEvictions(ctx, evictions)
 	p.restore()
 	if targets == nil {
 		// The search without partial preemption goes on with its own targets.
@@ -227,6 +300,66 @@ func (p *partialPlan) evictionPass(ctx context.Context, walked []*Target) []*Tar
 	return targets
 }
 
+// evictionPassAfterUnfitWalk runs when the whole-eviction walk exhausted its
+// candidates without making the workload fit, because some victims could only
+// be offered by shrinking (or while an earlier victim stayed shrunk). It tries
+// combining the shrinks from shrinkPass with the evictions the plain walk found,
+// and, for strategies with verification (Fair Sharing), with non-shrinkable
+// victims that shrinkPass already found while shrinkable victims stayed shrunk.
+// If it returns targets, the snapshot is as the search found it. Otherwise it
+// leaves the snapshot as it found it.
+func (p *partialPlan) evictionPassAfterUnfitWalk(ctx context.Context, walked []*Target) []*Target {
+	if p == nil || p.done {
+		return nil
+	}
+	plainEvictions := p.collectPlainEvictions(walked)
+	targets := p.tryEvictions(ctx, plainEvictions)
+	if targets == nil && p.strategy.verify != nil && features.Enabled(features.FairSharingVerifyFinalTargets) {
+		var fixedVictims []*victim
+		for _, v := range p.victims {
+			if !v.canShrink() {
+				fixedVictims = append(fixedVictims, v)
+			}
+		}
+		if len(fixedVictims) > 0 {
+			targets = p.tryEvictions(ctx, fixedVictims)
+		}
+	}
+	p.restore()
+	if targets == nil {
+		for _, v := range plainEvictions {
+			p.setKeep(v, keepNone)
+		}
+	}
+	return targets
+}
+
+func (p *partialPlan) collectPlainEvictions(walked []*Target) []*victim {
+	var evictions []*victim
+	for _, candidate := range walked {
+		if v := p.observe(candidate); v.keep == keepNone {
+			v.eviction = candidate
+			evictions = append(evictions, v)
+		}
+	}
+	return evictions
+}
+
+func (p *partialPlan) tryEvictions(ctx context.Context, evictions []*victim) []*Target {
+	for _, v := range p.victims {
+		p.setKeep(v, v.shrinkLimit)
+	}
+	fits := p.fits(ctx)
+	for i := 0; !fits && i < len(evictions); i++ {
+		p.setKeep(evictions[i], keepNone)
+		fits = p.fits(ctx)
+	}
+	if !fits {
+		return nil
+	}
+	return p.buildTargets(ctx)
+}
+
 // observe returns the victim for the candidate, and records what the search
 // left of it in the snapshot: nothing if it removed the candidate, and the
 // victim as it was when the search started otherwise.
@@ -235,6 +368,7 @@ func (p *partialPlan) observe(candidate *Target) *victim {
 	v, found := p.byKey[key]
 	if !found {
 		v = &victim{target: candidate, podSet: shrinkablePodSet(candidate)}
+		v.shrinkLimit = v.shrunk()
 		p.byKey[key] = v
 		p.victims = append(p.victims, v)
 	}
@@ -307,10 +441,13 @@ func (p *partialPlan) fillBack(ctx context.Context) {
 		p.setKeep(v, previous)
 		return false
 	}
-	// A. A victim that the plan evicted and that can shrink keeps its floor.
+	// A. A victim that the plan evicted and that can shrink keeps its shrink
+	// limit if that still fits, or otherwise its floor.
 	for _, v := range slices.Backward(p.victims) {
 		if v.keep == keepNone && v.canShrink() {
-			tryKeep(v, v.floor())
+			if !tryKeep(v, v.shrinkLimit) && v.shrinkLimit != v.floor() {
+				tryKeep(v, v.floor())
+			}
 		}
 	}
 	// B. A victim that the plan evicted is not evicted.
@@ -363,6 +500,16 @@ func (p *partialPlan) setKeep(v *victim, keep int32) {
 		snapshot.AddWorkload(v.current)
 	}
 	v.keep = keep
+}
+
+// usageReleasedByShrink returns the quota usage released by shrinking info's
+// named PodSet to retainedCount. Partial preemption does not shrink PodSets
+// with a topology request, so no TAS usage is released.
+func usageReleasedByShrink(info *workload.Info, podSetName kueue.PodSetReference, retainedCount int32) workload.Usage {
+	reduced := reducedInfoForPartialPreemption(info, podSetName, retainedCount)
+	return workload.Usage{Quota: workload.ResourceUsage{
+		Assigned: info.ResourceUsage().Assigned.Sub(reduced.ResourceUsage().Assigned),
+	}}
 }
 
 // reducedInfoForPartialPreemption returns a shallow copy of info with the named PodSet's usage scaled
