@@ -934,7 +934,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				),
 			},
 		},
-		"CEL selectors on a firstAvailable request are not checked when an alternative has no CEL selector": {
+		"CEL selectors on a firstAvailable request are checked with an alternative that has no CEL selector": {
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-fa-nocel", "ns1").
 					DeviceRequests(testingdra.MakeFirstAvailableRequest("r",
@@ -956,8 +956,11 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
-			want: map[kueue.PodSetReference]corev1.ResourceList{
-				"main": {"res-1": resource.MustParse("3")},
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("firstAvailable"),
+					errors.New(""),
+				),
 			},
 		},
 		"CEL selectors on a firstAvailable alternative that falls short leave its devices to later requests": {
@@ -1652,6 +1655,174 @@ func Test_GetResourceRequests(t *testing.T) {
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {"res-1": resource.MustParse("11")},
 			},
+		},
+		"A request without a CEL selector cannot take the devices of the CEL requests in its claim": {
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-exclusive", "ns1").
+					DeviceRequest("a-or-b", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.attributes["test-driver"].id in ["a", "b"]`).
+					DeviceRequest("only-a", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.attributes["test-driver"].id == "a"`).
+					DeviceRequest("any-two", "test-deviceclass-1", 2).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-mixed-exclusive", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-a").
+					Attribute("test-driver/id", "a").
+					Device("dev-b").
+					Attribute("test-driver/id", "b").
+					Device("dev-c").
+					Attribute("test-driver/id", "c").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed-exclusive", ResourceClaimTemplateName: new("claim-tmpl-mixed-exclusive")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		"A request without a CEL selector fits on the devices that the CEL requests in its claim leave": {
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-exclusive-fits", "ns1").
+					DeviceRequest("a-or-b", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.attributes["test-driver"].id in ["a", "b"]`).
+					DeviceRequest("only-a", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.attributes["test-driver"].id == "a"`).
+					DeviceRequest("any-two", "test-deviceclass-1", 2).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-mixed-exclusive-fits", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-a").
+					Attribute("test-driver/id", "a").
+					Device("dev-b").
+					Attribute("test-driver/id", "b").
+					Device("dev-c").
+					Attribute("test-driver/id", "c").
+					Device("dev-d").
+					Attribute("test-driver/id", "d").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed-exclusive-fits", ResourceClaimTemplateName: new("claim-tmpl-mixed-exclusive-fits")},
+				}
+			},
+			lookup: defaultLookup,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("4")},
+			},
+		},
+		"A request without a CEL selector falls short when a CEL request in its claim takes the device": {
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-count2", "ns1").
+					DeviceRequest("with-cel", "test-deviceclass-1", 1).
+					WithCELSelectors(`true`).
+					DeviceRequest("without-cel", "test-deviceclass-1", 2).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-mixed-count2", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed-count2", ResourceClaimTemplateName: new("claim-tmpl-mixed-count2")},
+				}
+			},
+			lookup: defaultLookup,
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly"),
+					errors.New(""),
+				),
+			},
+		},
+		"An infeasible CEL request is rejected after a firstAvailable request with many device choices": {
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed-many-choices", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("ten",
+						testingdra.MakeDeviceSubRequest("only-b", "test-deviceclass-1", 10).CELSelector(`device.attributes["test-driver"].id == "b"`).Obj(),
+						testingdra.MakeDeviceSubRequest("any", "test-deviceclass-1", 10).Obj(),
+					).Obj()).
+					DeviceRequest("only-z", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.attributes["test-driver"].id == "z"`).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				// Choosing ten of the twenty devices in every way takes more steps than the
+				// search is allowed.
+				testingdra.MakeResourceSlice("slice-mixed-many-choices", "test-driver").
+					Pool("pool-1", 1, 1).
+					Devices("dev", 20, "test-driver/id", "a").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-mixed-many-choices", ResourceClaimTemplateName: new("claim-tmpl-mixed-many-choices")},
+				}
+			},
+			lookup:       defaultLookup,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantErr: field.ErrorList{
+				field.InternalError(
+					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(1).Child("exactly", "selectors"),
+					errors.New(""),
+				),
+			},
+		},
+		"A firstAvailable request falls back to an alternative without a CEL selector": {
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-fa-nocel-fallback", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("r",
+						testingdra.MakeDeviceSubRequest("big", "test-deviceclass-1", 1).CELSelector(`device.attributes["test-driver"].big == "true"`).Obj(),
+						testingdra.MakeDeviceSubRequest("any", "test-deviceclass-1", 1).Obj(),
+					).Obj()).
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				testingdra.MakeResourceSlice("slice-fa-nocel-fallback", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Attribute("test-driver/big", "false").
+					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-fa-nocel-fallback", ResourceClaimTemplateName: new("claim-tmpl-fa-nocel-fallback")},
+				}
+			},
+			lookup:       defaultLookup,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("1")},
+			},
+		},
+		"A request without a CEL selector is not checked when only a request for an excluded DeviceClass has one": {
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-excluded-cel-and-nocel", "ns1").
+					DeviceRequest("nic", "nic.example.com", 1).
+					WithCELSelectors(`device.driver == "nic-driver"`).
+					DeviceRequest("gpu", "test-deviceclass-1", 2).
+					Obj(),
+				testingdra.MakeDeviceClass("nic.example.com").Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-excluded-cel-and-nocel", ResourceClaimTemplateName: new("claim-tmpl-excluded-cel-and-nocel")},
+				}
+			},
+			lookup:   defaultLookup,
+			excluded: []corev1.ResourceName{"nic.example.com"},
+			want:     map[kueue.PodSetReference]corev1.ResourceList{"main": {"res-1": resource.MustParse("2")}},
 		},
 		"Invalid CEL selector returns error": {
 			extraObjects: []runtime.Object{

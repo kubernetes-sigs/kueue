@@ -531,10 +531,10 @@ The following limitations apply:
   alternative that sets `capacity` on the subrequest is charged its declared
   count like any other, so Pods that share one device that allows multiple
   allocations are each charged a whole device. Capacity sources, which charge
-  the shared amount, are not supported for `firstAvailable`. When every
-  alternative has a CEL selector, Kueue keeps the Workload pending until one
-  alternative's selectors match enough devices in the cluster, as for an
-  `exactly` request, and retries the check with backoff. Beyond that, without
+  the shared amount, are not supported for `firstAvailable`. When a request
+  or alternative of the claim has a CEL selector, Kueue keeps the Workload
+  pending until one alternative matches enough devices in the cluster, as for
+  an `exactly` request, and retries the check with backoff. Beyond that, without
   `KueueDRADeviceFeasibility`, Kueue does not check that any alternative can be
   satisfied by the cluster, so a request whose alternatives are all infeasible
   holds its quota until the Workload is
