@@ -937,6 +937,19 @@ func TestReconcile(t *testing.T) {
 		}).
 		NodeSelector("f2l1", "v1")
 
+	podLevelWorkload := baseWorkload.Clone().PodSets(
+		*utiltestingapi.MakePodSet("ps1", 4).Request(corev1.ResourceCPU, "1").Obj(),
+		*utiltestingapi.MakePodSet("ps2", 3).PodLevelRequest(corev1.ResourceMemory, "1M").Obj(),
+	).Obj()
+	podLevelWorkload.Status.Admission.PodSetAssignments[1] = utiltestingapi.MakePodSetAssignment("ps2").
+		Assignment(corev1.ResourceMemory, "flv2", "3M").Count(3).Obj()
+	podLevelTemplate := baseTemplate2.Clone().
+		Containers(*utiltesting.MakeContainer().Name("c").Image(placeholderImage).Obj()).
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").Obj()
+	podLevelTemplate.Template.Spec.Resources = &corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1M")},
+	}
+
 	// Tenant-precreated PodTemplate at the deterministic name; must be replaced, not reused.
 	foreignTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 		Containers(corev1.Container{
@@ -2390,6 +2403,30 @@ func TestReconcile(t *testing.T) {
 					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
+		},
+		"when a PodSet requests managed memory at pod level": {
+			workload: podLevelWorkload,
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.Clone().WithManagedResource(corev1.ResourceMemory).Obj()},
+			wantWorkloads: map[string]*kueue.Workload{
+				podLevelWorkload.Name: podLevelWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				"wl-check1-1": utiltestingapi.MakeProvisioningRequest("wl-check1-1", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					PodSet("ppt-wl-check1-1-ps2", 3).
+					ProvisioningClass("class1").WithParameter("p1", "v1").Obj(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				podLevelTemplate.Name: podLevelTemplate,
+			},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       client.ObjectKeyFromObject(podLevelWorkload),
+				EventType: corev1.EventTypeNormal,
+				Reason:    "ProvisioningRequestCreated",
+				Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+			}},
 		},
 		"when request is needed for one PodSet (resource limit)": {
 			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).Limit("example.com/gpu", "1").Obj(),

@@ -239,29 +239,32 @@ func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acNam
 	return cfg.Spec.Clusters, nil
 }
 
-// PodUsesResources reports whether any container or init container of the pod
-// requests or limits at least one of the resources in resourceSet.
+// PodUsesResources reports whether the pod or any of its containers or init
+// containers requests or limits at least one of the resources in resourceSet.
 func PodUsesResources(pod *corev1.PodSpec, resourceSet sets.Set[corev1.ResourceName]) bool {
+	if pod.Resources != nil && resourceRequirementsUseAny(pod.Resources, resourceSet) {
+		return true
+	}
 	for i := range pod.InitContainers {
-		if containerUsesResources(&pod.InitContainers[i], resourceSet) {
+		if resourceRequirementsUseAny(&pod.InitContainers[i].Resources, resourceSet) {
 			return true
 		}
 	}
 	for i := range pod.Containers {
-		if containerUsesResources(&pod.Containers[i], resourceSet) {
+		if resourceRequirementsUseAny(&pod.Containers[i].Resources, resourceSet) {
 			return true
 		}
 	}
 	return false
 }
 
-func containerUsesResources(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceName]) bool {
-	for r := range cont.Resources.Requests {
+func resourceRequirementsUseAny(requirements *corev1.ResourceRequirements, resourceSet sets.Set[corev1.ResourceName]) bool {
+	for r := range requirements.Requests {
 		if resourceSet.Has(r) {
 			return true
 		}
 	}
-	for r := range cont.Resources.Limits {
+	for r := range requirements.Limits {
 		if resourceSet.Has(r) {
 			return true
 		}
