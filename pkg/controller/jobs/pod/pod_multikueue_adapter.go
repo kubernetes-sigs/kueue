@@ -23,6 +23,8 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,10 +34,17 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+)
+
+const (
+	// RemotePodLostReason is the reason set on a manager Pod that MultiKueue failed
+	// because its worker Pod disappeared after it started.
+	RemotePodLostReason = "MultiKueueRemotePodLost"
 )
 
 type multiKueueAdapter struct {
@@ -55,7 +64,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	groupName := utilpod.GetPodGroupName(&localPod)
 	if groupName == "" {
-		return false, syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log)
+		return false, syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, true, &log)
 	}
 
 	return false, syncPodGroup(ctx, localClient, remoteClient, key, workloadName, origin, groupName)
@@ -119,6 +128,48 @@ func (b *multiKueueAdapter) ResetLocalStatus(ctx context.Context, localClient cl
 	})
 }
 
+var _ jobframework.MultiKueueRemoteLossHandler = (*multiKueueAdapter)(nil)
+
+// IsRemoteLost reports whether a manager Pod started on a worker whose Pod no
+// longer exists. Pod groups are not supported and are never reported as lost.
+func (b *multiKueueAdapter) IsRemoteLost(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) (bool, error) {
+	localPod := corev1.Pod{}
+	if err := localClient.Get(ctx, key, &localPod); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if !canLoseRemotePod(&localPod) {
+		return false, nil
+	}
+	err := remoteClient.Get(ctx, key, &corev1.Pod{})
+	if !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	return true, nil
+}
+
+// FinishLostLocalJob finishes a manager Pod whose remote Pod was lost. Pod
+// groups are not supported and are left unchanged.
+func (b *multiKueueAdapter) FinishLostLocalJob(ctx context.Context, localClient client.Client, key types.NamespacedName, remoteSucceeded bool, message string) (bool, error) {
+	localPod := corev1.Pod{}
+	if err := localClient.Get(ctx, key, &localPod); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if !canLoseRemotePod(&localPod) {
+		return false, nil
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Finishing the local pod since its remote pod was lost", "pod", klog.KObj(&localPod), "succeeded", remoteSucceeded)
+	if err := finishLocalPod(ctx, localClient, &localPod, b.clock, remoteSucceeded, message); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// canLoseRemotePod reports whether the manager Pod is a single Pod that started
+// on a worker and is still active, so that it fails if its remote Pod is lost.
+func canLoseRemotePod(pod *corev1.Pod) bool {
+	return utilpod.GetPodGroupName(pod) == "" && !isTerminatedOrTerminating(pod) && startedRemotely(pod)
+}
+
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	return true, "", nil
 }
@@ -156,7 +207,9 @@ func syncPodGroup(ctx context.Context, localClient client.Client, remoteClient c
 	}
 
 	for _, localPod := range localPodGroup.Items {
-		if err = syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, &log); err != nil {
+		// Pod groups are not supported: finishing a single member does not finish
+		// the group, so missing remote members are always created again.
+		if err = syncLocalPodWithRemote(ctx, localClient, remoteClient, &localPod, workloadName, origin, false, &log); err != nil {
 			return err
 		}
 	}
@@ -178,6 +231,7 @@ func syncLocalPodWithRemote(
 	remoteClient client.Client,
 	localPod *corev1.Pod,
 	workloadName, origin string,
+	singlePod bool,
 	log *logr.Logger,
 ) error {
 	key := types.NamespacedName{Name: localPod.Name, Namespace: localPod.Namespace}
@@ -195,6 +249,20 @@ func syncLocalPodWithRemote(
 		if !localPod.DeletionTimestamp.IsZero() {
 			log.V(3).Info("Skipping sync since the local pod is terminating", "pod", klog.KObj(localPod))
 			return nil
+		}
+
+		// Copying the status of a remote pod of an earlier dispatch would make the
+		// local pod look started again, so wait for it to be removed and the remote
+		// pod to be created again.
+		if singlePod {
+			earlier, err := isFromEarlierDispatch(ctx, remoteClient, localPod, &remotePod, workloadName)
+			if err != nil {
+				return err
+			}
+			if earlier {
+				log.V(3).Info("Skipping sync from the terminating remote pod of an earlier dispatch", "pod", klog.KObj(localPod))
+				return nil
+			}
 		}
 
 		// Patch the status of the local pod to match the remote pod
@@ -231,7 +299,21 @@ func syncLocalPodWithRemote(
 		})
 	}
 
-	// If the remote pod does not exist, create it
+	// Creating the remote pod again for a local pod that is final, or that
+	// already started on the worker, would silently restart the job. The
+	// workload reconciler decides whether a started pod was lost, since the
+	// remote pod is also removed when its workload is evicted.
+	if singlePod {
+		if isTerminatedOrTerminating(localPod) {
+			log.V(3).Info("Skipping remote pod creation since the local pod is terminated or terminating", "pod", klog.KObj(localPod))
+			return nil
+		}
+		if startedRemotely(localPod) {
+			log.V(3).Info("Skipping remote pod creation since the local pod already started on the worker", "pod", klog.KObj(localPod))
+			return nil
+		}
+	}
+
 	remotePod = corev1.Pod{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localPod.ObjectMeta),
 		Spec:       *localPod.Spec.DeepCopy(),
@@ -248,6 +330,91 @@ func syncLocalPodWithRemote(
 	}
 
 	return nil
+}
+
+// isFromEarlierDispatch reports whether the remote Pod of a local Pod that did
+// not start is terminating and belongs to an earlier dispatch, e.g. one evicted
+// on the worker whose local status was reset. MultiKueue creates the remote Pod
+// after the remote Workload of its dispatch, so a remote Pod is only considered
+// part of the current dispatch when it was created after the current remote
+// Workload, and that Workload was not evicted or readmitted since. A remote Pod
+// stopped by Kueue on the worker is never part of the current dispatch.
+// Creation timestamps have a precision of one second, so a remote Pod created
+// in the same second, or without a remote Workload, counts as earlier.
+func isFromEarlierDispatch(ctx context.Context, remoteClient client.Client, localPod, remotePod *corev1.Pod, workloadName string) (bool, error) {
+	if remotePod.DeletionTimestamp.IsZero() || startedRemotely(localPod) {
+		return false, nil
+	}
+	if c := findPodCondition(remotePod.Status.Conditions, ConditionTypeTerminationTarget); c != nil && c.Status == corev1.ConditionTrue {
+		return true, nil
+	}
+	remoteWl := kueue.Workload{}
+	if err := remoteClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: remotePod.Namespace}, &remoteWl); err != nil {
+		return true, client.IgnoreNotFound(err)
+	}
+	if !remoteWl.CreationTimestamp.Before(&remotePod.CreationTimestamp) {
+		return true, nil
+	}
+	evicted := apimeta.FindStatusCondition(remoteWl.Status.Conditions, kueue.WorkloadEvicted)
+	return evicted != nil && !evicted.LastTransitionTime.Before(&remotePod.CreationTimestamp), nil
+}
+
+func isTerminatedOrTerminating(pod *corev1.Pod) bool {
+	return utilpod.IsTerminated(pod) || !pod.DeletionTimestamp.IsZero()
+}
+
+// startedRemotely reports whether the status copied onto the local Pod shows
+// that its remote Pod started: the kubelet accepted it or created any of its
+// containers. A remote Pod that was only scheduled has not run any of the job.
+func startedRemotely(pod *corev1.Pod) bool {
+	return pod.Status.StartTime != nil ||
+		pod.Status.Phase == corev1.PodRunning ||
+		len(pod.Status.ContainerStatuses) > 0 ||
+		len(pod.Status.InitContainerStatuses) > 0
+}
+
+// finishLocalPod marks the local Pod final because its remote Pod was lost.
+// A succeeded remote Pod had all of its containers exit successfully, so they
+// are marked completed. Otherwise the Pod is failed, and the TerminationTarget
+// condition, which Kueue also sets on the Pods it stops, tells the Pod's owner
+// that the failure did not come from the application.
+func finishLocalPod(ctx context.Context, c client.Client, pod *corev1.Pod, clk clock.Clock, succeeded bool, message string) error {
+	now := metav1.NewTime(clk.Now())
+	return clientutil.PatchStatus(ctx, c, pod, func() (bool, error) {
+		pod.Status.Reason = RemotePodLostReason
+		pod.Status.Message = message
+		if succeeded {
+			pod.Status.Phase = corev1.PodSucceeded
+			markContainersCompleted(pod.Status.InitContainerStatuses, now)
+			markContainersCompleted(pod.Status.ContainerStatuses, now)
+			return true, nil
+		}
+		pod.Status.Phase = corev1.PodFailed
+		setPodCondition(&pod.Status, corev1.PodCondition{
+			Type:               corev1.PodConditionType(ConditionTypeTerminationTarget),
+			Status:             corev1.ConditionTrue,
+			Reason:             RemotePodLostReason,
+			Message:            message,
+			LastTransitionTime: now,
+		})
+		return true, nil
+	})
+}
+
+func markContainersCompleted(statuses []corev1.ContainerStatus, now metav1.Time) {
+	for i := range statuses {
+		status := &statuses[i]
+		if status.State.Terminated != nil {
+			continue
+		}
+		terminated := &corev1.ContainerStateTerminated{Reason: "Completed", FinishedAt: now}
+		if status.State.Running != nil {
+			terminated.StartedAt = status.State.Running.StartedAt
+		}
+		status.State = corev1.ContainerState{Terminated: terminated}
+		status.Ready = false
+		status.Started = new(false)
+	}
 }
 
 // hasRemoteStatus reports whether the Pod status carries anything that only a

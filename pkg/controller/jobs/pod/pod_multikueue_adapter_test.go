@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -95,9 +97,93 @@ func TestMultiKueueAdapter(t *testing.T) {
 		return adapter.ResetLocalStatus(ctx, managerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
 	}
 
+	syncJob := func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+		_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace}, "wl1", "origin1")
+		return err
+	}
+
+	lostMessage := "The remote job was lost"
+	finishLocalJobIfRemoteLost := func(name string, remoteSucceeded, wantFinished bool) func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+		return func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+			key := types.NamespacedName{Name: name, Namespace: TestNamespace}
+			lost, err := adapter.IsRemoteLost(ctx, managerClient, workerClient, key)
+			if err != nil {
+				return err
+			}
+			if lost != wantFinished {
+				return fmt.Errorf("IsRemoteLost() = %t, want %t", lost, wantFinished)
+			}
+			if !lost {
+				return nil
+			}
+			finished, err := adapter.FinishLostLocalJob(ctx, managerClient, key, remoteSucceeded, lostMessage)
+			if err != nil {
+				return err
+			}
+			if !finished {
+				return errors.New("FinishLostLocalJob() = false, want true")
+			}
+			return nil
+		}
+	}
+	failLocalJobIfRemoteLost := func(name string, wantFailed bool) func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+		return finishLocalJobIfRemoteLost(name, false, wantFailed)
+	}
+
+	scheduledCondition := corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}
+	startedManagerPod := func() *utiltestingpod.PodWrapper {
+		return basePodBuilder.Clone().
+			KueueSchedulingGate().
+			StatusPhase(corev1.PodRunning).
+			StatusStartTime(earlier).
+			StatusConditions(scheduledCondition).
+			StatusContainerStatuses(runningContainer)
+	}
+	lostPod := func(started *utiltestingpod.PodWrapper, message string) corev1.Pod {
+		pod := started.Clone().
+			StatusPhase(corev1.PodFailed).
+			StatusReason(RemotePodLostReason).
+			StatusMessage(message).
+			Obj()
+		pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
+			Type:               ConditionTypeTerminationTarget,
+			Status:             corev1.ConditionTrue,
+			Reason:             RemotePodLostReason,
+			Message:            message,
+			LastTransitionTime: metav1.NewTime(now),
+		})
+		return *pod
+	}
+	lostManagerPod := func(message string) corev1.Pod {
+		return lostPod(startedManagerPod(), message)
+	}
+	gatedManagerPod := func() *utiltestingpod.PodWrapper {
+		return basePodBuilder.Clone().KueueSchedulingGate()
+	}
+	completedInitContainer := corev1.ContainerStatus{
+		Name:  "init",
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{Reason: "Completed", FinishedAt: metav1.NewTime(earlier)}},
+	}
+	startedContainer := corev1.ContainerStatus{
+		Name:    "c",
+		Ready:   true,
+		Started: new(true),
+		State:   corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: metav1.NewTime(earlier)}},
+	}
+	completedContainer := corev1.ContainerStatus{
+		Name:    "c",
+		Started: new(false),
+		State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+			Reason:     "Completed",
+			StartedAt:  metav1.NewTime(earlier),
+			FinishedAt: metav1.NewTime(now),
+		}},
+	}
+
 	cases := map[string]struct {
-		managersPods []corev1.Pod
-		workerPods   []corev1.Pod
+		managersPods    []corev1.Pod
+		workerPods      []corev1.Pod
+		workerWorkloads []kueue.Workload
 
 		operation func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error
 
@@ -500,6 +586,331 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusPodIP("10.0.0.1").Obj(),
 			},
 		},
+		"sync does not copy the status of a terminating remote pod onto a manager pod that did not start": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).Obj(),
+			},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*gatedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).Obj(),
+			},
+		},
+		"sync does not copy the status of a terminating remote pod created before the remote workload onto a manager pod that did not start": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(earlier).Obj(),
+			},
+			workerWorkloads:     []kueue.Workload{*utiltestingapi.MakeWorkload("wl1", TestNamespace).Creation(now).Obj()},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*gatedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(earlier).Obj(),
+			},
+		},
+		"sync does not copy the status of a terminating remote pod created in the same second as the remote workload onto a manager pod that did not start": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).Obj(),
+			},
+			workerWorkloads:     []kueue.Workload{*utiltestingapi.MakeWorkload("wl1", TestNamespace).Creation(now).Obj()},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*gatedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).Obj(),
+			},
+		},
+		"sync copies the status of a terminating remote pod created after the remote workload onto a manager pod that did not start": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+			workerWorkloads:  []kueue.Workload{*utiltestingapi.MakeWorkload("wl1", TestNamespace).Creation(earlier).Obj()},
+			operation:        syncJob,
+			wantManagersPods: []corev1.Pod{*startedManagerPod().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+		},
+		"sync does not copy the status of a terminating remote pod whose remote workload was evicted after it was created": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).StatusPhase(corev1.PodFailed).Obj(),
+			},
+			workerWorkloads: []kueue.Workload{*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				Creation(earlier).
+				Condition(metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: kueue.WorkloadEvictedByPreemption, LastTransitionTime: metav1.NewTime(now)}).
+				Obj()},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*gatedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).StatusPhase(corev1.PodFailed).Obj(),
+			},
+		},
+		"sync does not copy the status of a terminating remote pod whose remote workload was readmitted after it was created": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).Obj(),
+			},
+			workerWorkloads: []kueue.Workload{*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				Creation(earlier).
+				Condition(metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionFalse, Reason: "QuotaReserved", LastTransitionTime: metav1.NewTime(now)}).
+				Obj()},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*gatedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).Obj(),
+			},
+		},
+		"sync does not copy the status of a terminating remote pod stopped by Kueue": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*gatedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).
+					StatusConditions(scheduledCondition, corev1.PodCondition{Type: ConditionTypeTerminationTarget, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			workerWorkloads:     []kueue.Workload{*utiltestingapi.MakeWorkload("wl1", TestNamespace).Creation(earlier).Obj()},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*gatedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).CreationTimestamp(now).
+					StatusConditions(scheduledCondition, corev1.PodCondition{Type: ConditionTypeTerminationTarget, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+		},
+		"sync copies the status of a terminating remote pod onto a pod group member that did not start": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			workerPods: []corev1.Pod{
+				*podGroupWithWl[0].Clone().KueueFinalizer().DeletionTimestamp(now).StatusPhase(corev1.PodRunning).Obj(),
+				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[2].DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantManagersPods: []corev1.Pod{
+				*podGroup[0].Clone().StatusPhase(corev1.PodRunning).Obj(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*podGroupWithWl[0].Clone().KueueFinalizer().DeletionTimestamp(now).StatusPhase(corev1.PodRunning).Obj(),
+				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[2].DeepCopy(),
+			},
+		},
+		"sync copies the status of a terminating remote pod onto a started manager pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*startedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).StatusPhase(corev1.PodFailed).Obj(),
+			},
+			operation:        syncJob,
+			wantManagersPods: []corev1.Pod{*startedManagerPod().StatusPhase(corev1.PodFailed).Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*startedManagerPod().PrebuiltWorkloadLabel("wl1").KueueFinalizer().DeletionTimestamp(now).StatusPhase(corev1.PodFailed).Obj(),
+			},
+		},
+		"sync does not create the remote pod of a started manager pod": {
+			featureGates:        map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods:        []corev1.Pod{*startedManagerPod().Obj()},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*startedManagerPod().Obj()},
+		},
+		"fail local job when a lost manager pod only has a start time": {
+			managersPods:     []corev1.Pod{*gatedManagerPod().StatusStartTime(earlier).Obj()},
+			operation:        failLocalJobIfRemoteLost(basePodName, true),
+			wantManagersPods: []corev1.Pod{lostPod(gatedManagerPod().StatusStartTime(earlier), lostMessage)},
+		},
+		"fail local job when a lost manager pod is only Running": {
+			managersPods:     []corev1.Pod{*gatedManagerPod().StatusPhase(corev1.PodRunning).Obj()},
+			operation:        failLocalJobIfRemoteLost(basePodName, true),
+			wantManagersPods: []corev1.Pod{lostPod(gatedManagerPod().StatusPhase(corev1.PodRunning), lostMessage)},
+		},
+		"fail local job when a lost manager pod only has container statuses": {
+			managersPods:     []corev1.Pod{*gatedManagerPod().StatusContainerStatuses(runningContainer).Obj()},
+			operation:        failLocalJobIfRemoteLost(basePodName, true),
+			wantManagersPods: []corev1.Pod{lostPod(gatedManagerPod().StatusContainerStatuses(runningContainer), lostMessage)},
+		},
+		"fail local job when a lost manager pod only has init container statuses": {
+			managersPods:     []corev1.Pod{*gatedManagerPod().StatusInitContainerStatuses(completedInitContainer).Obj()},
+			operation:        failLocalJobIfRemoteLost(basePodName, true),
+			wantManagersPods: []corev1.Pod{lostPod(gatedManagerPod().StatusInitContainerStatuses(completedInitContainer), lostMessage)},
+		},
+		"sync does not create the remote pod of a terminated manager pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().StatusPhase(corev1.PodFailed).Obj(),
+			},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().StatusPhase(corev1.PodFailed).Obj(),
+			},
+		},
+		"sync does not create the remote pod of a terminating manager pod": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().KueueFinalizer().DeletionTimestamp(now).Obj(),
+			},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().KueueFinalizer().DeletionTimestamp(now).Obj(),
+			},
+		},
+		"sync creates the missing remote pod of a manager pod that was only scheduled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().StatusPhase(corev1.PodPending).StatusConditions(scheduledCondition).Obj(),
+			},
+			operation:           syncJob,
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().StatusPhase(corev1.PodPending).StatusConditions(scheduledCondition).Obj(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().
+					KueueSchedulingGate().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+		"sync creates the missing remote pod of a started pod group member": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*podGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*podGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[2].DeepCopy(),
+			},
+		},
+		"fail local job when the remote pod of a started manager pod was lost": {
+			managersPods:     []corev1.Pod{*startedManagerPod().Obj()},
+			operation:        failLocalJobIfRemoteLost(basePodName, true),
+			wantManagersPods: []corev1.Pod{lostManagerPod(lostMessage)},
+		},
+		"mark local job succeeded when the remote pod of a succeeded remote workload was lost": {
+			managersPods: []corev1.Pod{
+				*startedManagerPod().
+					StatusInitContainerStatuses(completedInitContainer).
+					StatusContainerStatuses(startedContainer).
+					Obj(),
+			},
+			operation: finishLocalJobIfRemoteLost(basePodName, true, true),
+			wantManagersPods: []corev1.Pod{
+				*startedManagerPod().
+					StatusPhase(corev1.PodSucceeded).
+					StatusReason(RemotePodLostReason).
+					StatusMessage(lostMessage).
+					StatusInitContainerStatuses(completedInitContainer).
+					StatusContainerStatuses(completedContainer).
+					Obj(),
+			},
+		},
+		"do not fail local job when the remote pod exists": {
+			managersPods: []corev1.Pod{*startedManagerPod().Obj()},
+			workerPods: []corev1.Pod{
+				*basePodBuilder.Clone().PrebuiltWorkloadLabel("wl1").Label(kueue.MultiKueueOriginLabel, "origin1").Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(basePodName, false),
+			wantNoManagerWrites: true,
+			wantManagersPods:    []corev1.Pod{*startedManagerPod().Obj()},
+			wantWorkerPods: []corev1.Pod{
+				*basePodBuilder.Clone().PrebuiltWorkloadLabel("wl1").Label(kueue.MultiKueueOriginLabel, "origin1").Obj(),
+			},
+		},
+		"do not fail local job when the manager pod never started": {
+			managersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().StatusPhase(corev1.PodPending).StatusConditions(scheduledCondition).Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(basePodName, false),
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*basePodBuilder.Clone().KueueSchedulingGate().StatusPhase(corev1.PodPending).StatusConditions(scheduledCondition).Obj(),
+			},
+		},
+		"do not fail local job when the manager pod is terminated": {
+			managersPods: []corev1.Pod{
+				*startedManagerPod().StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(basePodName, false),
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*startedManagerPod().StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+		},
+		"do not fail local job when the manager pod is terminating": {
+			managersPods: []corev1.Pod{
+				*startedManagerPod().KueueFinalizer().DeletionTimestamp(now).Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(basePodName, false),
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*startedManagerPod().KueueFinalizer().DeletionTimestamp(now).Obj(),
+			},
+		},
+		"do not fail local job for a pod group member": {
+			managersPods: []corev1.Pod{
+				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(gatedPodGroup[0].Obj().Name, false),
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*gatedPodGroup[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+			},
+		},
+		"do not fail local job for a pod group member, WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			managersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+			},
+			operation:           failLocalJobIfRemoteLost(podGroupWithWlAnnotations[0].Obj().Name, false),
+			wantNoManagerWrites: true,
+			wantManagersPods: []corev1.Pod{
+				*podGroupWithWlAnnotations[0].Clone().StatusPhase(corev1.PodRunning).StatusStartTime(earlier).Obj(),
+			},
+		},
+		"do not fail local job when the manager pod is missing": {
+			operation:           failLocalJobIfRemoteLost(basePodName, false),
+			wantNoManagerWrites: true,
+		},
 		"sync creates missing remote pod, WorkloadIdentifierAnnotations enabled": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			managersPods: []corev1.Pod{
@@ -564,7 +975,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
-			workerBuilder = workerBuilder.WithLists(&corev1.PodList{Items: tc.workerPods})
+			workerBuilder = workerBuilder.WithLists(&corev1.PodList{Items: tc.workerPods}, &kueue.WorkloadList{Items: tc.workerWorkloads})
 			workerClient := workerBuilder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)

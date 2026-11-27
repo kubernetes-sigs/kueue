@@ -212,6 +212,13 @@ type remoteClient struct {
 
 	clock clock.Clock
 
+	// evictedWorkloads holds when each workload was last seen evicted on this
+	// worker. A remote workload can be deleted right after its eviction, e.g. by
+	// garbage collection once its evicted Pod is gone, so the reconciler would
+	// otherwise not tell the eviction apart from a lost remote object.
+	evictedWorkloads   map[types.NamespacedName]time.Time
+	evictedWorkloadsMu sync.Mutex
+
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
@@ -603,6 +610,9 @@ func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r
 			log.Error(err, "Failed to get Workload keys for a remote object", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
 			return
 		}
+		if wl, isWorkload := r.Object.(*kueue.Workload); isWorkload {
+			rc.recordWorkloadEviction(wl)
+		}
 		// A new watch starts with an ADDED event for every existing remote object, so
 		// after a reconnect these events replay the whole worker. Enqueue them at low
 		// priority, like the reconnect resync, so they do not delay other workloads.
@@ -614,6 +624,42 @@ func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r
 			rc.queueWorkloadEvent(ctx, wlKey, priority)
 		}
 	}
+}
+
+// evictedWorkloadRetention bounds how long a workload is remembered as evicted
+// after it was last seen, so that the records of deleted workloads are dropped.
+const evictedWorkloadRetention = time.Hour
+
+// recordWorkloadEviction remembers whether the last seen state of a remote
+// workload is evicted. It runs for deleted workloads too, whose last state
+// is kept.
+func (rc *remoteClient) recordWorkloadEviction(wl *kueue.Workload) {
+	key := client.ObjectKeyFromObject(wl)
+	now := rc.clock.Now()
+	rc.evictedWorkloadsMu.Lock()
+	defer rc.evictedWorkloadsMu.Unlock()
+	for k, seen := range rc.evictedWorkloads {
+		if now.Sub(seen) >= evictedWorkloadRetention {
+			delete(rc.evictedWorkloads, k)
+		}
+	}
+	if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		delete(rc.evictedWorkloads, key)
+		return
+	}
+	if rc.evictedWorkloads == nil {
+		rc.evictedWorkloads = make(map[types.NamespacedName]time.Time)
+	}
+	rc.evictedWorkloads[key] = now
+}
+
+// wasWorkloadEvicted reports whether the workload was evicted when it was last
+// seen on this worker.
+func (rc *remoteClient) wasWorkloadEvicted(key types.NamespacedName) bool {
+	rc.evictedWorkloadsMu.Lock()
+	defer rc.evictedWorkloadsMu.Unlock()
+	seen, found := rc.evictedWorkloads[key]
+	return found && rc.clock.Since(seen) < evictedWorkloadRetention
 }
 
 func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {

@@ -425,9 +425,27 @@ func (p *PodWrapper) StatusPodIP(ip string) *PodWrapper {
 	return p
 }
 
+// StatusReason updates status reason of the Pod.
+func (p *PodWrapper) StatusReason(reason string) *PodWrapper {
+	p.Status.Reason = reason
+	return p
+}
+
+// StatusStartTime updates status start time of the Pod.
+func (p *PodWrapper) StatusStartTime(t time.Time) *PodWrapper {
+	p.Status.StartTime = new(metav1.NewTime(t))
+	return p
+}
+
 // StatusContainerStatuses updates status container statuses of the Pod.
 func (p *PodWrapper) StatusContainerStatuses(statuses ...corev1.ContainerStatus) *PodWrapper {
 	p.Status.ContainerStatuses = statuses
+	return p
+}
+
+// StatusInitContainerStatuses updates status init container statuses of the Pod.
+func (p *PodWrapper) StatusInitContainerStatuses(statuses ...corev1.ContainerStatus) *PodWrapper {
+	p.Status.InitContainerStatuses = statuses
 	return p
 }
 

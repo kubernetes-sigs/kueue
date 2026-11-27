@@ -100,6 +100,31 @@ type MultiKueueLocalStatusResetter interface {
 	ResetLocalStatus(ctx context.Context, localClient client.Client, key types.NamespacedName) error
 }
 
+// MultiKueueRemoteLossHandler is an optional interface for MultiKueue adapters
+// whose local object only reflects the status copied from the remote object
+// (e.g., a gated Pod). When the remote object disappears after it started, for
+// example because its node was removed, nothing else would move the local object
+// to a final state: requeueing the workload would silently run the job again,
+// and finishing it would leave the local object running forever. Finishing the
+// local object lets its owner observe the loss and retry.
+//
+// Detecting the loss and finishing the local object are separate steps, so the
+// caller can confirm, after the remote object was found missing, that it was not
+// removed on purpose (e.g., by an eviction on the worker).
+type MultiKueueRemoteLossHandler interface {
+	// IsRemoteLost reports whether the local object carries a status copied from
+	// a remote object that started running, and that remote object no longer
+	// exists in the worker cluster. A missing, terminated or terminating local
+	// object is not reported as lost.
+	IsRemoteLost(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) (bool, error)
+	// FinishLostLocalJob moves the local object of a lost remote object to a
+	// final state, with the given message. The local object is marked succeeded
+	// if remoteSucceeded is true, and failed otherwise. It reports whether the
+	// local object was finished. A missing, terminated or terminating local
+	// object is left unchanged.
+	FinishLostLocalJob(ctx context.Context, localClient client.Client, key types.NamespacedName, remoteSucceeded bool, message string) (bool, error)
+}
+
 // MultiKueueMultiWorkloadAdapter is an optional interface for MultiKueue adapters
 // whose jobs create multiple workloads (e.g., LeaderWorkerSet creates one workload per replica).
 type MultiKueueMultiWorkloadAdapter interface {
