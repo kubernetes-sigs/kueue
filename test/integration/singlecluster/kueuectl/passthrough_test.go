@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/set"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -192,5 +193,103 @@ var _ = ginkgo.Describe("Kueuectl Pass-through", func() {
 		gomega.Expect(runKueuectl("get", "topology", topo.Name, "-o=jsonpath={.spec.levels[0].nodeLabel}")).To(gomega.Equal("cloud.provider.com/topology-block"))
 		runKueuectl("delete", "topology", topo.Name)
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topo, false)
+	})
+
+	ginkgo.It("Should get, describe, patch, edit and delete an AdmissionCheck", func() {
+		ac := utiltestingapi.MakeAdmissionCheck("pass-through-ac").
+			ControllerName("ac-controller-1").
+			Parameters("kueue.x-k8s.io", "MultiKueueConfig", "config-1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, ac)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+		})
+
+		for _, name := range []string{"admissioncheck", "ac"} {
+			gomega.Expect(runKueuectl("get", name, ac.Name, "-o=jsonpath={.spec.parameters.name}")).To(gomega.Equal("config-1"))
+		}
+		gomega.Expect(runKueuectl("describe", "admissioncheck", ac.Name)).To(gomega.MatchRegexp(`Controller Name:\s+ac-controller-1`))
+		runKueuectl("patch", "admissioncheck", ac.Name, "--type=merge", "-p", `{"spec":{"parameters":{"name":"config-2"}}}`)
+		gomega.Expect(runKueuectl("get", "admissioncheck", ac.Name, "-o=jsonpath={.spec.parameters.name}")).To(gomega.Equal("config-2"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/name: config-2/name: config-1/'`}, "edit", "admissioncheck", ac.Name)
+		gomega.Expect(runKueuectl("get", "admissioncheck", ac.Name, "-o=jsonpath={.spec.parameters.name}")).To(gomega.Equal("config-1"))
+		runKueuectl("delete", "admissioncheck", ac.Name)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac, false)
+	})
+
+	ginkgo.It("Should get, describe, patch, edit and delete a WorkloadPriorityClass", func() {
+		wpc := utiltestingapi.MakeWorkloadPriorityClass("pass-through-wpc").PriorityValue(100).Obj()
+		behavioral.MustCreate(ctx, k8sClient, wpc)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, true)
+		})
+
+		for _, name := range []string{"workloadpriorityclass", "wpc"} {
+			gomega.Expect(runKueuectl("get", name, wpc.Name, "-o=jsonpath={.value}")).To(gomega.Equal("100"))
+		}
+		gomega.Expect(runKueuectl("describe", "workloadpriorityclass", wpc.Name)).To(gomega.MatchRegexp(`Value:\s+100`))
+		runKueuectl("patch", "workloadpriorityclass", wpc.Name, "--type=merge", "-p", `{"value":200}`)
+		gomega.Expect(runKueuectl("get", "workloadpriorityclass", wpc.Name, "-o=jsonpath={.value}")).To(gomega.Equal("200"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/value: 200/value: 100/'`}, "edit", "workloadpriorityclass", wpc.Name)
+		gomega.Expect(runKueuectl("get", "workloadpriorityclass", wpc.Name, "-o=jsonpath={.value}")).To(gomega.Equal("100"))
+		runKueuectl("delete", "workloadpriorityclass", wpc.Name)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wpc, false)
+	})
+
+	ginkgo.It("Should get, describe, patch, edit and delete a MultiKueueCluster", func() {
+		mkc := utiltestingapi.MakeMultiKueueCluster("pass-through-mkc").KubeConfig(kueue.SecretLocationType, "secret-1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, mkc)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkc, true)
+		})
+
+		for _, name := range []string{"multikueuecluster", "mkc"} {
+			gomega.Expect(runKueuectl("get", name, mkc.Name, "-o=jsonpath={.spec.clusterSource.kubeConfig.location}")).To(gomega.Equal("secret-1"))
+		}
+		gomega.Expect(runKueuectl("describe", "multikueuecluster", mkc.Name)).To(gomega.MatchRegexp(`Location:\s+secret-1`))
+		runKueuectl("patch", "multikueuecluster", mkc.Name, "--type=merge", "-p", `{"spec":{"clusterSource":{"kubeConfig":{"location":"secret-2"}}}}`)
+		gomega.Expect(runKueuectl("get", "multikueuecluster", mkc.Name, "-o=jsonpath={.spec.clusterSource.kubeConfig.location}")).To(gomega.Equal("secret-2"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/location: secret-2/location: secret-1/'`}, "edit", "multikueuecluster", mkc.Name)
+		gomega.Expect(runKueuectl("get", "multikueuecluster", mkc.Name, "-o=jsonpath={.spec.clusterSource.kubeConfig.location}")).To(gomega.Equal("secret-1"))
+		runKueuectl("delete", "multikueuecluster", mkc.Name)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkc, false)
+	})
+
+	ginkgo.It("Should get, describe, patch, edit and delete a MultiKueueConfig", func() {
+		mkconf := utiltestingapi.MakeMultiKueueConfig("pass-through-mkconf").Clusters("cluster-1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, mkconf)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkconf, true)
+		})
+
+		for _, name := range []string{"multikueueconfig", "mkconf"} {
+			gomega.Expect(runKueuectl("get", name, mkconf.Name, "-o=jsonpath={.spec.clusters[0]}")).To(gomega.Equal("cluster-1"))
+		}
+		gomega.Expect(runKueuectl("describe", "multikueueconfig", mkconf.Name)).To(gomega.MatchRegexp(`Clusters:\s+cluster-1`))
+		runKueuectl("patch", "multikueueconfig", mkconf.Name, "--type=merge", "-p", `{"spec":{"clusters":["cluster-2"]}}`)
+		gomega.Expect(runKueuectl("get", "multikueueconfig", mkconf.Name, "-o=jsonpath={.spec.clusters[0]}")).To(gomega.Equal("cluster-2"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/- cluster-2/- cluster-1/'`}, "edit", "multikueueconfig", mkconf.Name)
+		gomega.Expect(runKueuectl("get", "multikueueconfig", mkconf.Name, "-o=jsonpath={.spec.clusters[0]}")).To(gomega.Equal("cluster-1"))
+		runKueuectl("delete", "multikueueconfig", mkconf.Name)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkconf, false)
+	})
+
+	ginkgo.It("Should get, describe, patch, edit and delete a ProvisioningRequestConfig", func() {
+		prc := utiltestingapi.MakeProvisioningRequestConfig("pass-through-prc").ProvisioningClass("class-1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, prc)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+		})
+
+		for _, name := range []string{"provisioningrequestconfig", "prc"} {
+			gomega.Expect(runKueuectl("get", name, prc.Name, "-o=jsonpath={.spec.provisioningClassName}")).To(gomega.Equal("class-1"))
+		}
+		gomega.Expect(runKueuectl("describe", "provisioningrequestconfig", prc.Name)).To(gomega.MatchRegexp(`Provisioning Class Name:\s+class-1`))
+		runKueuectl("patch", "provisioningrequestconfig", prc.Name, "--type=merge", "-p", `{"spec":{"provisioningClassName":"class-2"}}`)
+		gomega.Expect(runKueuectl("get", "provisioningrequestconfig", prc.Name, "-o=jsonpath={.spec.provisioningClassName}")).To(gomega.Equal("class-2"))
+		runKueuectlWithEnv([]string{`KUBE_EDITOR=sed -i -e 's/provisioningClassName: class-2/provisioningClassName: class-1/'`}, "edit", "provisioningrequestconfig", prc.Name)
+		gomega.Expect(runKueuectl("get", "provisioningrequestconfig", prc.Name, "-o=jsonpath={.spec.provisioningClassName}")).To(gomega.Equal("class-1"))
+		runKueuectl("delete", "provisioningrequestconfig", prc.Name)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, false)
 	})
 })

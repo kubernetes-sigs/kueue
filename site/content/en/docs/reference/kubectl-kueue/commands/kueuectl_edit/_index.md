@@ -234,10 +234,15 @@ Edit a resource on the server
 ## See Also
 
 * [kueuectl](../kueuectl/)	 - Controls Kueue queueing manager
+* [kueuectl edit admissioncheck](kueuectl_edit_admissioncheck/)	 - Pass-through &#34;edit admissioncheck&#34; to kubectl
 * [kueuectl edit clusterqueue](kueuectl_edit_clusterqueue/)	 - Pass-through &#34;edit clusterqueue&#34; to kubectl
 * [kueuectl edit cohort](kueuectl_edit_cohort/)	 - Pass-through &#34;edit cohort&#34; to kubectl
 * [kueuectl edit localqueue](kueuectl_edit_localqueue/)	 - Pass-through &#34;edit localqueue&#34; to kubectl
+* [kueuectl edit multikueuecluster](kueuectl_edit_multikueuecluster/)	 - Pass-through &#34;edit multikueuecluster&#34; to kubectl
+* [kueuectl edit multikueueconfig](kueuectl_edit_multikueueconfig/)	 - Pass-through &#34;edit multikueueconfig&#34; to kubectl
+* [kueuectl edit provisioningrequestconfig](kueuectl_edit_provisioningrequestconfig/)	 - Pass-through &#34;edit provisioningrequestconfig&#34; to kubectl
 * [kueuectl edit resourceflavor](kueuectl_edit_resourceflavor/)	 - Pass-through &#34;edit resourceflavor&#34; to kubectl
 * [kueuectl edit topology](kueuectl_edit_topology/)	 - Pass-through &#34;edit topology&#34; to kubectl
 * [kueuectl edit workload](kueuectl_edit_workload/)	 - Pass-through &#34;edit workload&#34; to kubectl
+* [kueuectl edit workloadpriorityclass](kueuectl_edit_workloadpriorityclass/)	 - Pass-through &#34;edit workloadpriorityclass&#34; to kubectl
 

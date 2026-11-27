@@ -55,6 +55,11 @@ var (
 		{name: "resourceflavor", aliases: []string{"rf"}},
 		{name: "cohort", aliases: []string{"co"}},
 		{name: "topology", aliases: []string{"topo"}},
+		{name: "admissioncheck", aliases: []string{"ac"}},
+		{name: "workloadpriorityclass", aliases: []string{"wpc"}},
+		{name: "multikueuecluster", aliases: []string{"mkc"}},
+		{name: "multikueueconfig", aliases: []string{"mkconf"}},
+		{name: "provisioningrequestconfig", aliases: []string{"prc"}},
 	}
 )
 
