@@ -71,6 +71,10 @@ type WorkloadVirtualPodGroups struct {
 	PodGroups          []*schedulingv1beta1.PodGroup
 	CompositePodGroups []*schedulingv1alpha3.CompositePodGroup
 	LeafPGForPod       func(podSetName string, replicaIdx int) string
+	// PodIndexOffset returns the offset added to the pod indexes of a PodSet whose pods share
+	// a leaf PodGroup with pods of the PodSets listed before it in the same PodSet group, so
+	// that the pod indexes are unique within the leaf PodGroup.
+	PodIndexOffset func(podSetName string) int
 }
 
 // virtualGroupName generates a unique group name, truncating wlName if needed while keeping groupID and the hash suffix
@@ -197,8 +201,9 @@ func groupPodSets(wl *kueue.Workload) (map[string][]*kueue.PodSet, []string, err
 }
 
 type podSetLeafMapping struct {
-	sliceSize int32
-	leafPGs   []string
+	sliceSize   int32
+	leafPGs     []string
+	indexOffset int32
 }
 
 // virtualPodGroupFactory builds and tracks the virtual PodGroup hierarchy for a workload
@@ -264,24 +269,20 @@ func (f *virtualPodGroupFactory) build(groups map[string][]*kueue.PodSet, psgOrd
 			}
 			return mapping.leafPGs[idx]
 		},
+		PodIndexOffset: func(podSetName string) int {
+			return int(f.podToLeafPG[podSetName].indexOffset)
+		},
 	}, nil
 }
 
 // buildSubtrees builds the PodGroups for a group of PodSets, wrapping them in a CompositePodGroup if needed
 func (f *virtualPodGroupFactory) buildSubtrees(psgName string, podSets []*kueue.PodSet) ([]string, error) {
-	var roots []string
 	hasSlices := false
-
-	// Build groups for each PodSet
 	for _, ps := range podSets {
 		if len(utiltas.PodSetSliceRequiredTopologyConstraints(ps.TopologyRequest)) > 0 {
 			hasSlices = true
+			break
 		}
-		psRoots, err := f.buildTreesForPodSet(ps)
-		if err != nil {
-			return nil, err
-		}
-		roots = append(roots, psRoots...)
 	}
 
 	// Extract group-level required topology constraint
@@ -291,6 +292,22 @@ func (f *virtualPodGroupFactory) buildSubtrees(psgName string, podSets []*kueue.
 			groupTopology = *ps.TopologyRequest.Required
 			break
 		}
+	}
+
+	// PodSets that must share one required topology domain (for example the leader and workers
+	// of a LeaderWorkerSet group) form a single gang, so they share one leaf PodGroup.
+	if !hasSlices && groupTopology != "" && len(podSets) > 1 {
+		return []string{f.buildSharedLeafPodGroup(psgName, podSets, groupTopology)}, nil
+	}
+
+	// Build groups for each PodSet
+	var roots []string
+	for _, ps := range podSets {
+		psRoots, err := f.buildTreesForPodSet(ps)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, psRoots...)
 	}
 
 	// Wrap in an enclosing CompositePodGroup if needed
@@ -305,6 +322,22 @@ func (f *virtualPodGroupFactory) buildSubtrees(psgName string, podSets []*kueue.
 	}
 	f.vcpgMap[cpgName] = newVCPG(cpgName, f.wl.Namespace, groupTopology, int32(len(roots)))
 	return []string{cpgName}, nil
+}
+
+// buildSharedLeafPodGroup creates one leaf PodGroup holding the pods of all podSets, constrained to
+// topology. The pods of each PodSet are indexed after the pods of the PodSets before it.
+func (f *virtualPodGroupFactory) buildSharedLeafPodGroup(psgName string, podSets []*kueue.PodSet, topology string) string {
+	pgName := virtualGroupName("pg", f.wl.Name, "g."+strings.ReplaceAll(psgName, "/", "."))
+	var count int32
+	for _, ps := range podSets {
+		f.podToLeafPG[string(ps.Name)] = podSetLeafMapping{
+			leafPGs:     []string{pgName},
+			indexOffset: count,
+		}
+		count += ps.Count
+	}
+	f.vpgMap[pgName] = newVPG(pgName, f.wl.Namespace, topology, count)
+	return pgName
 }
 
 // buildTreesForPodSet creates the PodGroups for one PodSet (either sliced or a single leaf)

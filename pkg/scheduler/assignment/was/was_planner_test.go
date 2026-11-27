@@ -963,16 +963,6 @@ func TestPlan(t *testing.T) {
 			wantPodSets:  groupedPodSetsUnchanged,
 			wantAdded:    &addedPodGroups{},
 		},
-		"second CompositePodGroup fails to be added: planning error, the added one is removed": {
-			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
-			podSets:      groupedPodSets,
-			initialMode:  flavorassigner.Fit,
-			failAddCPGAt: 2,
-			wantMode:     flavorassigner.Fit,
-			wantErrs:     []string{"virtualization error: unable to add composite pod group"},
-			wantPodSets:  groupedPodSetsUnchanged,
-			wantAdded:    &addedPodGroups{cpgs: 1},
-		},
 		"first PodGroup fails to be added: planning error, all CompositePodGroups removed": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      groupedPodSets,
@@ -981,23 +971,23 @@ func TestPlan(t *testing.T) {
 			wantMode:     flavorassigner.Fit,
 			wantErrs:     []string{"virtualization error: unable to add pod group"},
 			wantPodSets:  groupedPodSetsUnchanged,
-			wantAdded:    &addedPodGroups{cpgs: 2},
+			wantAdded:    &addedPodGroups{cpgs: 1},
 		},
 		"last PodGroup fails to be added: planning error, all added groups removed": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      groupedPodSets,
 			initialMode:  flavorassigner.Fit,
-			failAddPGAt:  3,
+			failAddPGAt:  2,
 			wantMode:     flavorassigner.Fit,
 			wantErrs:     []string{"virtualization error: unable to add pod group"},
 			wantPodSets:  groupedPodSetsUnchanged,
-			wantAdded:    &addedPodGroups{cpgs: 2, pgs: 2},
+			wantAdded:    &addedPodGroups{cpgs: 1, pgs: 1},
 		},
 		"PodGroup fails to be added and the groups fail to be removed: planning error": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      groupedPodSets,
 			initialMode:  flavorassigner.Fit,
-			failAddPGAt:  3,
+			failAddPGAt:  2,
 			removeErr:    errSimulator,
 			wantMode:     flavorassigner.Fit,
 			wantErrs: []string{
@@ -1006,21 +996,7 @@ func TestPlan(t *testing.T) {
 				"unable to remove composite pod group",
 			},
 			wantPodSets: groupedPodSetsUnchanged,
-			wantAdded:   &addedPodGroups{cpgs: 2, pgs: 2},
-		},
-		"second CompositePodGroup fails to be added and the added one fails to be removed: planning error": {
-			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
-			podSets:      groupedPodSets,
-			initialMode:  flavorassigner.Fit,
-			failAddCPGAt: 2,
-			removeErr:    errSimulator,
-			wantMode:     flavorassigner.Fit,
-			wantErrs: []string{
-				"virtualization error: unable to add composite pod group",
-				"unable to remove composite pod group",
-			},
-			wantPodSets: groupedPodSetsUnchanged,
-			wantAdded:   &addedPodGroups{cpgs: 1},
+			wantAdded:   &addedPodGroups{cpgs: 1, pgs: 1},
 		},
 		"groups fail to be removed after scheduling: planning error": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
@@ -1260,30 +1236,37 @@ func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
 		t.Fatalf("Plan() unexpected error: %v", plan.Error)
 	}
 
-	// Verify CompositePodGroup was added and cleaned up
-	if len(testSim.addedCPGs) != 1 {
-		t.Errorf("expected 1 CompositePodGroup added, got %d", len(testSim.addedCPGs))
+	// The PodSets of the group share a required topology, so they share one leaf PodGroup
+	// and no CompositePodGroup is needed.
+	if len(testSim.addedCPGs) != 0 {
+		t.Errorf("expected 0 CompositePodGroups added, got %d", len(testSim.addedCPGs))
 	}
-	if len(testSim.removedCPGs) != 1 {
-		t.Errorf("expected 1 CompositePodGroup removed, got %d", len(testSim.removedCPGs))
-	}
-
-	// Verify PodGroups were added and cleaned up
-	if len(testSim.addedPGs) != 2 {
-		t.Errorf("expected 2 PodGroups added, got %d", len(testSim.addedPGs))
-	}
-	if len(testSim.removedPGs) != 2 {
-		t.Errorf("expected 2 PodGroups removed, got %d", len(testSim.removedPGs))
+	if len(testSim.removedCPGs) != 0 {
+		t.Errorf("expected 0 CompositePodGroups removed, got %d", len(testSim.removedCPGs))
 	}
 
-	// Verify virtual pods were scheduled with leaf PodGroup references
+	// Verify PodGroup was added and cleaned up
+	if len(testSim.addedPGs) != 1 {
+		t.Errorf("expected 1 PodGroup added, got %d", len(testSim.addedPGs))
+	}
+	if len(testSim.removedPGs) != 1 {
+		t.Errorf("expected 1 PodGroup removed, got %d", len(testSim.removedPGs))
+	}
+
+	// Verify virtual pods were scheduled with references to the shared leaf PodGroup
 	if len(testSim.scheduledPods) != 4 {
 		t.Fatalf("expected 4 scheduled pods, got %d", len(testSim.scheduledPods))
 	}
+	podGroupNames := sets.New[string]()
 	for _, pod := range testSim.scheduledPods {
 		if pod.Spec.SchedulingGroup == nil || pod.Spec.SchedulingGroup.PodGroupName == nil {
 			t.Errorf("pod %s has no SchedulingGroup.PodGroupName", pod.Name)
+			continue
 		}
+		podGroupNames.Insert(*pod.Spec.SchedulingGroup.PodGroupName)
+	}
+	if podGroupNames.Len() != 1 {
+		t.Errorf("expected all pods to reference one PodGroup, got %v", sets.List(podGroupNames))
 	}
 }
 
