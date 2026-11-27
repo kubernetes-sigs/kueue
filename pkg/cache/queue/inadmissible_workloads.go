@@ -318,9 +318,7 @@ func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	return &workqueueRequeuer{
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.NewTypedItemExponentialFailureRateLimiter[requeueRequest](namespaceLookupRetryBaseDelay, namespaceLookupRetryMaxDelay),
-			workqueue.TypedRateLimitingQueueConfig[requeueRequest]{
-				Clock: options.clock,
-			},
+			workqueue.TypedRateLimitingQueueConfig[requeueRequest]{Clock: options.clock},
 		),
 		batchPeriod: options.batchPeriod,
 	}

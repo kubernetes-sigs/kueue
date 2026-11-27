@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -122,7 +123,8 @@ var _ = ginkgo.Describe("PreemptionLimits", ginkgo.Label("feature:configurablepr
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurablePreemptionLimits, false)
-			startManager()
+			fwk.StopManager(ctx)
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(clock.RealClock{}))
 
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "preemptionlimits-disabled-")
 			flavor = utiltestingapi.MakeResourceFlavor("rf-preemptionlimits-disabled").Obj()
@@ -184,7 +186,8 @@ var _ = ginkgo.Describe("PreemptionLimits", ginkgo.Label("feature:configurablepr
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConfigurablePreemptionLimits, true)
 			fakeClock = testingclock.NewFakeClock(time.Now().Truncate(time.Second))
-			startManagerWithClock(fakeClock)
+			fwk.StopManager(ctx)
+			fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(fakeClock))
 
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "preemptionlimits-")
 			flavor = utiltestingapi.MakeResourceFlavor("rf-preemptionlimits").Obj()

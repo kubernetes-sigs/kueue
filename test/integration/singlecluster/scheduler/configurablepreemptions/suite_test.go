@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -83,24 +84,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-// startManager starts the manager and scheduler for the current spec and
-// registers StopManager via StartManagerForSpec. It is called from spec/container
-// BeforeEach blocks rather than a suite-level BeforeEach because Ginkgo runs
-// suite-level BeforeEach before container BeforeEach blocks, so per-container
-// SetFeatureGateDuringTest(ConfigurablePreemptionLimits, ...) overrides must run
-// before SetupControllers registers controllers and allocates the tracker.
-func startManager() {
-	ginkgo.GinkgoHelper()
-	fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(clock.RealClock{}, 100*time.Millisecond))
-}
+var _ = ginkgo.BeforeEach(func() {
+	fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(clock.RealClock{}))
+})
 
-func startManagerWithClock(clk clock.WithTickerAndDelayedExecution) {
-	ginkgo.GinkgoHelper()
-	// Use batchPeriod=0 so un-delayed requeue notifications do not wait on a frozen test clock.
-	fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(clk, 0))
-}
-
-func managerAndSchedulerSetup(clk clock.WithTickerAndDelayedExecution, requeueBatchPeriod time.Duration) framework.ManagerSetup {
+func managerAndSchedulerSetup(clk clock.WithTickerAndDelayedExecution) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -112,8 +100,16 @@ func managerAndSchedulerSetup(clk clock.WithTickerAndDelayedExecution, requeueBa
 		if features.Enabled(features.ConfigurablePreemptionLimits) {
 			preemptionLimitTracker = limits.NewPreemptionLimitTracker()
 		}
-		queues := integration.NewManagerWithClock(ctx, mgr.GetClient(), cCache, requeueBatchPeriod, clk,
-			qcache.WithPreemptionExpectations(preemptionExpectations))
+		requeuerOptions := []qcache.RequeuerOption{
+			qcache.WithInadmissibleWorkloadRequeuerConfig(&config.InadmissibleWorkloadRequeuer{
+				BatchPeriod: &metav1.Duration{Duration: 0},
+			}),
+			qcache.WithRequeuerClock(clk),
+		}
+		queues := integration.NewManagerWithRequeuerOptions(ctx, mgr.GetClient(), cCache,
+			requeuerOptions,
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithClock(clk))
 		qManager = queues
 
 		configuration := &config.Configuration{
@@ -129,8 +125,8 @@ func managerAndSchedulerSetup(clk clock.WithTickerAndDelayedExecution, requeueBa
 			core.SetupControllersOpts{
 				PreemptionExpectations:       preemptionExpectations,
 				PreemptionLimitTracker:       preemptionLimitTracker,
-				PreemptionLimitPruneInterval: 100 * time.Millisecond,
 				Clock:                        clk,
+				PreemptionLimitPruneInterval: 100 * time.Millisecond,
 			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

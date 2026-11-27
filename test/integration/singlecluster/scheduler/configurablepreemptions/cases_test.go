@@ -61,7 +61,6 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 	}
 
 	ginkgo.BeforeEach(func() {
-		startManager()
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "configurablepreemptions-")
 	})
 
