@@ -284,11 +284,12 @@ func addVolumes(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 
 func addInitContainers(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 	var spec *sparkv1beta2.SparkPodSpec
-	if sparkutil.IsDriverPod(pod) {
+	switch {
+	case sparkutil.IsDriverPod(pod):
 		spec = &app.Spec.Driver.SparkPodSpec
-	} else if sparkutil.IsExecutorPod(pod) {
+	case sparkutil.IsExecutorPod(pod):
 		spec = &app.Spec.Executor.SparkPodSpec
-	} else {
+	default:
 		return nil
 	}
 
