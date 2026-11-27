@@ -279,6 +279,9 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 					g.Expect(got.Status.Window.LastUpdateTime.IsZero()).To(gomega.BeFalse())
 					g.Expect(got.Status.Window.TopAggregatedCounts).To(gomega.HaveLen(1))
 					g.Expect(got.Status.Window.TopAggregatedCounts[0].Key).To(gomega.Equal(string(policy.GlobalAggregationKey)))
+					// Status is refreshed immediately on spec changes and otherwise every minute;
+					// the reconcile triggered by Limit=2 may write status before or after midJob2
+					// preempts midJob1, so either 1 or 2 is valid without waiting a full minute.
 					g.Expect(got.Status.Window.TopAggregatedCounts[0].Value).To(gomega.BeElementOf(int32(1), int32(2)))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
