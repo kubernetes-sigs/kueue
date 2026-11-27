@@ -85,13 +85,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		"An Exactly request on a logical resource named cpu is charged in whole units": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			mappings: []configapi.DeviceClassMapping{{Name: corev1.ResourceCPU, DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"}}},
@@ -101,13 +97,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"A prioritized list on a logical resource named cpu is charged in whole units like an Exactly request": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-fa")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-fa").
+					Obj()).
 				Obj(),
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-fa", "ns1").
@@ -124,14 +116,10 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"Single claim template with single device": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-2", ResourceClaimName: new("claim-2")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaim("req-2", "claim-2").
+					Obj()).
 				Obj(),
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
@@ -150,14 +138,10 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"Unmapped DeviceClass returns error": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-2", ResourceClaimName: new("claim-2")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaim("req-2", "claim-2").
+					Obj()).
 				Obj(),
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			lookup:       noLookup,
@@ -168,7 +152,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"Two containers each using different claim templates": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -209,7 +193,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		"Two containers sharing one claim template": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -243,7 +227,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -265,7 +249,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		"Init and regular container sharing one template": {
 			extraObjects: []runtime.Object{testingdra.MakeDeviceClass("test-deviceclass-1").Obj()},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					PodSpec(corev1.PodSpec{
 						InitContainers: []corev1.Container{
 							{
@@ -301,13 +285,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-all", ResourceClaimTemplateName: new("claim-tmpl-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-all", "claim-tmpl-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -332,13 +312,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel", ResourceClaimTemplateName: new("claim-tmpl-cel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel", "claim-tmpl-cel").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -365,13 +341,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			wantErr: celPoolError,
 		},
@@ -393,13 +365,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			wantErr: celPoolError,
 		},
@@ -423,13 +391,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			wantErr: celPoolError,
 		},
@@ -448,13 +412,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			wantErr: celPoolError,
 		},
@@ -480,13 +440,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -509,13 +465,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -537,13 +489,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -569,13 +517,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-overlap", ResourceClaimTemplateName: new("claim-tmpl-cel-overlap")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-overlap", "claim-tmpl-cel-overlap").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -597,13 +541,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -622,13 +562,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			mappings: []configapi.DeviceClassMapping{{
 				Name:             "res-1",
@@ -658,13 +594,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			mappings: []configapi.DeviceClassMapping{{
 				Name:             "res-1",
@@ -697,13 +629,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			wantErr: celPoolError,
 		},
@@ -724,13 +652,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			wantErr: celPoolError,
 		},
@@ -755,13 +679,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -785,13 +705,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			want: celPoolResources,
 		},
@@ -810,13 +726,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-cel-pool", "claim-tmpl-cel-pool").
+					Obj()).
 				Obj(),
 			mappings: []configapi.DeviceClassMapping{{
 				Name:             "res-1",
@@ -852,13 +764,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-filtered", ResourceClaimTemplateName: new("claim-tmpl-cel-filtered")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-filtered", "claim-tmpl-cel-filtered").
+					Obj()).
 				Obj(),
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				if dc == "gpu-class" {
@@ -885,13 +793,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-unsat", ResourceClaimTemplateName: new("claim-tmpl-unsat")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-unsat", "claim-tmpl-unsat").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -915,13 +819,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-shared", ResourceClaimTemplateName: new("claim-tmpl-shared")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-shared", "claim-tmpl-shared").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -944,13 +844,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-exclusive", ResourceClaimTemplateName: new("claim-tmpl-exclusive")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-exclusive", "claim-tmpl-exclusive").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -974,13 +870,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-insuf", ResourceClaimTemplateName: new("claim-tmpl-insuf")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-insuf", "claim-tmpl-insuf").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1008,13 +900,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa-fallback", ResourceClaimTemplateName: new("claim-tmpl-fa-fallback")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa-fallback", "claim-tmpl-fa-fallback").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1040,13 +928,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa-short", ResourceClaimTemplateName: new("claim-tmpl-fa-short")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa-short", "claim-tmpl-fa-short").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1073,13 +957,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa-nocel", ResourceClaimTemplateName: new("claim-tmpl-fa-nocel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa-nocel", "claim-tmpl-fa-nocel").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1110,13 +990,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa-release", ResourceClaimTemplateName: new("claim-tmpl-fa-release")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa-release", "claim-tmpl-fa-release").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1142,13 +1018,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa-reserve", ResourceClaimTemplateName: new("claim-tmpl-fa-reserve")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa-reserve", "claim-tmpl-fa-reserve").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1175,13 +1047,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-multi", ResourceClaimTemplateName: new("claim-tmpl-multi")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-multi", "claim-tmpl-multi").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1209,13 +1077,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1243,13 +1107,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1278,13 +1138,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1312,13 +1168,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1348,13 +1200,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1383,13 +1231,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1418,13 +1262,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1456,13 +1296,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1498,13 +1334,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1540,13 +1372,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1571,13 +1399,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1611,13 +1435,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1656,13 +1476,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1699,13 +1515,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1744,13 +1556,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1791,13 +1599,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1847,13 +1651,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-backtrack", ResourceClaimTemplateName: new("claim-tmpl-backtrack")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-backtrack", "claim-tmpl-backtrack").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1869,13 +1669,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-badcel", ResourceClaimTemplateName: new("claim-tmpl-badcel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-badcel", "claim-tmpl-badcel").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -1894,13 +1690,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-unsat-skip", ResourceClaimTemplateName: new("claim-tmpl-unsat-skip")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-unsat-skip", "claim-tmpl-unsat-skip").
+					Obj()).
 				Obj(),
 			lookup:          defaultLookup,
 			skipDeviceCheck: true,
@@ -1916,13 +1708,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-badcel-skip", ResourceClaimTemplateName: new("claim-tmpl-badcel-skip")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-badcel-skip", "claim-tmpl-badcel-skip").
+					Obj()).
 				Obj(),
 			lookup:          defaultLookup,
 			skipDeviceCheck: true,
@@ -1950,13 +1738,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa-short-skip", ResourceClaimTemplateName: new("claim-tmpl-fa-short-skip")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa-short-skip", "claim-tmpl-fa-short-skip").
+					Obj()).
 				Obj(),
 			lookup:          defaultLookup,
 			featureGates:    map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -1975,13 +1759,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-constraints", ResourceClaimTemplateName: new("claim-tmpl-constraints")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-constraints", "claim-tmpl-constraints").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -1995,13 +1775,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-first", ResourceClaimTemplateName: new("claim-tmpl-first")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-first", "claim-tmpl-first").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: false},
@@ -2025,13 +1801,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				},
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-empty", ResourceClaimTemplateName: new("claim-tmpl-empty")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-empty", "claim-tmpl-empty").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2056,13 +1828,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2088,13 +1856,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2125,13 +1889,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2170,13 +1930,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2212,13 +1968,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2251,13 +2003,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2293,13 +2041,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin-all", ResourceClaimTemplateName: new("claim-tmpl-admin-all")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin-all", "claim-tmpl-admin-all").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -2315,13 +2059,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-admin", ResourceClaimTemplateName: new("claim-tmpl-admin")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-admin", "claim-tmpl-admin").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 		},
@@ -2335,13 +2075,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-mixed", ResourceClaimTemplateName: new("claim-tmpl-mixed")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-mixed", "claim-tmpl-mixed").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -2360,13 +2096,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-noclass", ResourceClaimTemplateName: new("claim-tmpl-noclass")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-noclass", "claim-tmpl-noclass").
+					Obj()).
 				Obj(),
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				return "res-1", true
@@ -2380,13 +2112,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"A request on a nonexistent DeviceClass returns error": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			wantErr: field.ErrorList{
@@ -2398,13 +2126,9 @@ func Test_GetResourceRequests(t *testing.T) {
 		},
 		"A request on a nonexistent DeviceClass is charged when skipDeviceCheck is true": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					Obj()).
 				Obj(),
 			lookup:          defaultLookup,
 			skipDeviceCheck: true,
@@ -2423,13 +2147,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-fa", ResourceClaimTemplateName: new("claim-tmpl-fa-noclass")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-fa", "claim-tmpl-fa-noclass").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
@@ -2460,13 +2180,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-nodc", ResourceClaimTemplateName: new("claim-tmpl-nodc")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-nodc", "claim-tmpl-nodc").
+					Obj()).
 				Obj(),
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
 				return "res-1", true
@@ -2481,13 +2197,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-config", ResourceClaimTemplateName: new("claim-tmpl-config")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-config", "claim-tmpl-config").
+					Obj()).
 				Obj(),
 			lookup: defaultLookup,
 			want: map[kueue.PodSetReference]corev1.ResourceList{
@@ -2504,14 +2216,10 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic.example.com"},
@@ -2525,13 +2233,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("channel.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-channel", "claim-tmpl-channel").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"channel.example.com"},
@@ -2543,13 +2247,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-channel", "claim-tmpl-channel").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"channel.example.com"},
@@ -2568,13 +2268,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("channel.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-channel", "claim-tmpl-channel").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			excluded:     []corev1.ResourceName{"channel.example.com"},
@@ -2591,13 +2287,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("channel.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-channel", ResourceClaimTemplateName: new("claim-tmpl-channel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-channel", "claim-tmpl-channel").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic.example.com"},
@@ -2615,14 +2307,10 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-cel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic-cel").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic.example.com"},
@@ -2637,13 +2325,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-badcel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic-badcel").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic.example.com"},
@@ -2668,14 +2352,10 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic-b.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic-fa").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			excluded:     []corev1.ResourceName{"nic-a.example.com", "nic-b.example.com"},
@@ -2692,13 +2372,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic-a.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa-badcel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic-fa-badcel").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic-a.example.com"},
@@ -2730,13 +2406,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-mixed", ResourceClaimTemplateName: new("claim-tmpl-mixed-fa")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-mixed", "claim-tmpl-mixed-fa").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			excluded:     []corev1.ResourceName{"nic-a.example.com"},
@@ -2772,13 +2444,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-nic-gpu", ResourceClaimTemplateName: new("claim-tmpl-nic-gpu")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-nic-gpu", "claim-tmpl-nic-gpu").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic.example.com"},
@@ -2796,13 +2464,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-nic-gpu", ResourceClaimTemplateName: new("claim-tmpl-nic-gpu")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-nic-gpu", "claim-tmpl-nic-gpu").
+					Obj()).
 				Obj(),
 			lookup:   defaultLookup,
 			excluded: []corev1.ResourceName{"nic.example.com"},
@@ -2826,14 +2490,10 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("nic-b.example.com").Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic-fa").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			excluded:     []corev1.ResourceName{"nic-a.example.com", "nic-b.example.com"},
@@ -2858,14 +2518,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					Obj(),
 			},
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "c", Image: "pause"}},
-						ResourceClaims: []corev1.PodResourceClaim{
-							{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
-							{Name: "req-nic", ResourceClaimTemplateName: new("claim-tmpl-nic-fa-cel")},
-						},
-					}).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("req-1", "claim-tmpl-1").
+					ResourceClaimTemplate("req-nic", "claim-tmpl-nic-fa-cel").
+					Obj()).
 				Obj(),
 			lookup:       defaultLookup,
 			excluded:     []corev1.ResourceName{"nic-a.example.com", "nic-b.example.com"},
