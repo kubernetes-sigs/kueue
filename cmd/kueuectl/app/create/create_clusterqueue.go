@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
 )
 
@@ -178,6 +179,28 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 		"The maximum amount of quota for the [flavor, resource] combination that this ClusterQueue is allowed to borrow from the unused quota of other ClusterQueues in the same cohort.")
 	cmd.Flags().StringSliceVar(&o.UserSpecifiedLendingLimit, lendingLimit, []string{},
 		"The maximum amount of unused quota for the [flavor, resource] combination that this ClusterQueue can lend to other ClusterQueues in the same cohort.")
+
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc(cohort, completion.CohortNameFunc(clientGetter)))
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc(queuingStrategy, cobra.FixedCompletions([]string{string(kueue.BestEffortFIFO), string(kueue.StrictFIFO)}, cobra.ShellCompDirectiveNoFileComp)))
+	cobra.CheckErr(
+		cmd.RegisterFlagCompletionFunc(
+			reclaimWithinCohort,
+			cobra.FixedCompletions([]string{string(kueue.PreemptionPolicyNever), string(kueue.PreemptionPolicyLowerPriority), string(kueue.PreemptionPolicyAny)}, cobra.ShellCompDirectiveNoFileComp),
+		),
+	)
+	cobra.CheckErr(
+		cmd.RegisterFlagCompletionFunc(
+			preemptionWithinClusterQueue,
+			cobra.FixedCompletions(
+				[]string{
+					string(kueue.PreemptionPolicyNever),
+					string(kueue.PreemptionPolicyLowerPriority),
+					string(kueue.PreemptionPolicyLowerOrNewerEqualPriority),
+				},
+				cobra.ShellCompDirectiveNoFileComp,
+			),
+		),
+	)
 
 	return cmd
 }

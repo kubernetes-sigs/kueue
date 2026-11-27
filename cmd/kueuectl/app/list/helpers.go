@@ -71,6 +71,7 @@ func addLocalQueueFilterFlagVar(cmd *cobra.Command, p *string) {
 func addActiveFilterFlagVar(cmd *cobra.Command, p *[]bool) {
 	cmd.Flags().BoolSliceVar(p, "active", make([]bool, 0),
 		"Filter by active status. Valid values: 'true' and 'false'.")
+	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("active", cobra.FixedCompletions([]string{"true", "false"}, cobra.ShellCompDirectiveNoFileComp)))
 }
 
 func addForObjectFlagVar(cmd *cobra.Command, p *string) {

@@ -223,3 +223,24 @@ func LocalQueueNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bo
 		return validArgs, cobra.ShellCompDirectiveNoFileComp
 	}
 }
+
+func CohortNameFunc(clientGetter clientgetter.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		clientSet, err := clientGetter.KueueClientSet()
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		list, err := clientSet.KueueV1beta2().Cohorts().List(cmd.Context(), metav1.ListOptions{Limit: completionLimit})
+		if err != nil {
+			return []string{}, cobra.ShellCompDirectiveError
+		}
+
+		validArgs := make([]string, len(list.Items))
+		for i, c := range list.Items {
+			validArgs[i] = c.Name
+		}
+
+		return validArgs, cobra.ShellCompDirectiveNoFileComp
+	}
+}
