@@ -30,7 +30,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -39,7 +38,6 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -115,7 +113,11 @@ var (
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
-	dependencyCRDs          []*apiextensionsv1.CustomResourceDefinition
+
+	// makes sure there is only one fwk.Init and setupClient at the same time
+	// since these functions are not thread safe due to adding to the common
+	// schema.
+	mu sync.Mutex
 )
 
 func TestMultiKueue(t *testing.T) {
@@ -135,7 +137,8 @@ var depCRDPathsWithoutClusterProfile = []string{
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	ginkgo.GinkgoHelper()
-	return createClusterWithDepCRDs(setupFnc, nil, apiFeatureGates...)
+	depCRDPaths := append([]string{behavioral.ClusterProfileCrds}, depCRDPathsWithoutClusterProfile...)
+	return createClusterWithDepCRDs(setupFnc, depCRDPaths, apiFeatureGates...)
 }
 
 func createClusterWithDepCRDs(setupFnc framework.ManagerSetup, depCRDPaths []string, apiFeatureGates ...string) cluster {
@@ -147,13 +150,10 @@ func createClusterWithDepCRDs(setupFnc framework.ManagerSetup, depCRDPaths []str
 		APIServerFeatureGates:     apiFeatureGates,
 		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
 	}
-	if depCRDPaths == nil {
-		// envtest deep-copies these definitions before setting cluster-specific
-		// conversion webhook addresses and installing the CRDs.
-		c.fwk.DepCRDs = dependencyCRDs
-	}
+	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
 	if setupFnc != nil {
@@ -544,15 +544,6 @@ func managerAndMultiKueueSetup(
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DQOMultiKueueCapacityProvider, true)
-
-	ginkgo.By("reading dependency CRDs once for all clusters", func() {
-		options := envtest.CRDInstallOptions{
-			Paths:              append([]string{behavioral.ClusterProfileCrds}, depCRDPathsWithoutClusterProfile...),
-			ErrorIfPathMissing: true,
-		}
-		gomega.Expect(envtest.ReadCRDFiles(&options)).To(gomega.Succeed())
-		dependencyCRDs = options.CRDs
-	})
 
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}

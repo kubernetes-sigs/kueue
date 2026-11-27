@@ -80,6 +80,11 @@ var (
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
+
+	// makes sure there is only one fwk.Init and setupClient at the same time
+	// since these functions are not thread safe due to adding to the common
+	// schema.
+	mu sync.Mutex
 )
 
 func TestMultiKueue(t *testing.T) {
@@ -95,8 +100,10 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
+	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
+	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
 	if setupFnc != nil {
