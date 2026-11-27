@@ -36,6 +36,8 @@ TEST_LOG_LEVEL ?= -3
 # set this value to 1 to run without parallelism.
 INTEGRATION_NPROCS ?= 5
 INTEGRATION_NPROCS_MULTIKUEUE ?= 3
+# Build shared dependencies once before compiling the next MultiKueue suite.
+INTEGRATION_COMPILERS_MULTIKUEUE ?= 1
 # Folder where the integration tests are located.
 ifdef INTEGRATION_TOTAL_SHARDS
 INTEGRATION_TARGET := $(shell ./hack/testing/shard-integration-tests.sh $(INTEGRATION_SHARD_INDEX) $(INTEGRATION_TOTAL_SHARDS))
@@ -207,7 +209,7 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
 	GOTRACEBACK=system \
-	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
+	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -compilers=$(INTEGRATION_COMPILERS_MULTIKUEUE) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
 .PHONY: test-e2e-baseline-helm

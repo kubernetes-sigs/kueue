@@ -110,7 +110,7 @@ func (f *Framework) Init() *rest.Config {
 	ginkgo.By("bootstrapping test environment", func() {
 		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
-			Scheme:                 runtime.NewScheme(),
+			Scheme:                  runtime.NewScheme(),
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
 			ControlPlaneStopTimeout: 90 * time.Second,
