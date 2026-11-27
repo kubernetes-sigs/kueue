@@ -106,6 +106,10 @@ type PreemptionStrategy struct {
 	// If nil, any target set that fits is valid. It returns whether the target set is valid
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
+	// verifyCombined checks whether a target set assembled across separate passes
+	// (such as shrinkPass and the plain walk) satisfies the strategy's invariants,
+	// regardless of whether final-target verification is gated on for normal plans.
+	verifyCombined func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
 	targetsByKey map[workload.Reference]*Target
 }
@@ -117,6 +121,12 @@ type strategyOption func(*PreemptionStrategy)
 func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
 	return func(ps *PreemptionStrategy) {
 		ps.verify = verify
+	}
+}
+
+func withVerifyCombined(verify func(targets []*Target) (bool, string)) strategyOption {
+	return func(ps *PreemptionStrategy) {
+		ps.verifyCombined = verify
 	}
 }
 

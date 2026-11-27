@@ -174,7 +174,10 @@ func fairPreemptionStrategy(
 			}
 			return valid, reason
 		})
-		if !yieldStrategy(newPreemptionStrategy(candidatesFor(candidateWls), allowBorrowing, preemptionCtx, verify)) {
+		verifyCombined := withVerifyCombined(func(targets []*Target) (bool, string) {
+			return checkFairSharingTargets(preemptionCtx, targets, fsStrategies)
+		})
+		if !yieldStrategy(newPreemptionStrategy(candidatesFor(candidateWls), allowBorrowing, preemptionCtx, verify, verifyCombined)) {
 			return
 		}
 		if !features.Enabled(features.FairSharingPreemptWithinClusterQueueFallback) || !fairTargetsRejected {
@@ -203,7 +206,7 @@ func fairPreemptionStrategy(
 				"candidates", workload.References(ownCandidates))
 		}
 		// The fallback is the same search, with the same check, over the preemptor's own candidates.
-		yieldStrategy(newPreemptionStrategy(candidatesFor(ownCandidates), allowBorrowing, preemptionCtx, verify))
+		yieldStrategy(newPreemptionStrategy(candidatesFor(ownCandidates), allowBorrowing, preemptionCtx, verify, verifyCombined))
 	}
 }
 
@@ -222,7 +225,10 @@ func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, f
 	if !features.Enabled(features.FairSharingVerifyFinalTargets) {
 		return true, ""
 	}
+	return checkFairSharingTargets(preemptionCtx, targets, fsStrategies)
+}
 
+func checkFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, fsStrategies []fairsharing.Strategy) (bool, string) {
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 	defer revertSimulation()
 

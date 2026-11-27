@@ -1800,14 +1800,16 @@ func TestPartialPreemption(t *testing.T) {
 			incoming:    utiltestingapi.MakeWorkload("in", "").Priority(10).Request(corev1.ResourceCPU, "6").Obj(),
 			wantTargets: []planTarget{shrink("v", 2), evict("w")},
 		},
-		"fair sharing: without FairSharingVerifyFinalTargets, fixed shrink-pass-only victims are not evicted": {
-			// Same cohort as above, with FairSharingVerifyFinalTargets disabled: the
-			// fallback skips evicting shrink-pass-only fixed victims because final
-			// verification is off to guard cumulative multi-victim fairness.
+		"fair sharing: combined eviction still verifies Fair Sharing when FairSharingVerifyFinalTargets is disabled": {
+			// Even with FairSharingVerifyFinalTargets disabled, the unfit-walk fallback
+			// verifies the combined plan against LessThanOrEqualToFinalShare:
+			// shrinkPass computes v's bound of 3 while w is present, and the plain walk
+			// evicts w. Combining them would leave b borrowing 1 while a borrows 3, so
+			// the unfair plan is rejected.
 			//
-			//   a [2]  ..                <- in: 6 CPUs
-			//   b [2]  VVvv WWWW HHHH
-			//   c [8]  ........
+			//   a [2]  ..          <- in: 5 CPUs
+			//   b [2]  WW Vvvvvv
+			//   c [4]  ....
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialPreemption:             true,
 				features.FairSharingVerifyFinalTargets: false,
@@ -1826,7 +1828,60 @@ func TestPartialPreemption(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeClusterQueue("c").
 					Cohort("cohort").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+			},
+			admitted: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("w", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+				utiltestingapi.MakeWorkload("v", "").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(1).
+					PodSets(*utiltestingapi.MakePodSet("main", 6).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(1).
+						Obj()).
+					SimpleReserveQuota("b", "default", now).
+					Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("in", "").Priority(10).Request(corev1.ResourceCPU, "5").Obj(),
+		},
+		"fair sharing: eviction combines a shrink-pass-only fixed victim with a plain-walk eviction": {
+			// Under LessThanOrEqualToFinalShare, a requests 8 CPUs (borrowing 6).
+			// Plain walk evicts v (4) and u (2) for 6 CPUs (< 8), rejecting w because
+			// evicting v+w drops b below a. Shrinking v to 2 (2) lets w (4) be evicted
+			// fairly in b, and combining that with evicting u (2) from plain walk frees
+			// all 8 CPUs while keeping both b and c borrowing 6.
+			//
+			//   a [2]  ..                     <- in: 8 CPUs
+			//   b [2]  VVvv WWWW HHHHHH
+			//   c [2]  Uu KKKKKKKK
+			//   d [18] ..................
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			fairSharing:  []*config.FairSharing{finalShare},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("c").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Preemption(cohortPreemption).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("d").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "18").Obj()).
 					Preemption(cohortPreemption).
 					Obj(),
 			},
@@ -1847,11 +1902,26 @@ func TestPartialPreemption(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeWorkload("h", "").
 					Priority(100).
-					Request(corev1.ResourceCPU, "4").
+					Request(corev1.ResourceCPU, "6").
 					SimpleReserveQuota("b", "default", now).
 					Obj(),
+				utiltestingapi.MakeWorkload("u", "").
+					Annotation(constants.PartialPreemptionAnnotation, "true").
+					Priority(0).
+					PodSets(*utiltestingapi.MakePodSet("main", 2).
+						Request(corev1.ResourceCPU, "1").
+						PartialPreemptionMinRetainedCount(1).
+						Obj()).
+					SimpleReserveQuota("c", "default", now).
+					Obj(),
+				utiltestingapi.MakeWorkload("k", "").
+					Priority(100).
+					Request(corev1.ResourceCPU, "8").
+					SimpleReserveQuota("c", "default", now).
+					Obj(),
 			},
-			incoming: utiltestingapi.MakeWorkload("in", "").Priority(10).Request(corev1.ResourceCPU, "6").Obj(),
+			incoming:    utiltestingapi.MakeWorkload("in", "").Priority(10).Request(corev1.ResourceCPU, "8").Obj(),
+			wantTargets: []planTarget{shrink("v", 2), evict("w"), evict("u")},
 		},
 	}
 	for name, tc := range cases {

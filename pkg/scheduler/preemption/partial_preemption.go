@@ -289,7 +289,7 @@ func (p *partialPlan) evictionPass(ctx context.Context, walked []*Target) []*Tar
 		return nil
 	}
 	evictions := p.collectPlainEvictions(walked)
-	targets := p.tryEvictions(ctx, evictions)
+	targets := p.tryEvictions(ctx, evictions, false)
 	p.restore()
 	if targets == nil {
 		// The search without partial preemption goes on with its own targets.
@@ -304,25 +304,37 @@ func (p *partialPlan) evictionPass(ctx context.Context, walked []*Target) []*Tar
 // candidates without making the workload fit, because some victims could only
 // be offered by shrinking (or while an earlier victim stayed shrunk). It tries
 // combining the shrinks from shrinkPass with the evictions the plain walk found,
-// and, for strategies with verification (Fair Sharing), with non-shrinkable
-// victims that shrinkPass already found while shrinkable victims stayed shrunk.
-// If it returns targets, the snapshot is as the search found it. Otherwise it
-// leaves the snapshot as it found it.
+// and, for strategies with combined verification (Fair Sharing), with the
+// deduplicated union of plain-walk evictions and non-shrinkable victims that
+// shrinkPass found while shrinkable victims stayed shrunk. Every returned plan
+// is checked against verifyCombined (when present) regardless of whether
+// FairSharingVerifyFinalTargets is enabled. If it returns targets, the snapshot
+// is as the search found it. Otherwise it leaves the snapshot as it found it.
 func (p *partialPlan) evictionPassAfterUnfitWalk(ctx context.Context, walked []*Target) []*Target {
 	if p == nil || p.done {
 		return nil
 	}
 	plainEvictions := p.collectPlainEvictions(walked)
-	targets := p.tryEvictions(ctx, plainEvictions)
-	if targets == nil && p.strategy.verify != nil && features.Enabled(features.FairSharingVerifyFinalTargets) {
-		var fixedVictims []*victim
+	targets := p.tryEvictions(ctx, plainEvictions, true)
+	if targets == nil && p.strategy.verifyCombined != nil {
+		// Deduplicated union of non-shrinkable victims from shrinkPass and
+		// plain-walk evictions, trying non-shrinkable victims first so shrinkable
+		// victims keep their shrinkLimit whenever evicting fixed victims suffices.
+		var fixed, shrinkablePlain []*victim
+		hasExtraFixed := false
 		for _, v := range p.victims {
-			if !v.canShrink() {
-				fixedVictims = append(fixedVictims, v)
+			switch {
+			case !v.canShrink():
+				fixed = append(fixed, v)
+				if v.eviction == nil {
+					hasExtraFixed = true
+				}
+			case v.eviction != nil:
+				shrinkablePlain = append(shrinkablePlain, v)
 			}
 		}
-		if len(fixedVictims) > 0 {
-			targets = p.tryEvictions(ctx, fixedVictims)
+		if hasExtraFixed {
+			targets = p.tryEvictions(ctx, append(fixed, shrinkablePlain...), true)
 		}
 	}
 	p.restore()
@@ -345,19 +357,38 @@ func (p *partialPlan) collectPlainEvictions(walked []*Target) []*victim {
 	return evictions
 }
 
-func (p *partialPlan) tryEvictions(ctx context.Context, evictions []*victim) []*Target {
+func (p *partialPlan) tryEvictions(ctx context.Context, evictions []*victim, checkCombined bool) []*Target {
 	for _, v := range p.victims {
 		p.setKeep(v, v.shrinkLimit)
 	}
 	fits := p.fits(ctx)
 	for i := 0; !fits && i < len(evictions); i++ {
-		p.setKeep(evictions[i], keepNone)
+		v := evictions[i]
+		prev := v.keep
+		p.setKeep(v, keepNone)
+		if checkCombined && p.strategy.verifyCombined != nil {
+			if valid, _ := p.strategy.verifyCombined([]*Target{cmp.Or(v.eviction, v.target)}); !valid {
+				p.setKeep(v, prev)
+				continue
+			}
+		}
 		fits = p.fits(ctx)
 	}
 	if !fits {
 		return nil
 	}
-	return p.buildTargets(ctx)
+	targets := p.buildTargets(ctx)
+	if targets != nil && checkCombined && p.strategy.verifyCombined != nil {
+		if valid, reason := p.strategy.verifyCombined(targets); !valid {
+			if logV := ctrl.LoggerFrom(ctx).V(5); logV.Enabled() {
+				logV.Info("Discarding combined partial preemption targets: strategy verification failed",
+					"preemptingWorkload", klog.KObj(p.strategy.pCtx.preemptor.Obj),
+					"reason", reason)
+			}
+			return nil
+		}
+	}
+	return targets
 }
 
 // observe returns the victim for the candidate, and records what the search
