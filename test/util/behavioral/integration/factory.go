@@ -28,15 +28,18 @@ import (
 // NewManager is a factory for cache.queue.Manager for Integration Tests,
 // which configures the Requeuer with a shorter timeout and starts it up.
 func NewManager(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
-	return NewManagerWithRequeuerOption(ctx, client, checker, qcache.WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
-		BatchPeriod: &metav1.Duration{Duration: 100 * time.Millisecond},
-	}), options...)
+	requeuerOptions := []qcache.RequeuerOption{
+		qcache.WithInadmissibleWorkloadRequeuerConfig(&configapi.InadmissibleWorkloadRequeuer{
+			BatchPeriod: &metav1.Duration{Duration: 100 * time.Millisecond},
+		}),
+	}
+	return NewManagerWithRequeuerOptions(ctx, client, checker, requeuerOptions, options...)
 }
 
-// NewManagerWithRequeuerOption is like NewManager, but the caller chooses how
+// NewManagerWithRequeuerOptions is like NewManager, but the caller chooses how
 // the Requeuer is configured.
-func NewManagerWithRequeuerOption(ctx context.Context, client client.Client, checker qcache.StatusChecker, requeuerOption qcache.RequeuerOption, options ...qcache.Option) *qcache.Manager {
-	requeuer := qcache.NewRequeuer(requeuerOption)
+func NewManagerWithRequeuerOptions(ctx context.Context, client client.Client, checker qcache.StatusChecker, requeuerOptions []qcache.RequeuerOption, options ...qcache.Option) *qcache.Manager {
+	requeuer := qcache.NewRequeuer(requeuerOptions...)
 	go func() {
 		// ignore error to make linter happy.
 		_ = requeuer.Start(ctx)
