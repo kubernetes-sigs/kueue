@@ -27,11 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	utiltrainjob "sigs.k8s.io/kueue/pkg/util/trainjob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 )
@@ -113,7 +115,7 @@ func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.V(5).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +138,7 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kf
 func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTrainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldTrainJob, newTrainJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
-	validationErrs, err := w.validateCreate(ctx, newTrainJob, nil)
+	validationErrs, err := w.validateCreate(ctx, newTrainJob, nil, oldTrainJob)
 	if err != nil {
 		return nil, err
 	}
@@ -144,11 +146,11 @@ func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTr
 	return allErrs, nil
 }
 
-func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob, maxTimeoutOnWorkload *metav1.Duration, oldTrainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, trainjob)
+		validationErrs, err := w.validateTopologyRequest(ctx, trainjob, oldTrainJob)
 		if err != nil {
 			return nil, err
 		}
@@ -157,13 +159,22 @@ func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob
 	return allErrs, nil
 }
 
-func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob *TrainJob) (field.ErrorList, error) {
+func (w *TrainJobWebhook) validateTopologyRequest(ctx context.Context, trainJob, oldTrainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
-	podSets, podSetsErr := podSets(ctx, w.client, trainJob)
-	for _, p := range podSets {
+	newPodSets, podSetsErr := podSets(ctx, w.client, trainJob)
+	var oldPodSets []kueue.PodSet
+	if oldTrainJob != nil {
+		oldPodSets, _ = podSets(ctx, w.client, oldTrainJob)
+	}
+	for _, p := range newPodSets {
 		jobPath := field.NewPath("job").Key(string(p.Name))
+		var oldTemplateMeta *metav1.ObjectMeta
+		if oldPodSet := podset.FindPodSetByName(oldPodSets, p.Name); oldPodSet != nil {
+			oldTemplateMeta = &oldPodSet.Template.ObjectMeta
+		}
 		allErrs = append(allErrs, jobframeworktas.ValidateTASPodSetRequest(jobPath, &p.Template.ObjectMeta)...)
+		allErrs = append(allErrs, jobframeworktas.ValidateTASPreferredTopologyRequest(jobPath, &p.Template.ObjectMeta, oldTemplateMeta)...)
 		allErrs = append(allErrs, jobframeworktas.ValidateSliceSizeAnnotationUpperBound(jobPath, &p.Template.ObjectMeta, &p)...)
 	}
 
