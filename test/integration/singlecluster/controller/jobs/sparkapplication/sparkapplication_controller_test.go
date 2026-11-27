@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -275,6 +276,44 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 		gomega.Expect(createdSparkApplication.Spec.Executor.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		behavioral.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+	})
+
+	ginkgo.It("Should reserve CPU for inline driver and executor init containers", func() {
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+
+		template := func(mainContainer, cpu string) *corev1.PodTemplateSpec {
+			return &corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: mainContainer, Image: "spark"}},
+				InitContainers: []corev1.Container{{
+					Name: "prepare", Image: "init",
+					Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu)}},
+				}},
+			}}
+		}
+		app := testingsparkapplication.MakeSparkApplication(jobName, ns.Name).
+			Queue(localQueue.Name).SparkVersion("3.5.0").
+			DriverTemplate(template(sparkcommon.SparkDriverContainerName, "3")).
+			ExecutorTemplate(template(sparkcommon.Spark3DefaultExecutorContainerName, "2")).
+			ExecutorInstances(2).Obj()
+		// The driver template already contains prepare. The executor has an additional role-level init container.
+		app.Spec.Driver.InitContainers = []corev1.Container{{Name: "prepare", Image: "init"}}
+		app.Spec.Executor.InitContainers = []corev1.Container{{Name: "configure", Image: "init"}}
+		behavioral.MustCreate(ctx, k8sClient, app)
+		key := types.NamespacedName{Namespace: ns.Name, Name: workloadsparkapplication.GetWorkloadNameForSparkApplication(app.Name, app.UID)}
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, key)
+
+		var wl kueue.Workload
+		gomega.Expect(k8sClient.Get(ctx, key, &wl)).To(gomega.Succeed())
+		reservedCPU := make(map[kueue.PodSetReference]int64)
+		for _, assignment := range wl.Status.Admission.PodSetAssignments {
+			reservedCPU[assignment.Name] = assignment.ResourceUsage.Cpu().MilliValue()
+		}
+		gomega.Expect(reservedCPU).To(gomega.Equal(map[kueue.PodSetReference]int64{"driver": 3000, "executor": 4000}))
+		gomega.Expect(wl.Spec.PodSets[0].Template.Spec.InitContainers).To(gomega.HaveLen(1))
+		gomega.Expect(wl.Spec.PodSets[1].Template.Spec.InitContainers).To(gomega.HaveExactElements(
+			gomega.HaveField("Name", "prepare"), gomega.HaveField("Name", "configure"),
+		))
 	})
 
 	ginkgo.It("Should keep the Workload admitted while the SparkApplication is in SUBMISSION_FAILED", func() {

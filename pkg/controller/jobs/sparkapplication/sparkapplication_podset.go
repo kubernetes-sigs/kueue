@@ -283,11 +283,19 @@ func addVolumes(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 }
 
 func addInitContainers(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
-	var initContainers []corev1.Container
+	var spec *sparkv1beta2.SparkPodSpec
 	if sparkutil.IsDriverPod(pod) {
-		initContainers = app.Spec.Driver.InitContainers
+		spec = &app.Spec.Driver.SparkPodSpec
 	} else if sparkutil.IsExecutorPod(pod) {
-		initContainers = app.Spec.Executor.InitContainers
+		spec = &app.Spec.Executor.SparkPodSpec
+	} else {
+		return nil
+	}
+
+	initContainers := spec.InitContainers
+	if spec.Template != nil && sparkutil.CompareSemanticVersion(app.Spec.SparkVersion, "3.0.0") >= 0 {
+		// Spark starts from the pod template before the operator adds role-level init containers.
+		initContainers = slices.Concat(spec.Template.Spec.InitContainers, initContainers)
 	}
 
 	if pod.Spec.InitContainers == nil {
