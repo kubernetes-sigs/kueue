@@ -32,7 +32,7 @@ import (
 // maxCELSearchSteps caps the device visits of the search after the first pass.
 const maxCELSearchSteps = 1_000_000
 
-// celDeviceMatcher finds distinct devices for the CEL requests of one claim. Like
+// celDeviceMatcher finds distinct devices for the checked requests of one claim. Like
 // the kube-scheduler allocator, its search tries requests, alternatives and
 // devices in order and stops at the first CEL evaluation error.
 type celDeviceMatcher struct {
@@ -360,25 +360,26 @@ func (am *celAlternativeMatcher) matches(ctx context.Context, d int, dev dracel.
 func shortageError(cr celDeviceRequest, reqPath *field.Path, matchCounts []int64) *field.Error {
 	if !cr.firstAvailable {
 		alt := cr.alternatives[0]
-		if cr.allDevices {
-			return field.InternalError(
-				cr.selectorsPath(reqPath, alt),
-				fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: allocationMode All requires at least one matching device", alt.deviceClassName),
-			)
+		path, prefix := reqPath.Child("exactly"), "insufficient matching devices"
+		if cr.hasCELSelectors() {
+			path, prefix = cr.selectorsPath(reqPath, alt), "insufficient matching devices for CEL selector"
 		}
-		return field.InternalError(
-			cr.selectorsPath(reqPath, alt),
-			fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match in the cluster but %d requested",
-				alt.deviceClassName, matchCounts[0], alt.count),
-		)
+		if cr.allDevices {
+			return field.InternalError(path,
+				fmt.Errorf("%s in DeviceClass %s: allocationMode All requires at least one matching device", prefix, alt.deviceClassName))
+		}
+		return field.InternalError(path,
+			fmt.Errorf("%s in DeviceClass %s: %d device(s) match in the cluster but %d requested",
+				prefix, alt.deviceClassName, matchCounts[0], alt.count))
 	}
 	shortages := make([]string, len(matchCounts))
 	for i, matchCount := range matchCounts {
 		alt := cr.alternatives[i]
 		shortages[i] = fmt.Sprintf("%d device(s) match in DeviceClass %s but %d requested", matchCount, alt.deviceClassName, alt.count)
 	}
-	return field.InternalError(
-		reqPath.Child("firstAvailable"),
-		fmt.Errorf("insufficient matching devices for CEL selectors in every firstAvailable alternative: %s", strings.Join(shortages, "; ")),
-	)
+	prefix := "insufficient matching devices in every firstAvailable alternative"
+	if cr.hasCELSelectors() {
+		prefix = "insufficient matching devices for CEL selectors in every firstAvailable alternative"
+	}
+	return field.InternalError(reqPath.Child("firstAvailable"), fmt.Errorf("%s: %s", prefix, strings.Join(shortages, "; ")))
 }

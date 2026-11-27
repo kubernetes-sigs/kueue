@@ -629,8 +629,7 @@ This story is for `KueueDRADeviceFeasibility`.
 
 - CEL selectors in ResourceClaimTemplates are validated against cluster devices (ResourceSlices) at quota reservation
   time on a best-effort basis. Workloads with CEL selectors that match fewer devices than requested are rejected
-  to prevent quota leaks. [How it works](#how-it-works) says when Kueue checks a
-  `firstAvailable` request.
+  to prevent quota leaks. [How it works](#how-it-works) says which requests of a claim Kueue checks.
   This validation uses the upstream DRA CEL compiler from [`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel).
   On the other hand, devices can be allocated between Kueue's check and scheduling, and new ResourceSlices published after
   validation can make previously-unsatisfiable workloads satisfiable.
@@ -639,6 +638,8 @@ This story is for `KueueDRADeviceFeasibility`.
   When a request falls short, the check tries other device choices for the claim. Kueue
   retries a Workload that still falls short with backoff. If the search reaches its limit,
   Kueue lets the claim through, because kube-scheduler still decides per node.
+  The requests with a CEL selector are first checked alone, so that the requests without one cannot
+  use up that limit.
   For MultiKueue manager behavior, see [MultiKueue Integration](#multikueue-integration).
 
 - The CEL device check asks whether the cluster has enough devices that match the selectors,
@@ -1072,10 +1073,11 @@ The validation has two stages:
    compilation issues before quota reservation.
 
 2. **CEL Evaluation Against Cluster Devices**: Kueue lists all ResourceSlices in the cluster and evaluates
-   the compiled CEL selectors against actual devices. For each request:
+   the compiled CEL selectors against actual devices. For each request of a claim where a request has
+   CEL selectors:
    - The DeviceClass is resolved and its selectors are compiled to pre-filter devices by class, avoiding
      CEL evaluation against unrelated devices (e.g., NICs when requesting GPUs).
-   - The request's CEL selectors are evaluated against matching devices.
+   - The request's CEL selectors, if any, are evaluated against matching devices.
    - If fewer devices match than the requested count, the workload is marked inadmissible with a descriptive
      error indicating that no matching devices exist in the cluster, preventing quota consumption for
      unsatisfiable requests. The `QuotaReserved` condition message clearly distinguishes between device-based inadmissibility
@@ -1157,9 +1159,11 @@ When a user submits a workload and DynamicResourceAllocation feature gate is ena
    - Reject workloads that name a DeviceClass, in a request or in any `firstAvailable` alternative, that
      does not exist. kube-scheduler fails the whole claim in this case. The MultiKueue manager skips this
      check, as it skips the CEL device check.
-5. CEL Selector Validation: For requests with CEL selectors:
+5. CEL Selector Validation: For claims where a request has CEL selectors:
    - Compile CEL expressions and reject workloads with invalid syntax
-   - Evaluate CEL selectors against actual devices from ResourceSlices, pre-filtering by DeviceClass
+   - Evaluate the selectors of every request of the claim against actual devices from ResourceSlices,
+     pre-filtering by DeviceClass, so that a request without CEL selectors cannot count the devices
+     that the other requests need
      (see [MultiKueue Integration](#multikueue-integration) for MultiKueue manager behavior)
    - Reject workloads where fewer devices match than requested count
 6. Resource Preprocessing:
@@ -2491,9 +2495,9 @@ charged when all of these hold:
 The request is then charged that `count` on that logical resource, as an `exactly` request with
 that `count` is. Whichever alternative kube-scheduler allocates, the Pod uses what was charged.
 
-Kueue runs the CEL device check, which matches the request against the devices in the cluster,
-only when every alternative has a CEL selector, because kube-scheduler can fall back to an
-alternative without one.
+Kueue runs the CEL device check, which matches the requests of a claim against the devices in the
+cluster, when any request or alternative of the claim has a CEL selector. An alternative without a
+CEL selector matches the devices of its DeviceClass.
 It tries the alternatives in order and keeps the first one that matches enough devices, unless
 a later request of the claim then falls short and another alternative lets it fit.
 If no alternative matches enough devices, the Workload gets the conditions in

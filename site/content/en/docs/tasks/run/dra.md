@@ -275,7 +275,8 @@ administrator to create the class, or to enable the gate or map the class and
 restart the controller. Kueue admits the workload when the class is created.
 `insufficient matching devices for CEL selectors in every firstAvailable
 alternative` means that no alternative's selectors match enough devices in the
-cluster. Kueue retries with backoff, so the workload is admitted once your
+cluster. Without a CEL selector on every alternative, the message has no `for
+CEL selectors`. Kueue retries with backoff, so the workload is admitted once your
 administrator publishes matching devices. To change the selectors, or for any
 other message, create a corrected template under a new name and submit a new
 Job.

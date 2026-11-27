@@ -40,8 +40,8 @@ import (
 // the same CEL expressions on every reconciliation. Thread-safe.
 var celCache = dracel.NewCache(256, dracel.Features{})
 
-// celDeviceRequest tracks a device request that has CEL selectors, for validation
-// against actual devices.
+// celDeviceRequest is a request of a claim that the CEL device check matches against
+// the devices in the cluster.
 type celDeviceRequest struct {
 	index          int
 	firstAvailable bool
@@ -57,6 +57,15 @@ type celAlternative struct {
 	count               int64
 	deviceClassName     string
 	selectors           []resourcev1.DeviceSelector
+}
+
+func (alt celAlternative) hasCELSelector() bool {
+	return slices.ContainsFunc(alt.selectors, func(sel resourcev1.DeviceSelector) bool { return sel.CEL != nil })
+}
+
+// hasCELSelectors reports whether every alternative of r has a CEL selector.
+func (r celDeviceRequest) hasCELSelectors() bool {
+	return !slices.ContainsFunc(r.alternatives, func(alt celAlternative) bool { return !alt.hasCELSelector() })
 }
 
 // selectorsPath returns the field path of alt's selectors within the request at reqPath.
@@ -426,54 +435,53 @@ func validateCELSelectors(selectors []resourcev1.DeviceSelector, fldPath *field.
 	return compErrs.ToAggregate()
 }
 
-// extractCELRequests returns the device requests from a claim spec that have CEL selectors,
-// leaving out requests for excluded DeviceClasses. A firstAvailable request needs a
-// CEL selector on every alternative.
-func extractCELRequests(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) []celDeviceRequest {
+// requestsForCELDeviceCheck returns the requests of a claim spec that have a CEL
+// selector on every alternative, and all the requests when any request or alternative
+// has one. Requests for excluded DeviceClasses are left out of both.
+func requestsForCELDeviceCheck(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (withCEL, all []celDeviceRequest) {
 	if claimSpec == nil {
-		return nil
+		return nil, nil
 	}
-	hasCEL := func(sel resourcev1.DeviceSelector) bool { return sel.CEL != nil }
-	var result []celDeviceRequest
+	anyCEL := false
 	for i, req := range claimSpec.Devices.Requests {
+		var cr celDeviceRequest
 		if req.FirstAvailable != nil {
 			if !features.Enabled(features.KueueDRAIntegrationPrioritizedList) || alternativesExcluded(req.FirstAvailable, mapper) {
 				continue
 			}
-			// kube-scheduler can fall back to any alternative, so the request is
-			// checked only when every alternative has a CEL selector to check.
-			alternatives := make([]celAlternative, 0, len(req.FirstAvailable))
+			cr = celDeviceRequest{index: i, firstAvailable: true, alternatives: make([]celAlternative, 0, len(req.FirstAvailable))}
 			for j, sub := range req.FirstAvailable {
-				if !slices.ContainsFunc(sub.Selectors, hasCEL) {
-					alternatives = nil
-					break
-				}
-				alternatives = append(alternatives, celAlternative{
+				cr.alternatives = append(cr.alternatives, celAlternative{
 					firstAvailableIndex: j,
 					count:               sub.Count,
 					deviceClassName:     sub.DeviceClassName,
 					selectors:           sub.Selectors,
 				})
 			}
-			if len(alternatives) > 0 {
-				result = append(result, celDeviceRequest{index: i, firstAvailable: true, alternatives: alternatives})
+		} else {
+			if req.Exactly == nil || mapper.isExcluded(corev1.ResourceName(req.Exactly.DeviceClassName)) {
+				continue
 			}
-			continue
+			cr = celDeviceRequest{
+				index:      i,
+				allDevices: req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll,
+				alternatives: []celAlternative{{
+					count:           req.Exactly.Count,
+					deviceClassName: req.Exactly.DeviceClassName,
+					selectors:       req.Exactly.Selectors,
+				}},
+			}
 		}
-		if req.Exactly == nil || !slices.ContainsFunc(req.Exactly.Selectors, hasCEL) || mapper.isExcluded(corev1.ResourceName(req.Exactly.DeviceClassName)) {
-			continue
+		all = append(all, cr)
+		anyCEL = anyCEL || slices.ContainsFunc(cr.alternatives, celAlternative.hasCELSelector)
+		if cr.hasCELSelectors() {
+			withCEL = append(withCEL, cr)
 		}
-		result = append(result, celDeviceRequest{
-			index:      i,
-			allDevices: req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll,
-			alternatives: []celAlternative{{
-				count:           req.Exactly.Count,
-				deviceClassName: req.Exactly.DeviceClassName,
-				selectors:       req.Exactly.Selectors,
-			}},
-		})
 	}
-	return result
+	if !anyCEL {
+		return nil, nil
+	}
+	return withCEL, all
 }
 
 // compileCELSelectors compiles CEL expressions from selectors, skipping non-CEL selectors.
@@ -573,15 +581,9 @@ func resolveAndCompileDeviceClass(
 	return compiled, nil
 }
 
-// validateCELSelectorsAgainstDevices lists all ResourceSlices in the cluster and
-// evaluates the CEL selectors from each request against the actual devices.
-// For each request alternative, it resolves the DeviceClassName to its DeviceClass and uses
-// the class selectors to pre-filter devices before evaluating the request's own
-// CEL selectors. This avoids running CEL against devices that belong to
-// unrelated drivers or classes.
-// If the requests cannot all get distinct matching devices, it returns field
-// errors that keep the workload from reserving quota for pods that cannot be
-// scheduled.
+// validateCELSelectorsAgainstDevices returns field errors that keep the workload from
+// reserving quota when the requests of the claim cannot all get distinct matching
+// devices in the cluster.
 func validateCELSelectorsAgainstDevices(
 	ctx context.Context,
 	cl client.Client,
@@ -590,19 +592,40 @@ func validateCELSelectorsAgainstDevices(
 	claimSpec *resourcev1.ResourceClaimSpec,
 	basePath *field.Path,
 ) field.ErrorList {
-	celReqs := extractCELRequests(claimSpec, mapper)
-	if len(celReqs) == 0 {
+	withCEL, all := requestsForCELDeviceCheck(claimSpec, mapper)
+	// The requests with a CEL selector are matched alone first, so that the
+	// selectorless requests cannot use up the search steps for them.
+	if len(withCEL) > 0 {
+		if errs := matchDevices(ctx, cl, sliceCache, mapper, withCEL, basePath); errs != nil {
+			return errs
+		}
+	}
+	if len(all) == len(withCEL) {
 		return nil
 	}
+	return matchDevices(ctx, cl, sliceCache, mapper, all, basePath)
+}
 
-	var celAlternatives []celAlternative
-	for _, cr := range celReqs {
-		celAlternatives = append(celAlternatives, cr.alternatives...)
+// matchDevices lists the ResourceSlices that the requests can use and matches the
+// requests against their devices. The selectors of each alternative's DeviceClass
+// filter the devices first, so that request selectors do not run on devices of
+// unrelated drivers or classes.
+func matchDevices(
+	ctx context.Context,
+	cl client.Client,
+	sliceCache *ResourceSliceCache,
+	mapper *ResourceMapper,
+	requests []celDeviceRequest,
+	basePath *field.Path,
+) field.ErrorList {
+	var alternatives []celAlternative
+	for _, cr := range requests {
+		alternatives = append(alternatives, cr.alternatives...)
 	}
 
 	var collectedSlices []resourcev1.ResourceSlice
 	needsAll := false
-	for _, alt := range celAlternatives {
+	for _, alt := range alternatives {
 		if len(mapper.getCounterConfigs(corev1.ResourceName(alt.deviceClassName))) == 0 && len(mapper.getCapacityConfigs(corev1.ResourceName(alt.deviceClassName))) == 0 {
 			needsAll = true
 			break
@@ -616,7 +639,7 @@ func validateCELSelectorsAgainstDevices(
 		collectedSlices = slices
 	} else {
 		seenDrivers := sets.New[DriverReference]()
-		for _, alt := range celAlternatives {
+		for _, alt := range alternatives {
 			dc := corev1.ResourceName(alt.deviceClassName)
 			for _, cc := range mapper.getCounterConfigs(dc) {
 				if seenDrivers.Has(cc.driver) {
@@ -643,7 +666,7 @@ func validateCELSelectorsAgainstDevices(
 		}
 	}
 
-	return newCELDeviceMatcher(cl, buildDeviceListFromSlices(ctx, collectedSlices), celReqs, basePath).check(ctx)
+	return newCELDeviceMatcher(cl, buildDeviceListFromSlices(ctx, collectedSlices), requests, basePath).check(ctx)
 }
 
 // MergeDRAResources merges src into dst, summing resource quantities for
