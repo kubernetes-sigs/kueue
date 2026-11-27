@@ -76,9 +76,6 @@ var _ = ginkgo.Describe("SparkApplication with partial replica scale-up for elas
 				Resource(corev1.ResourceCPU, "100").
 				Resource(corev1.ResourceMemory, "100Gi").
 				Obj()).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-			}).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
@@ -245,6 +242,15 @@ var _ = ginkgo.Describe("SparkApplication with partial replica scale-up for elas
 	// After an eviction a SparkApplication asks for its initial executors again, while the minCount stays lowered.
 	// The slice is then admitted partially and a scale-up probe is created for the suspended app.
 	ginkgo.It("Should start the app on the partially readmitted slice after a scale-down below its initial executors and an eviction", func() {
+		ginkgo.By("the cluster queue lets a higher-priority workload preempt a lower-priority one")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.Preemption = &kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
 		// The suite installs no webhook configurations, so the app is suspended and its executor template gated here.
 		testSparkApp := testingsparkapplication.MakeSparkApplication("foo", ns.Name).
 			Suspend(true).

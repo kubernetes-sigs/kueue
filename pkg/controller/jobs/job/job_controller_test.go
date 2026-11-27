@@ -2845,10 +2845,12 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			job: baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				UID("test-uid").
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
@@ -2902,11 +2904,13 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			job: baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				PrebuiltWorkloadLabel("probe").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				PrebuiltWorkloadLabel("probe").
 				UID("test-uid").
 				Obj(),
@@ -2950,11 +2954,13 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			job: baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				PrebuiltWorkloadLabel("probe").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				PrebuiltWorkloadLabel("probe").
 				UID("test-uid").
 				Obj(),
@@ -3010,16 +3016,17 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
 			job: baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 				UID("test-uid").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
 					Name("admitted").
-					ControllerReference(gvk, "job", "test-uid").
 					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).Obj(), now).
 					AdmittedAt(true, now).
@@ -5502,12 +5509,22 @@ func TestReconciler(t *testing.T) {
 				if tc.job != nil {
 					objs = append(objs, tc.job)
 				}
+				prebuiltWorkload := ""
+				if tc.job != nil {
+					// For prebuilt workloads we are skipping the ownership setup in the test body and
+					// expect the reconciler to do it.
+					prebuiltWorkload = jobframework.PrebuiltWorkloadNameFor(tc.job)
+				}
 				// The fake client drops the deletion timestamp on Create, so a terminating Workload is seeded at build time.
-				// Its controller reference must be set in the test case.
 				for i := range tc.workloads {
-					if !tc.workloads[i].DeletionTimestamp.IsZero() {
-						objs = append(objs, tc.workloads[i].DeepCopy())
+					if tc.workloads[i].DeletionTimestamp.IsZero() {
+						continue
 					}
+					testWl := tc.workloads[i].DeepCopy()
+					if tc.job != nil && prebuiltWorkload == "" && metav1.GetControllerOfNoCopy(testWl) == nil {
+						testWl.OwnerReferences = append(testWl.OwnerReferences, *metav1.NewControllerRef(tc.job, gvk))
+					}
+					objs = append(objs, testWl)
 				}
 
 				kClient := clientBuilder.
@@ -5515,13 +5532,6 @@ func TestReconciler(t *testing.T) {
 					WithLists(&batchv1.JobList{Items: tc.otherJobs}).
 					WithStatusSubresource(&kueue.Workload{}).
 					Build()
-
-				prebuiltWorkload := ""
-				if tc.job != nil {
-					// For prebuilt workloads we are skipping the ownership setup in the test body and
-					// expect the reconciler to do it.
-					prebuiltWorkload = jobframework.PrebuiltWorkloadNameFor(tc.job)
-				}
 
 				for _, testWl := range tc.workloads {
 					if !testWl.DeletionTimestamp.IsZero() {

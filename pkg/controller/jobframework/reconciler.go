@@ -864,10 +864,10 @@ func (r *JobReconciler) admittedSliceReplacedByProbe(ctx context.Context, job Ge
 	// A slice that is being deleted must not start the job.
 	// The job reconciler does not get that slice while the probe is pending.
 	// The job starts once the scheduler admits the probe and finishes the slice it replaces.
-	if active == nil || workload.Key(active) != *key || !workload.IsAdmitted(active) || !active.DeletionTimestamp.IsZero() {
-		return wl, nil
+	if active != nil && workload.Key(active) == *key && workload.IsAdmitted(active) && active.DeletionTimestamp.IsZero() {
+		return active, nil
 	}
-	return active, nil
+	return wl, nil
 }
 
 func (r *JobReconciler) reconcileNotAdmittedJob(ctx context.Context, job GenericJob, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
