@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -446,6 +447,10 @@ func (s *Scheduler) processEntry(
 			e.markSkipped("A more favorable variant is already admitted")
 			return
 		}
+		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil && !s.isMigrationAllowed(cq, e, log) {
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+			return
+		}
 	}
 
 	// The assignment was computed during nomination, but it may need to be refreshed.
@@ -543,10 +548,6 @@ func (s *Scheduler) processEntry(
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
-			if !s.isMigrationAllowed(cq, e, log) {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-				return
-			}
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 			s.issueMigration(ctx, log, e, lessFavorableSibling)
 			return
@@ -1584,10 +1585,19 @@ func (s *Scheduler) findAdmittedSiblingMatching(wl *workload.Info, cq *schdcache
 	return nil
 }
 
-// isMigrationAllowed checks if a Variant uses flavor equal or higher than the minimum preferred flavor defined in the migration constraints of the Concurrent Admission policy.
-// Workloads cannot migrate to a flavor that is considered less preferred than the minimum preferred flavor. If the constraint is not defined, migration is allowed by default.
+// isMigrationAllowed checks whether the ClusterQueue's ConcurrentAdmissionPolicy
+// permits migrating to the Variant's flavor. Migration is disallowed in
+// RetainFirstAdmission mode and for flavors less preferred than LastAcceptableFlavorName.
 func (s *Scheduler) isMigrationAllowed(cq *schdcache.ClusterQueueSnapshot, e *entry, log klog.Logger) bool {
-	if cq.ConcurrentAdmissionPolicy == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName == nil {
+	if cq.ConcurrentAdmissionPolicy == nil {
+		return true
+	}
+	if ptr.Deref(cq.ConcurrentAdmissionPolicy.Migration.Mode, "") == kueue.ConcurrentAdmissionRetainFirstAdmission {
+		log.V(3).Info("Skipping migration as ConcurrentAdmissionPolicy uses RetainFirstAdmission mode")
+		e.inadmissibleMsg = "Migration is disabled by RetainFirstAdmission mode"
+		return false
+	}
+	if cq.ConcurrentAdmissionPolicy.Migration.Constraints == nil || cq.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName == nil {
 		return true
 	}
 	lastAcceptableFlavor := *cq.ConcurrentAdmissionPolicy.Migration.Constraints.LastAcceptableFlavorName
