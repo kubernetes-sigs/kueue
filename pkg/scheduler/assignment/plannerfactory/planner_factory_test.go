@@ -61,8 +61,17 @@ func TestNewPlanner(t *testing.T) {
 			wantType:      nativeType,
 			wantEvaluator: nativeEval,
 		},
-		"KueueNative returns native planner with SchedulerSimulator when set": {
+		"KueueNative returns native planner with NativeNodeEvaluator even when SchedulerSimulator is set": {
 			cqPlanner: kueue.KueueNative,
+			snapshot: &schedcache.Snapshot{
+				NativeNodeEvaluator: nativeEval,
+				SchedulerSimulator:  schedulerSim,
+			},
+			wantType:      nativeType,
+			wantEvaluator: nativeEval,
+		},
+		"KubeSchedulerShallowIntegration returns native planner with SchedulerSimulator": {
+			cqPlanner: kueue.KubeSchedulerShallowIntegration,
 			snapshot: &schedcache.Snapshot{
 				NativeNodeEvaluator: nativeEval,
 				SchedulerSimulator:  schedulerSim,

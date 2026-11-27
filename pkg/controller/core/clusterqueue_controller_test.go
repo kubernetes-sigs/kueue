@@ -1152,59 +1152,69 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 		lqName = kueue.LocalQueueName("lq")
 	)
 
-	makeCQ := func(annotations map[string]string) *kueue.ClusterQueue {
+	makeCQ := func(val string) *kueue.ClusterQueue {
 		cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
-		cq.Annotations = annotations
+		if val != "" {
+			cq.Annotations = map[string]string{
+				kueue.PreferredAssignmentPlannerAnnotation: val,
+			}
+		}
 		return cq
 	}
 
 	testCases := map[string]struct {
 		deepIntegration bool
-		oldAnnotations  map[string]string
-		newAnnotations  map[string]string
+		oldValue        string
+		newValue        string
 		wantRequeued    bool
 	}{
-		"deep integration enabled: adding annotation requeues inadmissible workload": {
+		"deepIntegration enabled: reschedule when adding annotation value": {
 			deepIntegration: true,
-			newAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
-			},
-			wantRequeued: true,
+			oldValue:        "",
+			newValue:        string(kueue.KubeSchedulerShallowIntegration),
+			wantRequeued:    true,
 		},
-		"deep integration enabled: switching annotation requeues inadmissible workload": {
+		"deepIntegration enabled: reschedule when removing annotation value": {
 			deepIntegration: true,
-			oldAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
-			},
-			newAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KueueNative),
-			},
-			wantRequeued: true,
+			oldValue:        string(kueue.KubeSchedulerShallowIntegration),
+			newValue:        "",
+			wantRequeued:    true,
 		},
-		"deep integration enabled: removing annotation requeues inadmissible workload": {
+		"deepIntegration enabled: reschedule when changing annotation value": {
 			deepIntegration: true,
-			oldAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
-			},
-			wantRequeued: true,
+			oldValue:        string(kueue.KubeSchedulerShallowIntegration),
+			newValue:        string(kueue.KubeSchedulerDeepIntegration),
+			wantRequeued:    true,
 		},
-		"deep integration enabled: unchanged annotation does not requeue inadmissible workload": {
+		"deepIntegration enabled: don't reschedule when annotation value stays the same": {
 			deepIntegration: true,
-			oldAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
-			},
-			newAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
-				"unrelated-annotation":                     "value",
-			},
-			wantRequeued: false,
+			oldValue:        string(kueue.KubeSchedulerShallowIntegration),
+			newValue:        string(kueue.KubeSchedulerShallowIntegration),
+			wantRequeued:    false,
 		},
-		"deep integration disabled: changing annotation does not requeue inadmissible workload": {
+		"deepIntegration disabled: don't reschedule when adding annotation value": {
 			deepIntegration: false,
-			newAnnotations: map[string]string{
-				kueue.PreferredAssignmentPlannerAnnotation: string(kueue.KubeSchedulerDeepIntegration),
-			},
-			wantRequeued: false,
+			oldValue:        "",
+			newValue:        string(kueue.KubeSchedulerShallowIntegration),
+			wantRequeued:    false,
+		},
+		"deepIntegration disabled: don't reschedule when removing annotation value": {
+			deepIntegration: false,
+			oldValue:        string(kueue.KubeSchedulerShallowIntegration),
+			newValue:        "",
+			wantRequeued:    false,
+		},
+		"deepIntegration disabled: don't reschedule when changing annotation value": {
+			deepIntegration: false,
+			oldValue:        string(kueue.KubeSchedulerShallowIntegration),
+			newValue:        string(kueue.KubeSchedulerDeepIntegration),
+			wantRequeued:    false,
+		},
+		"deepIntegration disabled: don't reschedule when annotation value stays the same": {
+			deepIntegration: false,
+			oldValue:        string(kueue.KubeSchedulerShallowIntegration),
+			newValue:        string(kueue.KubeSchedulerShallowIntegration),
+			wantRequeued:    false,
 		},
 	}
 
@@ -1213,8 +1223,8 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, tc.deepIntegration)
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			oldCQ := makeCQ(tc.oldAnnotations)
-			newCQ := makeCQ(tc.newAnnotations)
+			oldCQ := makeCQ(tc.oldValue)
+			newCQ := makeCQ(tc.newValue)
 			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(lqName).Obj()
 			wlKey := workload.Key(wl)
 

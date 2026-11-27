@@ -616,11 +616,56 @@ func TestScheduleForTASDRA(t *testing.T) {
 				features.KueueDRAIntegrationDeviceTaints: true,
 			},
 		},
-		"SchedulerLibraryDeepIntegration on: a ClusterQueue that TAS places for still checks the devices": {
+		"SchedulerLibraryDeepIntegration on with KueueNative: a ClusterQueue that TAS places for still checks the devices": {
 			nodes:           nodes[:1],
 			topologies:      []kueue.Topology{topology},
 			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
 			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+			},
+			draResources: draResources,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.TASNodeFeasibilityForAllLevels:  true,
+				kubefeatures.GenericWorkload:             true,
+				features.SchedulerLibraryIntegration:     true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		"SchedulerLibraryDeepIntegration on with KubeSchedulerShallowIntegration: a ClusterQueue that TAS places for still checks the devices": {
+			nodes:           nodes[:1],
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("tas-main").
+					Annotation(kueue.PreferredAssignmentPlannerAnnotation, string(kueue.KubeSchedulerShallowIntegration)).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+						Resource(corev1.ResourceCPU, "50").
+						Resource("example.com/gpu", "4").Obj()).
+					Obj(),
+			},
 			objects: []client.Object{
 				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
 				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
