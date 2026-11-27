@@ -318,6 +318,45 @@ func TestPodSets(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("init containers", func(t *testing.T) {
+		driverInit := utiltesting.MakeContainer().Name("prepare").Image("init").WithResourceReq(corev1.ResourceCPU, "3").Obj()
+		executorInit := utiltesting.MakeContainer().Name("prepare").Image("init").WithResourceReq(corev1.ResourceCPU, "2").Obj()
+		roleInit := utiltesting.MakeContainer().Name("prepare").Image("init").Obj()
+		configure := utiltesting.MakeContainer().Name("configure").Image("init").Obj()
+		driverTemplate := &utiltestingapi.MakePodSet(driverPodSetName, 1).InitContainers(*driverInit).Obj().Template
+		executorTemplate := &utiltestingapi.MakePodSet(executorPodSetName, 1).InitContainers(*executorInit).Obj().Template
+		for name, tc := range map[string]struct {
+			version                          string
+			driverTemplate, executorTemplate *corev1.PodTemplateSpec
+			wantDriver, wantExecutor         []corev1.Container
+		}{
+			"template wins over duplicate and precedes distinct role container": {version: "3.0.0",
+				driverTemplate: driverTemplate, executorTemplate: executorTemplate,
+				wantDriver: []corev1.Container{*driverInit}, wantExecutor: []corev1.Container{*executorInit, *configure}},
+			"Spark 2 ignores inline templates": {version: "2.4.8",
+				driverTemplate: driverTemplate, executorTemplate: executorTemplate,
+				wantDriver: []corev1.Container{*roleInit}, wantExecutor: []corev1.Container{*configure}},
+			"no templates": {version: "3.5.0",
+				wantDriver: []corev1.Container{*roleInit}, wantExecutor: []corev1.Container{*configure}},
+		} {
+			t.Run(name, func(t *testing.T) {
+				app := testSparkApp.Clone().SparkVersion(tc.version).DriverTemplate(tc.driverTemplate).ExecutorTemplate(tc.executorTemplate).Obj()
+				app.Spec.Driver.InitContainers = []corev1.Container{*roleInit}
+				app.Spec.Executor.InitContainers = []corev1.Container{*configure}
+				sets, err := (*SparkApplication)(app).PodSets(t.Context(), nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if diff := cmp.Diff(tc.wantDriver, sets[driverPodSetIndex].Template.Spec.InitContainers); diff != "" {
+					t.Errorf("driver init containers (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantExecutor, sets[executorPodSetIndex].Template.Spec.InitContainers); diff != "" {
+					t.Errorf("executor init containers (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
 }
 
 func TestPodSetsExecutorCount(t *testing.T) {
@@ -1590,13 +1629,59 @@ func TestReconciler(t *testing.T) {
 		MinExecutors: new(int32(5)),
 	}
 
+	// Older Kueue versions recorded only the role-level init containers.
+	running := withUID(testSparkApp.Clone().Queue("q").SparkVersion("3.5.0").Suspend(false).Obj())
+	running.Status.AppState.State = sparkappv1beta2.ApplicationStateRunning
+	roleInit := utiltesting.MakeContainer().Name("configure").Image("init").Obj()
+	running.Spec.Executor.InitContainers = []corev1.Container{*roleInit}
+	legacy := makeAdmittedWorkload(running).Obj()
+	inlineInit := utiltesting.MakeContainer().Name("prepare").Image("init").WithResourceReq(corev1.ResourceCPU, "3").Obj()
+	running.Spec.Driver.Template = &utiltestingapi.MakePodSet(driverPodSetName, 1).InitContainers(*inlineInit).Obj().Template
+	running.Spec.Executor.Template = &utiltestingapi.MakePodSet(executorPodSetName, 1).InitContainers(*inlineInit).Obj().Template
+
+	t.Run("upgrade compatibility is limited to running reservations with legacy init containers", func(t *testing.T) {
+		suspended := running.DeepCopy()
+		suspended.Spec.Suspend = new(true)
+		suspended.Status.AppState.State = sparkappv1beta2.ApplicationStateSuspended
+		pending := legacy.DeepCopy()
+		pending.Status = kueue.WorkloadStatus{}
+		changedRole := running.DeepCopy()
+		changedRole.Spec.Executor.InitContainers[0].Image = "changed"
+		changedInline := running.DeepCopy()
+		changedInline.Spec.Driver.Template.Spec.InitContainers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("4")
+		updated := makeAdmittedWorkload(running).Obj()
+		for name, tc := range map[string]struct {
+			app *sparkappv1beta2.SparkApplication
+			wl  *kueue.Workload
+		}{
+			"pending workload":                                    {app: running, wl: pending},
+			"suspended app":                                       {app: suspended, wl: legacy},
+			"role-level init container changed":                   {app: changedRole, wl: legacy},
+			"template init request changed on a current workload": {app: changedInline, wl: updated},
+		} {
+			t.Run(name, func(t *testing.T) {
+				match, err := jobframework.EquivalentToWorkload(t.Context(), utiltesting.NewFakeClient(), (*SparkApplication)(tc.app), tc.wl)
+				if err != nil || match {
+					t.Fatalf("EquivalentToWorkload() = %v, %v; want false, nil", match, err)
+				}
+			})
+		}
+	})
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		sparkApp          *sparkappv1beta2.SparkApplication
 		pods              []corev1.Pod
 		workloads         []kueue.Workload
 		wantWorkloads     []kueue.Workload
+		wantRunning       bool
 	}{
+		"running app retains workload admitted before template init containers were included": {
+			sparkApp:      running,
+			wantRunning:   true,
+			workloads:     []kueue.Workload{*legacy.DeepCopy()},
+			wantWorkloads: []kueue.Workload{*legacy.DeepCopy()},
+		},
 		"workload is created with the corresponding podsets": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -1724,6 +1809,15 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Reconcile returned error: %v", err)
 			}
 
+			if tc.wantRunning {
+				var app sparkappv1beta2.SparkApplication
+				if err := kClient.Get(ctx, sparkAppKey, &app); err != nil {
+					t.Fatal(err)
+				}
+				if (*SparkApplication)(&app).IsSuspended() {
+					t.Error("reconciliation suspended the running SparkApplication")
+				}
+			}
 			var gotWorkloads kueue.WorkloadList
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {
 				t.Fatalf("Could not get Workloads after reconcile: %v", err)

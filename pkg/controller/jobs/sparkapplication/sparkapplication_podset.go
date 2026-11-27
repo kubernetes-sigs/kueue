@@ -146,12 +146,6 @@ func hasContainer(pod *corev1.Pod, container *corev1.Container) bool {
 	})
 }
 
-func hasInitContainer(pod *corev1.Pod, container *corev1.Container) bool {
-	return slices.ContainsFunc(pod.Spec.InitContainers, func(c corev1.Container) bool {
-		return container.Name == c.Name && container.Image == c.Image
-	})
-}
-
 func findContainer(pod *corev1.Pod) int {
 	switch {
 	case sparkutil.IsDriverPod(pod):
@@ -299,16 +293,22 @@ func addInitContainers(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) erro
 		initContainers = slices.Concat(spec.Template.Spec.InitContainers, initContainers)
 	}
 
-	if pod.Spec.InitContainers == nil {
-		pod.Spec.InitContainers = []corev1.Container{}
-	}
+	pod.Spec.InitContainers = appendInitContainers(pod.Spec.InitContainers, initContainers)
+	return nil
+}
 
-	for _, container := range initContainers {
-		if !hasInitContainer(pod, &container) {
-			pod.Spec.InitContainers = append(pod.Spec.InitContainers, *container.DeepCopy())
+func appendInitContainers(existing, additional []corev1.Container) []corev1.Container {
+	if existing == nil {
+		existing = []corev1.Container{}
+	}
+	for _, container := range additional {
+		if !slices.ContainsFunc(existing, func(c corev1.Container) bool {
+			return container.Name == c.Name && container.Image == c.Image
+		}) {
+			existing = append(existing, *container.DeepCopy())
 		}
 	}
-	return nil
+	return existing
 }
 
 func addSidecarContainers(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
