@@ -495,7 +495,6 @@ func (a *FlavorAssigner) assignGroupFlavors(
 		groupRequests.Add(podset.podSet.Requests)
 	}
 	probeRequests := a.probeRequestsFor(podSets)
-	zeroCount := probeRequests != nil
 
 	consideredFlavors := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt)
 
@@ -524,7 +523,13 @@ func (a *FlavorAssigner) assignGroupFlavors(
 			continue
 		}
 
-		flavors, status, considered := a.findFlavorWithProbeFallback(ctx, log, assignment, podSets, psIDs, groupRequests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
+		flavors, status, considered, fallback := a.findFlavorWithProbeFallback(ctx, log, psIDs, groupRequests, probeRequests, resName, quotaUsage, assignedRequests)
+		if fallback != nil && len(flavors) > 0 && !status.IsError() {
+			if assignment.ZeroCountFlavorFallback != "" {
+				assignment.ZeroCountFlavorFallback += " "
+			}
+			assignment.ZeroCountFlavorFallback += a.zeroCountFallbackMessage(podSets, flavors, resName, fallback.probeReason)
+		}
 		mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
 		if status.IsError() || (len(flavors) == 0 && groupRequests.Len() > 0) {
 			return nil, *status, consideredFlavors
@@ -537,35 +542,34 @@ func (a *FlavorAssigner) assignGroupFlavors(
 	return groupFlavors, groupStatus, consideredFlavors
 }
 
+// probeFallback records that the search for flavors fitting the probe requests
+// found none, and why.
+type probeFallback struct {
+	probeReason string
+}
+
 // findFlavorWithProbeFallback finds the flavors for resName, preferring the ones that fit
 // the probe requests. The probe is a preference, not an admission barrier for zero-count
-// PodSets, so when no flavor fits it the search is repeated without it.
+// PodSets, so when no flavor fits it the search is repeated without it. In that case
+// the returned probeFallback is non-nil and holds the reason the probe failed.
 func (a *FlavorAssigner) findFlavorWithProbeFallback(
 	ctx context.Context,
 	log logr.Logger,
-	assignment *Assignment,
-	podSets []indexedPodSet,
 	psIDs []int,
 	groupRequests resources.Requests,
 	probeRequests resources.Requests,
-	zeroCount bool,
 	resName corev1.ResourceName,
 	quotaUsage resources.FlavorResourceQuantities,
 	assignedRequests resources.FlavorResourceQuantities,
-) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
+) (ResourceAssignment, *Status, FlavorAssignmentAttempts, *probeFallback) {
+	zeroCount := probeRequests != nil
 	flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, groupRequests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
-	if probeRequests == nil || len(flavors) != 0 || status.IsError() {
-		return flavors, status, considered
+	if !zeroCount || len(flavors) != 0 || status.IsError() {
+		return flavors, status, considered, nil
 	}
-	probeReason := status.Message()
+	fallback := &probeFallback{probeReason: status.Message()}
 	flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, groupRequests, nil, zeroCount, resName, quotaUsage, assignedRequests)
-	if len(flavors) > 0 && !status.IsError() {
-		if assignment.ZeroCountFlavorFallback != "" {
-			assignment.ZeroCountFlavorFallback += " "
-		}
-		assignment.ZeroCountFlavorFallback += a.zeroCountFallbackMessage(podSets, flavors, resName, probeReason)
-	}
-	return flavors, status, considered
+	return flavors, status, considered, fallback
 }
 
 // recordGroupAssignment writes the group's result into the assignment and accounts
