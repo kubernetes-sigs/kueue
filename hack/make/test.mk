@@ -35,7 +35,7 @@ TEST_LOG_LEVEL ?= -3
 # reduce OOM risk in the seven-CPU CI jobs. Suites still run sequentially. User may
 # set this value to 1 to run without parallelism.
 INTEGRATION_NPROCS ?= 5
-INTEGRATION_NPROCS_MULTIKUEUE ?= 3
+INTEGRATION_NPROCS_MULTIKUEUE ?= 4
 # Build shared dependencies once before compiling the next MultiKueue suite.
 INTEGRATION_COMPILERS_MULTIKUEUE ?= 1
 # Folder where the integration tests are located.
