@@ -33,6 +33,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", ginkgo.Label("job:batch", "area:jobs"), func() {
@@ -287,5 +288,58 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		behavioral.ExpectPodsReadyCondition(ctx, k8sClient, wlKey)
+	})
+
+	ginkgo.It("Should start the job on the scale-up probe readmitted after its slice was preempted", func() {
+		ginkgo.By("creating a Job at 5 replicas and scaling it to 10, of which 7 are admitted")
+		testJob := testingjob.MakeJob("preempted", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Indexed(true).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(5).
+			Completions(5).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testJob)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, kueue.DefaultPodSetName, 5)
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
+
+		scaleJob(testJob, 10)
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, kueue.DefaultPodSetName, 7)
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		ginkgo.By("a higher-priority workload preempts the partially admitted slice")
+		preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Priority(1).
+			Request(corev1.ResourceCPU, "3").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, preemptor)
+		behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, partialSlice)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
+
+		ginkgo.By("the job is suspended on the eviction of its slice")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+			g.Expect(testJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the probe stays pending while only 4 CPUs are free, below its minCount of 5")
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		ginkgo.By("the preemptor finishes, and the probe is admitted with 7 replicas")
+		integration.FinishWorkloads(ctx, k8sClient, preemptor)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, kueue.DefaultPodSetName, 7)
+
+		ginkgo.By("the readmitted slice gets its own pending scale-up probe")
+		nextProbe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, probe)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, nextProbe)
+
+		ginkgo.By("the job starts on the readmitted slice")
+		behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
 	})
 })
