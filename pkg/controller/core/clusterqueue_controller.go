@@ -399,12 +399,6 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	log := r.logger().WithValues("clusterQueue", klog.KObj(e.ObjectNew))
 	log.V(3).Info("ClusterQueue update event")
 
-	if !e.ObjectNew.DeletionTimestamp.IsZero() {
-		return true
-	}
-	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	specUpdated := clusterQueueSpecUpdated(e.ObjectOld, e.ObjectNew)
-
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
 		storeUpdated := r.customLabels.CQStore(
@@ -416,6 +410,15 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
 		)
 	}
+
+	if !e.ObjectNew.DeletionTimestamp.IsZero() {
+		if labelsUpdated {
+			r.resyncClusterQueueGaugeMetrics(e.ObjectNew)
+		}
+		return true
+	}
+	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
+	specUpdated := clusterQueueSpecUpdated(e.ObjectOld, e.ObjectNew)
 
 	if err := r.cache.UpdateClusterQueue(log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
