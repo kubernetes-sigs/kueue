@@ -211,7 +211,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		return nil
 	}
 
-	workloadResources, err := o.getWorkloadResources(workloads)
+	wlResources, err := o.getWorkloadResources(workloads)
 	if err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		if o.DeleteAll {
 			confirmationMessage = "This operation will also delete the jobs associated with these workloads.\n"
 		} else {
-			confirmationMessage = o.generateConfirmationMessage(workloadResources)
+			confirmationMessage = o.generateConfirmationMessage(wlResources)
 		}
 
 		if !o.confirmation(confirmationMessage) {
@@ -230,7 +230,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		}
 	}
 
-	return o.deleteWorkloads(ctx, workloadResources)
+	return o.deleteWorkloads(ctx, wlResources)
 }
 
 func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {
@@ -315,10 +315,10 @@ func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) ([]w
 	return res, nil
 }
 
-func (o *WorkloadOptions) generateConfirmationMessage(workloadResources []workloadResources) string {
-	associatedResources := make([]string, 0, len(workloadResources))
+func (o *WorkloadOptions) generateConfirmationMessage(wlResources []workloadResources) string {
+	associatedResources := make([]string, 0, len(wlResources))
 
-	for _, wr := range workloadResources {
+	for _, wr := range wlResources {
 		if len(wr.resources) == 0 {
 			continue
 		}
@@ -352,8 +352,8 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 	return strings.EqualFold(input, "y")
 }
 
-func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadResources []workloadResources) error {
-	for _, wr := range workloadResources {
+func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, wlResources []workloadResources) error {
+	for _, wr := range wlResources {
 		// Like kubectl delete; otherwise deleting a batch/v1 Job orphans its Pods.
 		deleteOptions := metav1.DeleteOptions{
 			PropagationPolicy: new(metav1.DeletePropagationBackground),
