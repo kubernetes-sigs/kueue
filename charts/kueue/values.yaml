@@ -162,6 +162,14 @@ webhookService:
 mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
+integrationWebhooks:
+  # -- objectSelector for the mutating and validating webhooks of the job
+  # integrations (every webhook except those for Kueue's own API group).
+  # Empty means no selector. For example, selecting on the presence of the
+  # kueue.x-k8s.io/queue-name label keeps objects that do not use Kueue from
+  # depending on the webhook's availability. Objects that do not match are not
+  # sent to the webhook, so they are neither defaulted nor validated by Kueue.
+  objectSelector: {}
 networkPolicy:
   # -- Enable ingress NetworkPolicies for the Kueue components. Requires NetworkPolicy
   # enforcement. ControllerManager policies are skipped when controllerManager.hostNetwork

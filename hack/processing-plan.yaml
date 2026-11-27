@@ -319,6 +319,10 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
+          {{- with .Values.integrationWebhooks.objectSelector }}
+          objectSelector:
+            {{- toYaml . | nindent 6 }}
+          {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
       - type: INSERT_TEXT
@@ -335,6 +339,10 @@ files:
                   - kube-system
                   - '{{ .Release.Namespace }}'
             {{- end }}
+          {{- with .Values.integrationWebhooks.objectSelector }}
+          objectSelector:
+            {{- toYaml . | nindent 6 }}
+          {{- end }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].rules[0].apiGroups[0] != "kueue.x-k8s.io"'
       - type: INSERT_TEXT
