@@ -223,11 +223,12 @@ func TestCheckerReusesCounts(t *testing.T) {
 				Build()
 			pods := &podtracker.Tracker{}
 			pods.Track(heldPod)
-			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true, SnapshotState{
+			checker := NewChecker(cl, &CELCache{}, true, SnapshotState{
 				Nodes:            []*corev1.Node{node},
 				Pods:             pods,
 				AssumedWorkloads: []*kueue.Workload{held},
 			})
+			checkerNodeEvaluator := checker.WrapNodeFeasibilityEvaluator(&passthroughChecker{})
 			requirements := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4}
 			if tc.leader {
 				requirements.LeaderPodTemplate = podTemplate
@@ -238,7 +239,7 @@ func TestCheckerReusesCounts(t *testing.T) {
 				first.PodCount = tc.firstPodCount
 			}
 			candidates := []*testCandidate{{node: node, id: "gpu-node"}}
-			if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), &first, &simulator.NodeExclusionStats{}); err != nil {
+			if _, err := checkerNodeEvaluator.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), &first, &simulator.NodeExclusionStats{}); err != nil {
 				t.Fatalf("FindFeasibleNodes returned error: %v", err)
 			}
 			devices := checker.devices.built()
@@ -251,7 +252,7 @@ func TestCheckerReusesCounts(t *testing.T) {
 
 			if tc.checkEmptyCluster {
 				empty := &simulator.PodRequirements{PodTemplate: podTemplate, PodCount: 4, SimulateEmpty: true}
-				if _, err := checker.FindFeasibleNodes(
+				if _, err := checkerNodeEvaluator.FindFeasibleNodes(
 					t.Context(),
 					simulator.AsCandidates(slices.Values([]*testCandidate{{node: node, id: "gpu-node"}})),
 					empty,
@@ -275,7 +276,7 @@ func TestCheckerReusesCounts(t *testing.T) {
 			}
 
 			candidates = []*testCandidate{{node: node, id: "gpu-node"}}
-			if _, err := checker.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
+			if _, err := checkerNodeEvaluator.FindFeasibleNodes(t.Context(), simulator.AsCandidates(slices.Values(candidates)), requirements, &simulator.NodeExclusionStats{}); err != nil {
 				t.Fatalf("FindFeasibleNodes returned error: %v", err)
 			}
 			if diff := cmp.Diff(tc.wantLimit, candidates[0].devicePodLimit); diff != "" {
