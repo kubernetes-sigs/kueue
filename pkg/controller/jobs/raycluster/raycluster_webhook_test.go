@@ -826,6 +826,22 @@ func TestValidateUpdate(t *testing.T) {
 			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
 			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected when the job gains a queue": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
+					`{"timeoutSeconds":3600}`,
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").

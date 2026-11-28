@@ -413,6 +413,21 @@ func TestValidateUpdate(t *testing.T) {
 			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
 			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected when the job gains a queue": {
+			oldSparkApp: testSparkApp.Clone().Suspend(true).
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(controllerconstants.WaitForPodsReadyAnnotation),
+					`{"timeoutSeconds":3600}`,
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
 				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),

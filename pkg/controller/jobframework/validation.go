@@ -390,12 +390,36 @@ func hasWaitForPodsReadyAnnotationChanged(oldObj, newObj client.Object) bool {
 	return false
 }
 
+// becomesManaged reports whether newObj becomes managed on this update.
+// Ray and Spark objects become managed by gaining a queue-name label. A RayJob
+// with spec.clusterSelector keeps using an existing cluster, and both its
+// controller and webhook leave it unmanaged, so that label does not make it
+// managed. An object that already has a queue-name is already managed.
+func becomesManaged(oldObj, newObj client.Object) bool {
+	if rayJobSelectsExistingCluster(newObj) {
+		return false
+	}
+	return QueueNameForObject(oldObj) == "" && QueueNameForObject(newObj) != ""
+}
+
+func rayJobSelectsExistingCluster(obj client.Object) bool {
+	rayJob, ok := obj.(*rayv1.RayJob)
+	return ok && len(rayJob.Spec.ClusterSelector) > 0
+}
+
+// ValidateWaitForPodsReadyAnnotationOnUpdate checks the annotation when its
+// parsed value changes. It also checks an unchanged annotation when the object
+// gains a queue-name label and becomes managed. Unmanaged Ray and Spark objects
+// skip admission checks, so an annotation above maxTimeoutOnWorkload can be
+// stored until that label is added. An unchanged annotation on an object that
+// already has a queue-name, or on a RayJob that selects an existing cluster,
+// stays unchecked, so a lowered maxTimeoutOnWorkload does not block later
+// updates such as suspension.
 func ValidateWaitForPodsReadyAnnotationOnUpdate(oldObj, newObj client.Object, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
 		return nil
 	}
-	hasChange := hasWaitForPodsReadyAnnotationChanged(oldObj, newObj)
-	if !hasChange {
+	if !hasWaitForPodsReadyAnnotationChanged(oldObj, newObj) && !becomesManaged(oldObj, newObj) {
 		return nil
 	}
 	return ValidateWaitForPodsReadyAnnotation(newObj, maxTimeoutOnWorkload)
