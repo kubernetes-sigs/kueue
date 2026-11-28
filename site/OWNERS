@@ -23,3 +23,7 @@ filters:
       - release-team
     reviewers:
       - infra-reviewers
+
+  "^content/en/docs/(concepts|tasks)/.*topology[^/]*\\.md$":
+    reviewers:
+      - tas-reviewers

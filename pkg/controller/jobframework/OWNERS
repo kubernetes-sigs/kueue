@@ -10,3 +10,6 @@ filters:
   "_test\\.go$":
     approvers:
     - jobframework-implementation-approvers
+  "^tas/":
+    reviewers:
+    - tas-reviewers
