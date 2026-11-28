@@ -535,11 +535,13 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, admission)
 		})
 
-		rejectOnWorker := func(testCluster cluster, wlKey types.NamespacedName, cq *kueue.ClusterQueue, rf *kueue.ResourceFlavor, ac *kueue.AdmissionCheck) types.UID {
+		// rejectOnWorker fails the ProvisioningRequest of the worker workload. It does not
+		// wait for the worker to deactivate the workload: once the last worker does, the
+		// manager can delete the worker workloads before a poll observes them.
+		rejectOnWorker := func(testCluster cluster, wlKey types.NamespacedName, cq *kueue.ClusterQueue, rf *kueue.ResourceFlavor, ac *kueue.AdmissionCheck) {
 			ginkgo.GinkgoHelper()
-			workerWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(testCluster.client.Get(testCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(testCluster.client.Get(testCluster.ctx, wlKey, &kueue.Workload{})).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
@@ -566,18 +568,18 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 				})
 				g.Expect(testCluster.client.Status().Update(testCluster.ctx, provReq)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(testCluster.client.Get(testCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
-				g.Expect(workload.IsActive(workerWl)).To(gomega.BeFalse())
-				g.Expect(workload.HasQuotaReservation(workerWl)).To(gomega.BeFalse())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			return workerWl.UID
 		}
 
 		var worker1WlUID types.UID
 		ginkgo.By("rejecting the ProvisioningRequest on worker1", func() {
-			worker1WlUID = rejectOnWorker(worker1TestCluster, worker1WlKey, worker1Cq, worker1Rf, worker1ProvReqAC)
+			rejectOnWorker(worker1TestCluster, worker1WlKey, worker1Cq, worker1Rf, worker1ProvReqAC)
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, worker1WlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(workerWl)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(workerWl)).To(gomega.BeFalse())
+				worker1WlUID = workerWl.UID
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("checking that the manager keeps the deactivated workload on worker1 and waits for worker2", func() {

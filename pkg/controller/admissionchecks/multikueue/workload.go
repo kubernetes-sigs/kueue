@@ -1247,7 +1247,22 @@ func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local
 // for example because an admission check of the worker was rejected. The manager
 // deactivates a remote workload only after it evicts or deactivates the local one.
 func isDeactivatedOnWorker(local, remote *kueue.Workload) bool {
-	return !workload.IsActive(remote) && workload.IsActive(local) && !workloadevict.IsEvicted(local)
+	return !workload.IsActive(remote) && workload.IsActive(local) && !workloadevict.IsEvicted(local) &&
+		!isDeactivatedByManagerEviction(remote)
+}
+
+// isDeactivatedByManagerEviction reports whether the remote workload was deactivated
+// because the manager evicted the local workload. The local workload can reserve quota
+// again, which clears its Evicted condition, before the manager deletes such a remote.
+// The worker records the cause in the DeactivationTarget condition until it evicts the
+// remote workload, and then in the reason of the Evicted condition.
+func isDeactivatedByManagerEviction(remote *kueue.Workload) bool {
+	if cond := apimeta.FindStatusCondition(remote.Status.Conditions, kueue.WorkloadDeactivationTarget); cond != nil && cond.Status == metav1.ConditionTrue {
+		return cond.Reason == kueue.WorkloadEvictedOnManagerCluster
+	}
+	cond := apimeta.FindStatusCondition(remote.Status.Conditions, kueue.WorkloadEvicted)
+	return cond != nil && cond.Status == metav1.ConditionTrue &&
+		cond.Reason == workloadpatching.ReasonWithCause(kueue.WorkloadDeactivated, kueue.WorkloadEvictedOnManagerCluster)
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
