@@ -17,23 +17,32 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+IMAGES = ("kueue", "importer", "kueueviz-backend", "kueueviz-frontend",
+          "kueue-populator", "kueue-priority-booster")
+ATTESTED = ("kueue", "kueueviz-backend", "kueueviz-frontend", "kueue-populator", "kueue-priority-booster")
 
 CALLER_MAKE_SETTINGS = ("MAKEFLAGS", "GNUMAKEFLAGS", "PLATFORMS")
 
 
 class ImageBuildTest(unittest.TestCase):
-    def build_images(self, fail="", settings=(), target="image-presubmit"):
-        """Run real Make recipes with a recording stub and optional failure injection."""
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            docker = directory / "docker"
-            docker.write_text('''#!/usr/bin/env python3
+    def build_images(self, fail="", settings=(), target="image-presubmit", digest=None):
+        """Run real Make recipes with a recording stub and optional failure injection.
+
+        digest is None to leave DIGEST_DIR unset, "absolute" to pass an absolute path,
+        or "relative" to pass a path relative to the repository root.
+        """
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, directory, True)
+        self.directory = directory
+        docker = directory / "docker"
+        docker.write_text('''#!/usr/bin/env python3
 import fcntl, json, os, pathlib, sys, time
 args = sys.argv[1:]
 with pathlib.Path(os.environ["IMAGE_TEST_LOG"]).open("a") as log:
@@ -51,6 +60,9 @@ elif args[:2] == ["buildx", "build"]:
             sys.exit("Overlapping image build")
         # Keep simulated builds active long enough to detect overlapping recipes.
         time.sleep(0.2)
+        if "--metadata-file" in args:
+            # buildx writes the digest file, so a missing DIGEST_DIR fails the build.
+            pathlib.Path(args[args.index("--metadata-file") + 1]).write_text('{"containerimage.digest": "sha256:test"}')
         if os.environ["IMAGE_TEST_FAIL"] == "build" and "./cmd/importer/Dockerfile" in args:
             sys.exit(1)
 elif args == ["buildx", "rm", "test-builder"]:
@@ -59,24 +71,45 @@ elif args == ["buildx", "rm", "test-builder"]:
 else:
     sys.exit("Unexpected Docker command: " + repr(args))
 ''')
-            docker.chmod(0o755)
-            log = directory / "commands.jsonl"
-            inherited = {key: value for key, value in os.environ.items() if key not in CALLER_MAKE_SETTINGS}
-            env = {**inherited, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
-                   "IMAGE_TEST_LOCK": str(directory / "build.lock")}
-            if target != "image-presubmit":
-                env["BUILDX_BUILDER"] = "test-builder"
-            # The image pipeline must remain sequential even under parallel verify.
-            # Execute the real parent and component Makefiles, replacing only Docker.
-            result = subprocess.run(
-                ["make", "--no-print-directory", "-j4", target,
-                 f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
-                 "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
-                 "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
-                 "IMAGE_BUILD_EXTRA_OPTS=--progress=plain", *settings],
-                cwd=ROOT, env=env, text=True, capture_output=True,
-            )
-            return result, [json.loads(line) for line in log.read_text().splitlines()]
+        docker.chmod(0o755)
+        log = directory / "commands.jsonl"
+        inherited = {key: value for key, value in os.environ.items() if key not in CALLER_MAKE_SETTINGS}
+        env = {**inherited, "IMAGE_TEST_LOG": str(log), "IMAGE_TEST_FAIL": fail,
+               "IMAGE_TEST_LOCK": str(directory / "build.lock")}
+        if target != "image-presubmit":
+            env["BUILDX_BUILDER"] = "test-builder"
+        make_settings = [*settings]
+        if digest == "absolute":
+            make_settings.append(f"DIGEST_DIR={directory / 'digests'}")
+        elif digest == "relative":
+            make_settings.append(f"DIGEST_DIR={os.path.relpath(directory / 'digests', ROOT)}")
+        # The image pipeline must remain sequential even under parallel verify.
+        # Execute the real parent and component Makefiles, replacing only Docker.
+        result = subprocess.run(
+            ["make", "--no-print-directory", "-j4", target,
+             f"DOCKER_BUILDX_CMD={docker} buildx", "IMAGE_BUILD_RETRY=env",
+             "HOST_IMAGE_PLATFORM=linux/amd64", "GIT_TAG=test", "GIT_COMMIT=test",
+             "RELEASE_BRANCH=main", "IMAGE_REGISTRY=example.test/kueue",
+             "IMAGE_BUILD_EXTRA_OPTS=--progress=plain", *make_settings],
+            cwd=ROOT, env=env, text=True, capture_output=True,
+        )
+        return result, [json.loads(line) for line in log.read_text().splitlines()]
+
+    def builds_by_image(self, commands):
+        """Key each buildx build by the image it tags, such as example.test/kueue/kueue:test."""
+        builds = {}
+        for command in commands:
+            args = command["args"]
+            if args[:2] != ["buildx", "build"]:
+                continue
+            names = [name for name in IMAGES if f"example.test/kueue/{name}:test" in args]
+            self.assertEqual(len(names), 1, args)
+            builds[names[0]] = args
+        self.assertEqual(set(builds), set(IMAGES))
+        return builds
+
+    def metadata_files(self, args):
+        return [args[index + 1] for index, arg in enumerate(args) if arg == "--metadata-file"]
 
     def test_all_images_share_one_builder_and_keep_platform_coverage(self):
         """Keep one builder and apply parallelism settings only to the manager."""
@@ -110,6 +143,41 @@ else:
                 if index:
                     self.assertFalse(any(arg.startswith("IMAGE_BUILD_GOMAXPROCS=") or
                                          arg.startswith("IMAGE_BUILD_GO_PARALLELISM=") for arg in args))
+
+    def test_attested_images_record_their_digest_when_digest_dir_is_set(self):
+        """Ask buildx for a metadata file only for images that staging attests."""
+        result, commands = self.build_images(digest="absolute")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        builds = self.builds_by_image(commands)
+        digests = os.path.realpath(self.directory / "digests")
+        for name in ATTESTED:
+            with self.subTest(image=name):
+                metadata = self.metadata_files(builds[name])
+                self.assertEqual(len(metadata), 1)
+                self.assertEqual(os.path.realpath(metadata[0]), os.path.join(digests, f"{name}.json"))
+        self.assertEqual(self.metadata_files(builds["importer"]), [])
+        self.assertTrue((self.directory / "digests").is_dir())
+
+    def test_relative_digest_dir_resolves_to_an_absolute_path(self):
+        """Resolve DIGEST_DIR at the top level, because sub-make recipes run in other directories."""
+        result, commands = self.build_images(digest="relative")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        builds = self.builds_by_image(commands)
+        digests = os.path.realpath(self.directory / "digests")
+        for name in ATTESTED:
+            with self.subTest(image=name):
+                metadata = self.metadata_files(builds[name])
+                self.assertEqual(len(metadata), 1)
+                self.assertTrue(os.path.isabs(metadata[0]), metadata[0])
+                self.assertEqual(os.path.realpath(metadata[0]), os.path.join(digests, f"{name}.json"))
+
+    def test_digest_metadata_and_directory_are_absent_without_digest_dir(self):
+        """Keep build commands unchanged and create no digest directory when DIGEST_DIR is unset."""
+        result, commands = self.build_images()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for command in commands[1:-1]:
+            self.assertNotIn("--metadata-file", command["args"])
+        self.assertFalse((self.directory / "digests").exists())
 
     def test_manager_parallelism_can_be_overridden_or_left_automatic(self):
         """Route independent budgets and explicit automatic defaults to the manager."""
