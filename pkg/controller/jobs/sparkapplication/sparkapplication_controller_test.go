@@ -523,6 +523,98 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			),
 			wantCount: 3,
 		},
+		"elastic, running before initial executors created with a failed executor: initial executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods: slices.Concat(
+				executorPods(corev1.PodRunning, 1, 2),
+				executorPods(corev1.PodFailed, 3),
+			),
+			wantCount: 4,
+		},
+		"elastic, running after a failed executor is deleted: initial executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "3").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2),
+			wantCount: 4,
+		},
+		"elastic, running with replacement executor after failure: initial executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "3").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 4),
+			wantCount: 4,
+		},
+		"elastic, failed executor IDs recorded for a previous submission are ignored": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-0").
+				Annotation(failedExecutorIDsAnnotation, "3").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2, 4),
+			wantCount: 3,
+		},
+		"elastic, executors started, then an executor fails and is not replaced: counts pods": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(executorsStartedSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods: slices.Concat(
+				executorPods(corev1.PodRunning, 1, 2, 3),
+				executorPods(corev1.PodFailed, 4),
+			),
+			wantCount: 3,
+		},
+		"elastic, executors started, then a scale-down kills executors that show Failed: count follows the kept executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(executorsStartedSubmissionAnnotation, "sub-1").
+				Annotation(maxExecutorIDAnnotation, "4").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods: slices.Concat(
+				executorPods(corev1.PodRunning, 1, 2),
+				executorPods(corev1.PodFailed, 3, 4),
+			),
+			wantCount: 2,
+		},
+		"elastic, executors started with failed IDs recorded during ramp-up, then a scale-down: count follows the kept executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(executorsStartedSubmissionAnnotation, "sub-1").
+				Annotation(maxExecutorIDAnnotation, "5").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "2").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 3),
+			wantCount: 2,
+		},
+		"elastic, ramp-up, failed executor Pod deleted before any reconcile saw it Failed: count drops below the initial executors (known limit)": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2),
+			wantCount: 2,
+		},
 		"elastic, unknown: counts pods": {
 			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateUnknown).Obj(),
 			pods:      executorPods(corev1.PodRunning, 1, 2, 3),
@@ -588,6 +680,23 @@ func TestPodSetsExecutorCount(t *testing.T) {
 				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))}).
 				AppState(sparkappv1beta2.ApplicationStateRunning).
 				Obj(),
+			pods:      executorPods(corev1.PodSucceeded, 1, 2),
+			wantCount: 1,
+		},
+		"elastic, running below minExecutors with failed executors during ramp-up: holds the initial executors, the driver is replacing them": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Obj(),
+			pods:      executorPods(corev1.PodFailed, 1, 2),
+			wantCount: 2,
+		},
+		"elastic, running below minExecutors with failed executors after the executors started: count stays at minExecutors": {
+			sparkApp: elasticSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(executorsStartedSubmissionAnnotation, "sub-1").
+				Obj(),
 			pods:      executorPods(corev1.PodFailed, 1, 2),
 			wantCount: 1,
 		},
@@ -622,6 +731,67 @@ func TestPodSetsExecutorCount(t *testing.T) {
 				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
 				Obj(),
 			wantCount: 0,
+		},
+		"elastic, succeeding with recorded failed executors and no pods: releases the initial hold": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateSucceeding).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "1,2").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, completed with recorded failed executors and no pods: releases the initial hold": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateCompleted).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "1,2").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, failing with recorded failed executors and no pods: releases the initial hold": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateFailing).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "1,2").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, failed with recorded failed executors and no pods: releases the initial hold": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateFailed).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "1,2").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, failed driver with some recorded failed executors and no pods: releases the initial hold": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateFailed).
+				Annotation(maxExecutorIDAnnotation, "2").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "1").
+				Obj(),
+			wantCount: 0,
+		},
+		"elastic, failed driver with a running executor and recorded failed executors: follows the active pods": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateFailed).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "1,2").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 3),
+			wantCount: 1,
 		},
 		"elastic, minExecutors above instances: count raised to minExecutors": {
 			sparkApp: elasticSparkApp.Clone().
@@ -858,6 +1028,18 @@ func TestGetCustomAnnotations(t *testing.T) {
 			},
 			want: map[string]string{maxExecutorIDAnnotation: "1003", maxExecutorIDSubmissionAnnotation: "sub-1"},
 		},
+		"failed executor is recorded in annotations": {
+			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").Obj(),
+			pods: []corev1.Pod{
+				*executorPod.Clone().Name("exec-1").Label(sparkcommon.LabelSparkExecutorID, "1").StatusPhase(corev1.PodRunning).Obj(),
+				*executorPod.Clone().Name("exec-2").Label(sparkcommon.LabelSparkExecutorID, "2").StatusPhase(corev1.PodFailed).Obj(),
+			},
+			want: map[string]string{
+				maxExecutorIDAnnotation:           "2",
+				maxExecutorIDSubmissionAnnotation: "sub-1",
+				failedExecutorIDsAnnotation:       "2",
+			},
+		},
 		"executors of a previous submission are ignored": {
 			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").Obj(),
 			pods: []corev1.Pod{
@@ -907,6 +1089,14 @@ func TestGetCustomAnnotations(t *testing.T) {
 			sparkApp: dynamicSparkApp.Clone().Annotation(executorsStartedSubmissionAnnotation, "sub-1").Obj(),
 			pods:     []corev1.Pod{readyExecutorPod(1)},
 			want:     map[string]string{maxExecutorIDAnnotation: "1", maxExecutorIDSubmissionAnnotation: "sub-1"},
+		},
+		"dynamic allocation, started in this submission: failed executors are no longer recorded": {
+			sparkApp: dynamicSparkApp.Clone().Annotation(executorsStartedSubmissionAnnotation, "sub-1").Obj(),
+			pods: []corev1.Pod{
+				readyExecutorPod(1),
+				*executorPod.Clone().Name("exec-2").Label(sparkcommon.LabelSparkExecutorID, "2").StatusPhase(corev1.PodFailed).Obj(),
+			},
+			want: map[string]string{maxExecutorIDAnnotation: "2", maxExecutorIDSubmissionAnnotation: "sub-1"},
 		},
 		"dynamic allocation, target lowered before the starting executors were all created: records once the target is ready": {
 			sparkApp: elasticSparkApp.Clone().SubmissionID("sub-1").
@@ -2568,5 +2758,55 @@ func TestPodsReadyPartialPreemption(t *testing.T) {
 				t.Errorf("PodsReady() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFailedExecutorIDsAcrossResubmission applies GetCustomAnnotations the way
+// the job reconciler does (it only adds or updates annotations) over two
+// reconciles, to check that failed executor IDs recorded for a previous
+// submission do not count as failures of the new one.
+func TestFailedExecutorIDsAcrossResubmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	app := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+		Queue("local-queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		SubmissionID("sub-2").
+		DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+		AppState(sparkappv1beta2.ApplicationStateRunning).
+		Annotation(maxExecutorIDAnnotation, "3").
+		Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+		Annotation(failedExecutorIDsAnnotation, "3").
+		Obj()
+	executorPod := testingpod.MakePod("", "ns").
+		Label(sparkcommon.LabelSparkAppName, "sparkapp").
+		Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+		Label(sparkcommon.LabelSubmissionID, "sub-2")
+	var pods []corev1.Pod
+	for _, id := range []string{"1", "2", "4"} {
+		pods = append(pods, *executorPod.Clone().Name("exec-"+id).Label(sparkcommon.LabelSparkExecutorID, id).StatusPhase(corev1.PodRunning).Obj())
+	}
+	cl := utiltesting.NewClientBuilder().WithLists(&corev1.PodList{Items: pods}).Build()
+
+	for reconcile := 1; reconcile <= 2; reconcile++ {
+		got, err := (*SparkApplication)(app).GetCustomAnnotations(ctx, cl)
+		if err != nil {
+			t.Fatalf("reconcile %d: GetCustomAnnotations() returned error: %v", reconcile, err)
+		}
+		merged := maps.Clone(app.Annotations)
+		maps.Copy(merged, got)
+		app.Annotations = merged
+	}
+	if got := app.Annotations[failedExecutorIDsAnnotation]; got != "" {
+		t.Errorf("failed executor IDs of the previous submission were kept: %q", got)
+	}
+	// The driver created executors 1, 2 and 4 of 4 starting executors, so
+	// the count follows the 3 running pods.
+	count, err := (*SparkApplication)(app).numExecutors(ctx, cl)
+	if err != nil {
+		t.Fatalf("numExecutors() returned error: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("numExecutors() = %d, want 3", count)
 	}
 }
