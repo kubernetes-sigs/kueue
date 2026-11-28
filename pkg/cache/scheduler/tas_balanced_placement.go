@@ -82,6 +82,18 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 		return nil
 	}
 
+	placements := newPlacementTable(optimalNumberOfDomains, leaderCount, sliceCount*sliceSize)
+	for _, d := range orderDomainsForPlacement(s, domains, leaderCount, prioritizeByEntropy) {
+		domainState := s.domainStateOf(d)
+		// Going from the most domains down adds d at most once to each placement.
+		for i := optimalNumberOfDomains; i > 0; i-- {
+			placements.extend(i, d, domainState)
+		}
+	}
+	return placements.best(optimalNumberOfDomains)
+}
+
+func orderDomainsForPlacement(s *TASFlavorSnapshot, domains []*domain, leaderCount int32, prioritizeByEntropy bool) []*domain {
 	orderedDomains := slices.Clone(domains)
 	if prioritizeByEntropy {
 		slices.SortFunc(orderedDomains, func(a, b *domain) int {
@@ -90,64 +102,67 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	} else {
 		slices.SortFunc(orderedDomains, compareDomainLevelValues)
 	}
+	return orderedDomains
+}
 
-	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
-	// ('j' leaders and 'k' workers) left to fit
-	domainPlacements := make([]map[int32]map[int32][]*domain, optimalNumberOfDomains+1)
-	for i := range domainPlacements {
-		domainPlacements[i] = make(map[int32]map[int32][]*domain)
+// placementTable[i][leaders][pods] is the first placement found that uses i domains
+// and leaves the given number of leaders and pods still to fit.
+type placementTable []map[int32]map[int32][]*domain
+
+func newPlacementTable(maxDomains, leaderCount, podCount int32) placementTable {
+	placements := make(placementTable, maxDomains+1)
+	for i := range placements {
+		placements[i] = make(map[int32]map[int32][]*domain)
 	}
-	domainPlacements[0][leaderCount] = map[int32][]*domain{sliceCount * sliceSize: {}}
+	placements[0][leaderCount] = map[int32][]*domain{podCount: {}}
+	return placements
+}
 
-	for _, d := range orderedDomains {
-		domainState := s.domainStateOf(d)
-		for i := optimalNumberOfDomains; i > 0; i-- {
-			for _, beforeLeader := range slices.Sorted(maps.Keys(domainPlacements[i-1])) {
-				for _, beforePods := range slices.Sorted(maps.Keys(domainPlacements[i-1][beforeLeader])) {
-					beforePlacement := domainPlacements[i-1][beforeLeader][beforePods]
-					if beforeLeader <= 0 && beforePods <= 0 {
-						continue
-					}
-					newPlacement := make([]*domain, len(beforePlacement), len(beforePlacement)+1)
-					copy(newPlacement, beforePlacement)
-					newPlacement = append(newPlacement, d)
-					// Case 1: Pick this domain with leader
-					if beforeLeader > 0 && domainState.leaderCount > 0 {
-						afterLeader := beforeLeader - domainState.leaderCount
-						afterPods := beforePods - domainState.podCount[obligationLeader]
-						if domainPlacements[i][afterLeader] == nil {
-							domainPlacements[i][afterLeader] = make(map[int32][]*domain)
-						}
-						if _, alreadyThere := domainPlacements[i][afterLeader][afterPods]; !alreadyThere {
-							domainPlacements[i][afterLeader][afterPods] = newPlacement
-						}
-					}
-					// Case 2: Pick this domain without leader
-					if domainState.sliceCount[obligationNone] > 0 {
-						afterPods := beforePods - domainState.podCount[obligationNone]
-						if domainPlacements[i][beforeLeader] == nil {
-							domainPlacements[i][beforeLeader] = make(map[int32][]*domain)
-						}
-						if _, alreadyThere := domainPlacements[i][beforeLeader][afterPods]; !alreadyThere {
-							domainPlacements[i][beforeLeader][afterPods] = newPlacement
-						}
-					}
-				}
+// extend adds d to every placement that uses i-1 domains and still has leaders or
+// pods to fit, both with and without a leader on d when d can take them.
+// Placements are visited in sorted order, so the first one recorded wins ties.
+func (placements placementTable) extend(i int32, d *domain, domainState *domainState) {
+	for _, leaders := range slices.Sorted(maps.Keys(placements[i-1])) {
+		for _, pods := range slices.Sorted(maps.Keys(placements[i-1][leaders])) {
+			if leaders <= 0 && pods <= 0 {
+				continue
+			}
+			before := placements[i-1][leaders][pods]
+			placement := make([]*domain, len(before), len(before)+1)
+			copy(placement, before)
+			placement = append(placement, d)
+			if leaders > 0 && domainState.leaderCount > 0 {
+				placements.addIfAbsent(i, leaders-domainState.leaderCount, pods-domainState.podCount[obligationLeader], placement)
+			}
+			if domainState.sliceCount[obligationNone] > 0 {
+				placements.addIfAbsent(i, leaders, pods-domainState.podCount[obligationNone], placement)
 			}
 		}
 	}
+}
 
-	bestLeaderPlacement := domainPlacements[optimalNumberOfDomains][0]
-	bestSlice := int32(-1 << 31) // minus infinity
-	var bestSlicePlacement []*domain
+func (placements placementTable) addIfAbsent(i, leaders, pods int32, placement []*domain) {
+	if placements[i][leaders] == nil {
+		placements[i][leaders] = make(map[int32][]*domain)
+	}
+	if _, found := placements[i][leaders][pods]; !found {
+		placements[i][leaders][pods] = placement
+	}
+}
 
-	for _, slicesLeft := range slices.Sorted(maps.Keys(bestLeaderPlacement)) {
-		if slicesLeft > bestSlice && slicesLeft <= 0 {
-			bestSlice = slicesLeft
-			bestSlicePlacement = bestLeaderPlacement[slicesLeft]
+// best returns the placement that uses i domains and fits all leaders and pods
+// with the least spare pod capacity.
+func (placements placementTable) best(i int32) []*domain {
+	byPods := placements[i][0]
+	bestPods := int32(math.MinInt32)
+	var bestPlacement []*domain
+	for _, pods := range slices.Sorted(maps.Keys(byPods)) {
+		if pods > bestPods && pods <= 0 {
+			bestPods = pods
+			bestPlacement = byPods[pods]
 		}
 	}
-	return bestSlicePlacement
+	return bestPlacement
 }
 
 func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, sliceCount int32, leaderCount int32, sliceSize int32, threshold int32) ([]*domain, string) {
