@@ -1418,6 +1418,11 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 
 	// Increments a re-queueing count and update a time to be re-queued.
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
+	if underlyingCause == kueue.WorkloadWaitForScheduling {
+		if reasons := r.unschedulablePodReasons(ctx, wl); reasons != "" {
+			message += ". kube-scheduler reported: " + reasons
+		}
+	}
 	err = workloadevict.Evict(
 		ctx,
 		r.client,
@@ -1436,6 +1441,40 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	)
 
 	return 0, err
+}
+
+// unschedulablePodReasons returns the reasons kube-scheduler reported for the
+// workload's Pods that are not scheduled, either because no node fits them
+// (for example "Insufficient cpu") or because they are gated. The reasons are
+// deduplicated, sorted and joined with "; ". When the Workload has more than one
+// PodSet, each reason is prefixed with the name of the PodSet of the Pod.
+// It returns an empty string when none is available.
+// Failing to list the Pods must not block the eviction, so the error is only logged.
+func (r *WorkloadReconciler) unschedulablePodReasons(ctx context.Context, wl *kueue.Workload) string {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Unable to list Pods to describe why they are unschedulable")
+		return ""
+	}
+	multiplePodSets := len(wl.Spec.PodSets) > 1
+	reasons := sets.New[string]()
+	for _, pod := range pods {
+		if pod.Status.Phase != corev1.PodPending || !pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		for _, c := range pod.Status.Conditions {
+			if c.Type != corev1.PodScheduled || c.Status != corev1.ConditionFalse || c.Message == "" ||
+				(c.Reason != corev1.PodReasonUnschedulable && c.Reason != corev1.PodReasonSchedulingGated) {
+				continue
+			}
+			reason := c.Message
+			if podSet := pod.Labels[constants.PodSetLabel]; multiplePodSets && podSet != "" {
+				reason = podSet + ": " + reason
+			}
+			reasons.Insert(reason)
+		}
+	}
+	return strings.Join(sets.List(reasons), "; ")
 }
 
 // triggerDeactivation trigger deactivation of workload
