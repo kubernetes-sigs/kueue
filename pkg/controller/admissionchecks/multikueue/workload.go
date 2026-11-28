@@ -449,7 +449,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // jobs there, and they would keep running after the workload is dispatched again.
 // The clusters come from the evictions seen by this process, and from the garbage collector,
 // which finds the remote objects left by the evictions that an earlier process saw.
-// It returns how long to wait before retrying when any of those clusters is disconnected.
+// It returns how long to wait before retrying the cleanup.
 func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
 	clusterNames, _ := w.previousClusterNames.Get(key)
 	var retryAfter time.Duration
@@ -481,7 +481,7 @@ func (w *wlReconciler) removeObjectsOnPreviousClusters(ctx context.Context, grou
 // removeObjectsOnPreviousCluster deletes the remote objects on clusterName that no other workload
 // of the job uses, unless the group still reads that worker cluster, under this name or through
 // another MultiKueueCluster, or it has no MultiKueueCluster.
-// It returns true when clusterName is disconnected, so the cleanup has to be retried.
+// It returns true if the cleanup needs another attempt.
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, clusterName string) (bool, error) {
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
 		// The group reads this cluster, so the regular flow removes its remote objects.
@@ -515,6 +515,13 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 					"workerCluster", clusterName, "readThrough", groupCluster)
 				return false, nil
 			}
+		}
+		if admitting := workload.ClusterName(group.local); admitting != "" && !group.IsFinished() && slices.Contains(group.unavailableClusters, admitting) {
+			// clusterName may point at the same worker, so the cleanup could delete a running job.
+			// Unrelated cleanup waits too, until the workload is evicted.
+			ctrl.LoggerFrom(ctx).V(3).Info("Deferring removal of remote objects while the cluster of the workload is disconnected",
+				"workerCluster", clusterName, "admittingWorkerCluster", admitting)
+			return true, nil
 		}
 	}
 	if err := group.removeUnsharedObjects(ctx, clusterName, rc, remWl); err != nil {

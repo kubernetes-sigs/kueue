@@ -1043,6 +1043,69 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should keep the remote objects reachable through another MultiKueueCluster until the workload on the unreachable worker is evicted", framework.SlowSpec, func() {
+		aliasSecret := utiltesting.MakeSecret("worker2-alias-kubeconfig", managersConfigNamespace.Name).
+			Data(kueue.MultiKueueConfigSecretKey, f.managerMultiKueueSecret2.Data[kueue.MultiKueueConfigSecretKey]).
+			Obj()
+		worker2Alias := utiltestingapi.MakeMultiKueueCluster("worker2-alias").
+			KubeConfig(kueue.SecretLocationType, aliasSecret.Name).
+			Obj()
+		ginkgo.By("creating an alias of worker2 with its own Secret, so it stays connected when worker2 disconnects", func() {
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, aliasSecret)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, worker2Alias)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, worker2Alias, true)
+				behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, aliasSecret, true)
+			})
+			behavioral.ExpectClusterActive(managerTestCluster.ctx, managerTestCluster.client, client.ObjectKeyFromObject(worker2Alias), metav1.ConditionTrue, "Active")
+		})
+
+		job := testingjob.MakeJob("job", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		jobLookupKey := client.ObjectKeyFromObject(job)
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj())
+		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		// The connection is lost after this point, so the workload cannot be evicted before
+		// evictionNotBefore.
+		evictionNotBefore := time.Now().Add(testingWorkerLostTimeout)
+		// No restore needed: the fixture teardown deletes worker2.
+		behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2, managersConfigNamespace.Name)
+		ginkgo.By("the remote objects stay on worker2 while the garbage collector of the alias runs", func() {
+			retention := time.Until(evictionNotBefore) - 300*time.Millisecond
+			gomega.Expect(retention).To(gomega.BeNumerically(">", 0), "breaking the connection took too long")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+			}, retention, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the workload is evicted after the worker lost timeout", func() {
+			// The workload is new, so this counts the retry even if it happened during the check above.
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(f.multiKueueAC.Name))
+				g.Expect(acs).NotTo(gomega.BeNil())
+				g.Expect(ptr.Deref(acs.RetryCount, 0)).To(gomega.BeNumerically(">=", 1))
+			}, testingWorkerLostTimeout*4, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the remote objects are then removed through the alias", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should redo the admission process once the workload loses Admission in the worker cluster", func() {
 		admittedMetricBefore := behavioral.GetMultiKueueWorkloadsAdmittedTotal(f.managerCq, "worker1")
 		job := testingjob.MakeJob("job", f.managerNs.Name).

@@ -4850,6 +4850,10 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 		worker1Disconnected bool
 		// sameWorkerCluster makes worker1 and worker2 two MultiKueueClusters of one worker cluster.
 		sameWorkerCluster bool
+		// worker2Disconnected leaves worker2 disconnected.
+		worker2Disconnected bool
+		// finished marks the manager's workload as finished.
+		finished bool
 		// missing leaves the manager's workload out of the manager cluster.
 		missing bool
 		// deleted delivers the delete event of the manager's workload after the reconciles.
@@ -4923,12 +4927,34 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			clusterName:        "worker2",
 			wantWorker1Objects: true,
 		},
+		"remote objects found by the garbage collector through another MultiKueueCluster are kept for a later retry while the cluster in use is disconnected": {
+			configClusters:           []string{"worker2"},
+			foundByGC:                []string{"worker1"},
+			sameWorkerCluster:        true,
+			worker2Disconnected:      true,
+			clusterName:              "worker2",
+			wantWorker1Objects:       true,
+			wantPreviousClusterNames: sets.New("worker1"),
+			wantRequeueAfter:         defaultWorkerLostTimeout,
+		},
+		"remote objects found by the garbage collector through another MultiKueueCluster are deleted for a finished workload while the cluster it ran on is disconnected": {
+			configClusters:      []string{"worker2"},
+			foundByGC:           []string{"worker1"},
+			sameWorkerCluster:   true,
+			worker2Disconnected: true,
+			clusterName:         "worker2",
+			finished:            true,
+			// The reconcile still waits for the disconnected worker2.
+			wantRequeueAfter: defaultWorkerLostTimeout,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
 			ctx, _ := utiltesting.ContextWithLog(t)
+			now := time.Now().Truncate(time.Second)
+			fakeClock := testingclock.NewFakeClock(now)
 
 			baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 			managerWlBuilder := baseWorkloadBuilder.Clone().
@@ -4936,8 +4962,11 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			if tc.clusterName != "" {
 				managerWlBuilder.
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 					ClusterName(tc.clusterName)
+				if tc.finished {
+					managerWlBuilder.FinishedAt(now)
+				}
 			} else {
 				managerWlBuilder.AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending})
 			}
@@ -4945,7 +4974,7 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			remoteWl := baseWorkloadBuilder.Clone().
 				UID("remote-wl1").
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 				Obj()
 			remoteJob := testingjob.MakeJob("job1", TestNamespace).
 				PrebuiltWorkloadLabel("wl1").
@@ -4989,7 +5018,9 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 			if tc.sameWorkerCluster {
 				w2remoteClient.client = worker1Client
 			}
-			w2remoteClient.connState.markConnected()
+			if !tc.worker2Disconnected {
+				w2remoteClient.connState.markConnected()
+			}
 			cRec.remoteClients["worker2"] = w2remoteClient
 
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
@@ -5004,6 +5035,7 @@ func TestRemoveObjectsOnPreviousClusters(t *testing.T) {
 				adapters,
 				config.MultiKueueDispatcherModeAllAtOnce,
 				nil,
+				WithClock(t, fakeClock),
 			)
 
 			req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
