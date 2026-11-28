@@ -46,6 +46,7 @@ type PendingWorkloads struct {
 	// Invariant: a pending workload is tracked in at most one of active workloads heap,
 	// inadmissible workloads list, or inflight at any time, and contributes to
 	// pendingResourcesTotal exactly once while in active workloads heap or inadmissible workloads list.
+	// The Variants of a ConcurrentAdmission Parent contribute once together, see variantResources.
 	// All transitions between these places must go through the helpers next to
 	// addPendingResources (pushActiveIfNotPresent, pushOrUpdateActive,
 	// removeActive, insertInadmissible, removeInadmissible,
@@ -77,11 +78,20 @@ type PendingWorkloads struct {
 	variantParents *variantParentCounts
 
 	// pendingResourcesTotal is the incremental sum of TotalRequests across workloads
-	// in active workloads heap and inadmissible workloads list (not inflight). Updated at each mutation site so
+	// in active workloads heap and inadmissible workloads list (not inflight), counting the
+	// requests of a ConcurrentAdmission Parent once across its Variants. Updated at each mutation site so
 	// pendingResources() is O(1) rather than O(N).
 	// Configured resources are seeded at 0 by Update() so they appear in metrics
 	// even when no workloads are pending; stale zero entries are pruned on Update().
 	pendingResourcesTotal map[corev1.ResourceName]resources.Amount
+
+	// variantResources tracks, per ConcurrentAdmission Parent, its Variants in
+	// the active workloads heap, the inadmissible workloads list, and inflight.
+	// The Variants copy the spec of their Parent, so pendingResourcesTotal holds
+	// the requests of each Parent with pending Variants once, taken from the
+	// Variant added last. The requests are kept while only inflight Variants
+	// remain, so they are counted the same way.
+	variantResources map[workload.Reference]*parentPendingResources
 
 	// localQueueCounts tracks the pending workloads per LocalQueue.
 	localQueueCounts *localQueueCounts
@@ -135,9 +145,11 @@ func (p *PendingWorkloads) PopActive() *workload.Info {
 
 	wl := p.active.Pop()
 	metrics.UntrackWorkload(p.customLabels, p.activeTracker, wl.Obj)
+	// Record the checkout first, so the requests of the Parent of a Variant are
+	// kept when its last pending Variant leaves.
+	p.setInflight(wl)
 	p.subtractPendingResources(wl)
 	wl.LastEvaluatedGeneration = wl.Obj.Generation
-	p.setInflight(wl)
 	return wl
 }
 
@@ -277,23 +289,82 @@ func (p *PendingWorkloads) RebuildActiveHeap() {
 	p.active.Init()
 }
 
-func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
+// parentPendingResources holds the number of pending and inflight Variants of
+// a Parent and its requests, which are in pendingResourcesTotal while a
+// Variant is pending.
+type parentPendingResources struct {
+	variants int
+	inflight int
+	requests map[corev1.ResourceName]resources.Amount
+}
+
+func addRequests(total map[corev1.ResourceName]resources.Amount, wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
 			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
+				total[name] = total[name].Add(q)
 			})
 		}
 	}
 }
 
-func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
+func subtractRequests(total map[corev1.ResourceName]resources.Amount, wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
 			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
+				total[name] = total[name].Sub(q)
 			})
 		}
+	}
+}
+
+func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
+	key := variantParentKey(wInfo)
+	if key == "" {
+		addRequests(p.pendingResourcesTotal, wInfo)
+		return
+	}
+	parent, ok := p.variantResources[key]
+	if !ok {
+		parent = &parentPendingResources{}
+		p.variantResources[key] = parent
+	}
+	// Replace the Parent's requests with the ones of this Variant, so an
+	// update of the Variant's requests is reflected in the total.
+	if parent.variants > 0 {
+		p.subtractParentRequests(parent)
+	}
+	parent.requests = make(map[corev1.ResourceName]resources.Amount)
+	addRequests(parent.requests, wInfo)
+	for name, q := range parent.requests {
+		p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
+	}
+	parent.variants++
+}
+
+func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
+	key := variantParentKey(wInfo)
+	if key == "" {
+		subtractRequests(p.pendingResourcesTotal, wInfo)
+		return
+	}
+	parent, ok := p.variantResources[key]
+	if !ok {
+		return
+	}
+	parent.variants--
+	if parent.variants > 0 {
+		return
+	}
+	p.subtractParentRequests(parent)
+	if parent.inflight == 0 {
+		delete(p.variantResources, key)
+	}
+}
+
+func (p *PendingWorkloads) subtractParentRequests(parent *parentPendingResources) {
+	for name, q := range parent.requests {
+		p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
 	}
 }
 
@@ -354,17 +425,32 @@ func (p *PendingWorkloads) MoveToInadmissible(key workload.Reference, wInfo *wor
 
 // PendingResources returns the total resources requested by all pending workloads,
 // aggregated by resource name. Pending workloads have not yet been assigned to flavors.
+// The requests of a ConcurrentAdmission Parent are counted once, however many
+// of its Variants are pending.
 func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.Amount {
 	p.RLock()
 	defer p.RUnlock()
 
 	result := maps.Clone(p.pendingResourcesTotal)
+	// A Parent whose Variants are all inflight has its requests outside
+	// pendingResourcesTotal, so they are added once from its inflight Variants.
+	var inflightParents sets.Set[workload.Reference]
 	for _, wl := range p.inflight {
-		for _, ps := range wl.TotalRequests {
-			if ps.Requests != nil {
-				ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
-					result[name] = result[name].Add(q)
-				})
+		key := variantParentKey(wl)
+		if key == "" {
+			addRequests(result, wl)
+			continue
+		}
+		if inflightParents.Has(key) {
+			continue
+		}
+		if parent, ok := p.variantResources[key]; ok && parent.variants == 0 {
+			if inflightParents == nil {
+				inflightParents = sets.New[workload.Reference]()
+			}
+			inflightParents.Insert(key)
+			for name, q := range parent.requests {
+				result[name] = result[name].Add(q)
 			}
 		}
 	}
@@ -474,6 +560,14 @@ func (p *PendingWorkloads) clearInflight(ref workload.Reference) {
 		p.schedulingHashes.removeInflight(wInfo)
 		p.variantParents.removeInflight(wInfo)
 		p.localQueueCounts.removeActive(wInfo)
+		if key := variantParentKey(wInfo); key != "" {
+			if parent, ok := p.variantResources[key]; ok {
+				parent.inflight--
+				if parent.variants == 0 && parent.inflight == 0 {
+					delete(p.variantResources, key)
+				}
+			}
+		}
 	}
 }
 
@@ -481,6 +575,9 @@ func (p *PendingWorkloads) setInflight(wl *workload.Info) {
 	p.inflight[workloadKey(wl)] = wl
 	p.schedulingHashes.moveActiveToInflight(wl)
 	p.variantParents.moveActiveToInflight(wl)
+	if parent, ok := p.variantResources[variantParentKey(wl)]; ok {
+		parent.inflight++
+	}
 }
 
 func (p *PendingWorkloads) addActive(wInfo *workload.Info) bool {

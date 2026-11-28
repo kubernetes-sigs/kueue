@@ -308,6 +308,43 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1)
 			})
 		})
+
+		ginkgo.It("Should count the parent workload's requests once in the ClusterQueue pending resources", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-resource-pending", ns.Name).
+				Request(corev1.ResourceCPU, "100").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+
+			ginkgo.By("Creating the parent workload requiring more quota than available", func() {
+				behavioral.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Verifying both variants are queued and tried by the scheduler", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					for _, flavor := range []string{flavorReservation.Name, flavorSpot.Name} {
+						variant := getVariantByFlavor(list, parentWl.Name, flavor)
+						g.Expect(variant).ToNot(gomega.BeNil(), "Variant for %s not found", flavor)
+						cond := apimeta.FindStatusCondition(variant.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).ToNot(gomega.BeNil(), "Variant for %s has no QuotaReserved condition", flavor)
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Reason).NotTo(gomega.Equal(kueue.WorkloadQuotaReservedReasonPendingEvaluation),
+							"Variant for %s is not tried by the scheduler yet", flavor)
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the pending CPU counts the parent's request once, ignoring the 2 variants", func() {
+				behavioral.ExpectCQResourcePendingMetric(cq, string(corev1.ResourceCPU), gomega.Equal(100.0))
+				gomega.Consistently(func(g gomega.Gomega) {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.ClusterQueueResourcePending.WithLabelValues(cq.Name, string(corev1.ResourceCPU), roletracker.RoleStandalone))
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(100.0))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("Should migrate to a target flavor if quota is released", func() {

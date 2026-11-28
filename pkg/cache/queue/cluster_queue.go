@@ -310,6 +310,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			inadmissible:          make(inadmissibleWorkloads),
 			inadmissibleTracker:   metrics.NewLabelValsTracker(),
 			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
+			variantResources:      make(map[workload.Reference]*parentPendingResources),
 			schedulingHashes:      newSchedulingHashCounts(),
 			variantParents:        newVariantParentCounts(),
 			inflight:              make(map[workload.Reference]*workload.Info),
