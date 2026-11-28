@@ -582,6 +582,14 @@ func (j *SparkApplication) countExecutorPods(ctx context.Context, c client.Clien
 	return active, maxID, failedIDs, nil
 }
 
+// Known limit: a failed executor is recorded only if a reconcile lists its Pod
+// in the Failed phase. Spark deletes executor Pods on termination by default
+// (spark.kubernetes.executor.deleteOnTermination is true), so a Pod deleted
+// before any reconcile sees it is not recorded. Setting it to false stops
+// Spark's own deletion only, not other removals. During ramp-up the count can
+// then drop below the initial executors. Once the starting executors have
+// started, failures are no longer recorded and a scale-down that shows as
+// Failed does not hold quota.
 // recordedMaxExecutorID returns the highest executor ID recorded in
 // maxExecutorIDAnnotation for the current submission, or 0 if the record
 // belongs to a previous one.

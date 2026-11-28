@@ -159,6 +159,13 @@ Dynamic allocation with Kueue has the following limitation:
 
 - The driver may delete and recreate executors that stay gated for longer than `spark.kubernetes.allocation.executor.timeout`.
   The new executors are gated too.
+- While the driver starts its initial executors, Kueue keeps the initial executor count when an executor fails,
+  because the driver replaces it. Kueue learns of a failure only if it sees the executor Pod in the `Failed` phase.
+  By default, Spark deletes executor Pods on termination (`spark.kubernetes.executor.deleteOnTermination` defaults
+  to `true`), so Kueue can miss the failure and lower the count below the initial executors. Set
+  `spec.executor.deleteOnTermination: false` so Spark does not delete the Pods of failed executors itself. This does
+  not cover Pods removed another way, for example by a manual deletion or node pressure. After the initial
+  executors have started, failed executors are not held.
 
 ## Sample SparkApplication
 
