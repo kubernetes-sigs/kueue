@@ -465,6 +465,7 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - Verifying ungater controller behavior when workloads are partially admitted.
 - Verifying the `ElasticJobUngater` selects `Indexed` `batch/v1 Job` Pods for ungating in numeric `batch.kubernetes.io/job-completion-index` order when indexes are valid and unique, falling back to name order otherwise.
 - Verifying MultiKueue bounds the worker copy of a slice by the manager grant and leaves PodSets without `minCount` and non-elastic Workloads unchanged.
+- Verifying a selected worker that scaled down in place is kept, while an unselected or otherwise drifted worker copy is still replaced.
 - Verifying a smaller worker grant lowers the manager slice's `count` and `minCount` while preserving its admission.
 - Verifying an existing oversized worker admission is preserved while independent updates and manager eviction still propagate.
 - Verifying the probe created after a grant correction gets a distinct name, and a job resize uses the new revision's ordinary name.
