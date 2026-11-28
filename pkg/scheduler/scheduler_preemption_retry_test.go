@@ -26,17 +26,19 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -182,10 +184,9 @@ func TestRequeueAndUpdateRetryAt(t *testing.T) {
 	}
 }
 
-// TODO(#17600): Drive nomination through scheduler.schedule once time filters
-// are wired up in PreemptionConfig.
 func TestRequeueAfterRetryAtTiming(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.ConfigurablePreemptions:                     true,
 		features.TopologyAwareScheduling:                     true,
 		features.TASRecomputeAssignmentWithinSchedulingCycle: true,
 	})
@@ -201,8 +202,8 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				now := time.Now()
-				retryDelay := 60 * time.Second
-				retryAt := now.Add(retryDelay)
+				const minExecutionSeconds = 60
+				retryAt := now.Add(minExecutionSeconds * time.Second)
 
 				ctx, log := utiltesting.ContextWithLog(t)
 				ctx, cancel := context.WithCancel(ctx)
@@ -220,7 +221,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 						Ready().Obj()
 				}
 				makeAdmitted := func(name, flavor, node string) *kueue.Workload {
-					return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").Priority(10).
+					return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").Label("flavor", flavor).Priority(1).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -233,10 +234,18 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 				}
 
 				rfA, rfB := makeFlavor("flavor-a", "a"), makeFlavor("flavor-b", "b")
+				// Only the blocker on flavor A can become eligible for preemption.
+				preemptionConfig := utiltestingalpha.MakePreemptionConfig("min-execution").
+					Rule("within-queue", kueuealpha.InsufficientQuota,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"flavor": "flavor-a"}}).
+							Execution(utiltestingalpha.MakeDurationConstraint().MinSeconds(minExecutionSeconds).Obj()).
+							Obj()).
+					Obj()
 				cq := utiltestingapi.MakeClusterQueue("cq").
+					Annotation(kueuealpha.PreemptionConfigNameAnnotation, preemptionConfig.Name).
 					QueueingStrategy(kueue.BestEffortFIFO).
 					FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.MayStopSearch}).
-					Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("flavor-a").Resource(corev1.ResourceCPU, "1").Obj(),
 						*utiltestingapi.MakeFlavorQuotas("flavor-b").Resource(corev1.ResourceCPU, "2").Obj(),
@@ -248,7 +257,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 
 				cl := utiltesting.NewClientBuilder().
 					WithLists(&kueue.WorkloadList{Items: []kueue.Workload{*blockerA, *blockerB, *incoming}}, &kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}}).
-					WithObjects(utiltesting.MakeNamespace("ns"), topology, rfA, rfB, cq).
+					WithObjects(utiltesting.MakeNamespace("ns"), topology, rfA, rfB, cq, preemptionConfig).
 					WithStatusSubresource(&kueue.Workload{}).
 					Build()
 
@@ -283,53 +292,42 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 				}()
 				// Flush the initial AddClusterQueue requeue notification before starting the cycle.
 				synctest.Sleep(time.Second)
-				retryAt = time.Now().Add(retryDelay)
-
-				heads := qManager.Heads(ctx)
-				if len(heads) != 1 {
-					t.Fatalf("Heads() returned %d workloads, want 1", len(heads))
-				}
-				snap, err := cqCache.Snapshot(ctx)
-				if err != nil {
-					t.Fatalf("taking snapshot: %v", err)
-				}
 				scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
 					WithPreemptionExpectations(preemptionExpectations),
 				)
-
-				e := entry{Head: heads[0], clusterQueueSnapshot: snap.ClusterQueue(heads[0].ClusterQueue)}
 				if tc.assignmentError {
-					e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
-					e.retryAt = &retryAt
-					scheduler.requeueAndUpdate(ctx, e)
-				} else {
-					result, err := scheduler.getAssignments(ctx, log, &e.Info, snap)
-					if err != nil {
-						t.Fatalf("getAssignments() unexpected error: %v", err)
+					heads := qManager.Heads(ctx)
+					if len(heads) != 1 {
+						t.Fatalf("Heads() returned %d workloads, want 1", len(heads))
 					}
-					result.retryAt = &retryAt
-					e.recordAssignment(result)
-					scheduler.processEntry(ctx, &e, snap, make(preemption.PreemptedWorkloads), map[kueue.ClusterQueueReference]int{})
-					scheduler.finishEntry(ctx, log, &e)
+					scheduler.requeueAndUpdate(ctx, entry{
+						Head:                heads[0],
+						quotaReservedReason: kueue.WorkloadQuotaReservedReasonAssignmentError,
+						retryAt:             &retryAt,
+					})
+				} else {
+					// Flavor A lacks quota and its blocker is too young to preempt.
+					// Flavor B has spare quota but no space on its only node.
+					scheduler.schedule(ctx)
 				}
 
 				if got := qManager.Dump(); len(got) != 0 {
 					t.Fatalf("expected active queue empty immediately after requeue, got %v", got)
 				}
-				if got := qManager.DumpInadmissible(); len(got["cq"]) != 1 {
-					t.Fatalf("expected workload in inadmissible queue, got %v", got)
+				wantQueued := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {workload.Key(incoming)}}
+				if diff := cmp.Diff(wantQueued, qManager.DumpInadmissible()); diff != "" {
+					t.Fatalf("inadmissible queue after scheduling (-want,+got):\n%s", diff)
 				}
 
 				// Must not be rescheduled before retryAt passes.
-				synctest.Sleep(retryDelay - time.Nanosecond)
+				synctest.Sleep(time.Until(retryAt) - time.Nanosecond)
 				if got := qManager.Dump(); len(got) != 0 {
 					t.Fatalf("workload rescheduled before retryAt elapsed: %v", got)
 				}
 
 				// Must move back to active queue as soon as retryAt passes.
 				synctest.Sleep(time.Nanosecond)
-				wantActive := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {workload.Key(incoming)}}
-				if diff := cmp.Diff(wantActive, qManager.Dump()); diff != "" {
+				if diff := cmp.Diff(wantQueued, qManager.Dump()); diff != "" {
 					t.Errorf("active queue after retryAt (-want,+got):\n%s", diff)
 				}
 			})
