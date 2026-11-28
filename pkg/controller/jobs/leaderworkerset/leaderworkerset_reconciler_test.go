@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -43,6 +44,7 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/disaggregatedset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -75,11 +77,72 @@ func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	request := reconcile.Request{Name: testLWS, Namespace: testNS}
 	workloadUpdateErr := errors.New("workload update failed")
+	topologyLWS := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Queue("lq").
+		Replicas(2).Size(2).RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+		LeaderTemplate(corev1.PodTemplateSpec{}).
+		LeaderTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+		WorkerTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname)
+	updatedTopologyLWS := topologyLWS.Obj()
+	partitionedLWS := updatedTopologyLWS.DeepCopy()
+	partitionedLWS.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{Partition: new(int32(1))}
+	rollingLeader := statefulset.MakeStatefulSet(testLWS, testNS).Label(leaderworkersetv1.SetNameLabelKey, testLWS).Obj()
+	rollingLeader.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(updatedTopologyLWS, gvk)}
+	rollingLeader.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
+	rollingLeader.Spec.Template = *updatedTopologyLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.DeepCopy()
+	rollingLeader.Spec.Template.Labels = map[string]string{leaderworkersetv1.RevisionKey: "updated"}
+	leaderBeforeRollout := rollingLeader.DeepCopy()
+	leaderBeforeRollout.Spec.UpdateStrategy.RollingUpdate.Partition = new(int32(0))
+	leaderBeforeRollout.Labels[leaderworkersetv1.RevisionKey] = "old"
+	leaderBeforeRollout.Spec.Template.Labels = map[string]string{leaderworkersetv1.RevisionKey: "old"}
+	unobservedTopologyLWS := topologyLWS.Clone().Replicas(1).Generation(2).ObservedGeneration(1)
+	unobservedLWS := unobservedTopologyLWS.Obj()
+	observedLWS := topologyLWS.Clone().Generation(2).ObservedGeneration(2).Obj()
+	previousLWS := unobservedTopologyLWS.Clone().
+		WorkerTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).Obj()
+	oldRevision, err := leaderworkerset.MakeControllerRevision(previousLWS, "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedRevision, err := leaderworkerset.MakeControllerRevision(observedLWS, "updated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservedGroup := utiltestingapi.MakeWorkload("", testNS).
+		Queue("lq").Group().OwnerReference(gvk, testLWS, testLWS).
+		PodSets(
+			*utiltestingapi.MakePodSet(workerPodSetName, 1).
+				RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).Obj(),
+			*utiltestingapi.MakePodSet(leaderPodSetName, 1).RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).Obj(),
+		).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(false, now).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending})
+	reservedGroup0 := reservedGroup.Clone().Name(GetWorkloadName(testLWS, testLWS, "0")).UID("wl-0").
+		Annotation(constants.ComponentWorkloadIndexAnnotation, "0").Obj()
+	reservedGroup1 := reservedGroup.Clone().Name(GetWorkloadName(testLWS, testLWS, "1")).UID("wl-1").
+		Annotation(constants.ComponentWorkloadIndexAnnotation, "1").Obj()
+	unreservedLWS := topologyLWS.Clone().Replicas(1).Obj()
+	unreservedGroup := reservedGroup0.DeepCopy()
+	unreservedGroup.Status = kueue.WorkloadStatus{}
+	refreshedGroup := unreservedGroup.DeepCopy()
+	refreshedGroup.Spec.PodSets[0].TopologyRequest.Required = new(corev1.LabelHostname)
+	deletedGroup1Event := utiltesting.EventRecord{
+		Key:       request.NamespacedName,
+		EventType: corev1.EventTypeNormal,
+		Reason:    jobframework.ReasonDeletedWorkload,
+		Message:   fmt.Sprintf("Deleted Workload %s because its reserved topology request no longer matches the LeaderWorkerSet template", workload.Key(reservedGroup1)),
+	}
+	boundPendingPod := testingjobspod.MakePod("pod0", testNS).OwnerReference(testSTS, stsGVK).
+		ManagedByKueueLabel().Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+		Label(leaderworkersetv1.GroupIndexLabelKey, "0").NodeName("node").StatusPhase(corev1.PodPending).Obj()
+	foreignPod := testingjobspod.MakePod("ds-pod", testNS).OwnerReference(testSTS, stsGVK).
+		Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+		SuspendedByParent(disaggregatedset.FrameworkName).KueueSchedulingGate().TopologySchedulingGate().Obj()
 
 	cases := map[string]struct {
 		featureGates            map[featuregate.Feature]bool
 		labelKeysToCopy         sets.Set[string]
 		annotationsToCopy       sets.Set[string]
+		onlyManageQueuedJobs    bool
 		leaderWorkerSet         *leaderworkersetv1.LeaderWorkerSet
 		statefulSets            []appsv1.StatefulSet
 		workloads               []kueue.Workload
@@ -94,6 +157,84 @@ func TestReconciler(t *testing.T) {
 		wantEvents           []utiltesting.EventRecord
 		wantErr              error
 	}{
+		"keeps a reservation when the leader StatefulSet still uses the old template after the generation is observed": {
+			leaderWorkerSet:      observedLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*leaderBeforeRollout},
+			workloads:            []kueue.Workload{*reservedGroup0, *reservedGroup1},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*observedLWS},
+			wantWorkloads:        []kueue.Workload{*reservedGroup0, *reservedGroup1},
+		},
+		"refreshes only the changed PodSet topology of an unreserved group": {
+			leaderWorkerSet:      unreservedLWS.DeepCopy(),
+			workloads:            []kueue.Workload{*unreservedGroup},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*unreservedLWS},
+			wantWorkloads:        []kueue.Workload{*refreshedGroup},
+		},
+		"keeps an unreserved group's topology below the effective rollout partition": {
+			leaderWorkerSet:      unreservedLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*rollingLeader},
+			workloads:            []kueue.Workload{*unreservedGroup},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*unreservedLWS},
+			wantWorkloads:        []kueue.Workload{*unreservedGroup},
+		},
+		"keeps an unreserved group's topology while a Pod is active": {
+			leaderWorkerSet:      unreservedLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*statefulset.MakeStatefulSet(testSTS, testNS).Label(leaderworkersetv1.SetNameLabelKey, testLWS).Obj()},
+			pods:                 []corev1.Pod{*boundPendingPod},
+			workloads:            []kueue.Workload{*unreservedGroup},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*unreservedLWS},
+			wantWorkloads:        []kueue.Workload{*unreservedGroup},
+			wantPods:             []corev1.Pod{*boundPendingPod},
+		},
+		"replaces the stale reservation of an inactive group independently of a sibling with a bound Pending pod": {
+			leaderWorkerSet:      updatedTopologyLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*statefulset.MakeStatefulSet(testSTS, testNS).Label(leaderworkersetv1.SetNameLabelKey, testLWS).Obj()},
+			pods:                 []corev1.Pod{*boundPendingPod},
+			workloads:            []kueue.Workload{*reservedGroup0, *reservedGroup1},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*updatedTopologyLWS},
+			wantWorkloads:        []kueue.Workload{*reservedGroup0},
+			wantPods:             []corev1.Pod{*boundPendingPod},
+			wantEvents:           []utiltesting.EventRecord{deletedGroup1Event},
+		},
+		"keeps an inactive group's reservation when topology aware scheduling is disabled": {
+			featureGates:         map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			leaderWorkerSet:      updatedTopologyLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*statefulset.MakeStatefulSet(testSTS, testNS).Label(leaderworkersetv1.SetNameLabelKey, testLWS).Obj()},
+			pods:                 []corev1.Pod{*boundPendingPod},
+			workloads:            []kueue.Workload{*reservedGroup0, *reservedGroup1},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*updatedTopologyLWS},
+			wantWorkloads:        []kueue.Workload{*reservedGroup0, *reservedGroup1},
+			wantPods:             []corev1.Pod{*boundPendingPod},
+		},
+		"keeps the reserved topology for a group below the rolling update partition": {
+			leaderWorkerSet:      partitionedLWS.DeepCopy(),
+			workloads:            []kueue.Workload{*reservedGroup0, *reservedGroup1},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*partitionedLWS},
+			wantWorkloads:        []kueue.Workload{*reservedGroup0},
+			wantEvents:           []utiltesting.EventRecord{deletedGroup1Event},
+		},
+		"keeps the reserved topology below the leader StatefulSet's effective partition": {
+			leaderWorkerSet:      updatedTopologyLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*rollingLeader},
+			workloads:            []kueue.Workload{*reservedGroup0, *reservedGroup1},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*updatedTopologyLWS},
+			wantWorkloads:        []kueue.Workload{*reservedGroup0},
+			wantEvents:           []utiltesting.EventRecord{deletedGroup1Event},
+		},
+		"keeps the reservation until the LeaderWorkerSet controller observes the template change": {
+			leaderWorkerSet:      unobservedLWS.DeepCopy(),
+			statefulSets:         []appsv1.StatefulSet{*leaderBeforeRollout},
+			workloads:            []kueue.Workload{*reservedGroup0},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{*unobservedLWS},
+			wantWorkloads:        []kueue.Workload{*reservedGroup0},
+		},
+		"should ignore a LeaderWorkerSet without a queue when only queued jobs are managed": {
+			onlyManageQueuedJobs: true,
+			leaderWorkerSet:      leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			},
+		},
 		"should create prebuilt workload": {
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
@@ -2302,6 +2443,10 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"should keep gates for a Pod suspended by another framework after LeaderWorkerSet deletion": {
+			pods:     []corev1.Pod{*foreignPod.DeepCopy()},
+			wantPods: []corev1.Pod{*foreignPod.DeepCopy()},
+		},
 		"should ungate pods if leaderworkerset is deleted": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: nil,
@@ -3371,7 +3516,8 @@ func TestReconciler(t *testing.T) {
 			})
 			indexer := utiltesting.AsIndexer(clientBuilder)
 
-			objs := make([]client.Object, 0, len(tc.workloads)+len(tc.workloadPriorityClasses)+1)
+			objs := make([]client.Object, 0, len(tc.workloads)+len(tc.workloadPriorityClasses)+3)
+			objs = append(objs, oldRevision.DeepCopy(), updatedRevision.DeepCopy())
 			if tc.leaderWorkerSet != nil {
 				objs = append(objs, tc.leaderWorkerSet)
 			}
@@ -3394,6 +3540,7 @@ func TestReconciler(t *testing.T) {
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
 				jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy),
 				jobframework.WithAnnotationsToCopy(tc.annotationsToCopy),
+				jobframework.WithManageJobsWithoutQueueName(!tc.onlyManageQueuedJobs),
 			)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
@@ -3439,6 +3586,69 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Unexpected events (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestDeleteWorkloadPreservesConcurrentAdmission(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj()
+	wl := utiltestingapi.MakeWorkload(GetWorkloadName(lws.UID, lws.Name, "0"), lws.Namespace).
+		UID("workload-uid").ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).Obj()
+	c := utiltesting.NewClientBuilder().WithObjects(wl).WithStatusSubresource(wl).Build()
+	stale := &kueue.Workload{}
+	key := client.ObjectKeyFromObject(wl)
+	if err := c.Get(ctx, key, stale); err != nil {
+		t.Fatalf("Get Workload: %v", err)
+	}
+	admitted := (&utiltestingapi.WorkloadWrapper{Workload: *stale.DeepCopy()}).AdmittedAt(true, time.Now()).Obj()
+	if err := c.Status().Update(ctx, admitted); err != nil {
+		t.Fatalf("Admit Workload: %v", err)
+	}
+	recorder := &utiltesting.EventRecorder{}
+	r := &Reconciler{client: c, record: recorder}
+	if err := r.deleteWorkloadWithStaleTopology(ctx, lws, stale); !apierrors.IsConflict(err) {
+		t.Fatalf("Delete Workload got error %v, want conflict", err)
+	}
+	if err := c.Get(ctx, key, admitted); err != nil {
+		t.Fatalf("Get Workload after delete conflict: %v", err)
+	}
+	if !workload.IsAdmitted(admitted) {
+		t.Error("Workload admission was lost")
+	}
+	if len(recorder.RecordedEvents) != 0 {
+		t.Errorf("Unexpected events after delete conflict: %v", recorder.RecordedEvents)
+	}
+}
+
+func TestRefreshTopologyPreservesConcurrentQuotaReservation(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Queue("lq").Obj()
+	wl := utiltestingapi.MakeWorkload(GetWorkloadName(lws.UID, lws.Name, "0"), lws.Namespace).
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).Obj()).Obj()
+	c := utiltesting.NewClientBuilder().WithObjects(wl).WithStatusSubresource(wl).Build()
+	stale := &kueue.Workload{}
+	key := client.ObjectKeyFromObject(wl)
+	if err := c.Get(ctx, key, stale); err != nil {
+		t.Fatalf("Get Workload: %v", err)
+	}
+	reserved := (&utiltestingapi.WorkloadWrapper{Workload: *stale.DeepCopy()}).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).Obj()
+	if err := c.Status().Update(ctx, reserved); err != nil {
+		t.Fatalf("Reserve quota: %v", err)
+	}
+	r := &Reconciler{client: c}
+	updates := []topologyRequestUpdate{{index: 0, request: &kueue.PodSetTopologyRequest{Required: new(corev1.LabelHostname)}}}
+	if err := r.updateWorkload(ctx, lws, stale, updates); !apierrors.IsConflict(err) {
+		t.Fatalf("Refresh topology got error %v, want conflict", err)
+	}
+	got := &kueue.Workload{}
+	if err := c.Get(ctx, key, got); err != nil {
+		t.Fatalf("Get Workload after conflict: %v", err)
+	}
+	if diff := cmp.Diff(reserved, got); diff != "" {
+		t.Errorf("Workload after conflict (-want/+got):\n%s", diff)
 	}
 }
 

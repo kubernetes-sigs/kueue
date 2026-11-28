@@ -37,9 +37,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/disaggregatedset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -75,6 +78,11 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
+	return managerSetupWithTAS(false, opts...)
+}
+
+func managerSetupWithTAS(enableTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
@@ -132,6 +140,13 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
+		if enableTASControllers {
+			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+		}
+
 		sched := scheduler.New(
 			queues,
 			cCache,
@@ -144,6 +159,8 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 
 		err = leaderworkerset.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = disaggregatedset.SetupWebhook(mgr, setupOpts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = pod.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = statefulset.SetupWebhook(mgr, setupOpts...)
@@ -152,6 +169,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		integrationManager.EnableIntegration(leaderworkerset.FrameworkName)
+		integrationManager.EnableIntegration(disaggregatedset.FrameworkName)
 		integrationManager.EnableIntegration(pod.FrameworkName)
 
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())

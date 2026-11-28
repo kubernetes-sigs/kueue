@@ -17,12 +17,15 @@ limitations under the License.
 package leaderworkerset
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -33,6 +36,33 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
 )
+
+// MakeControllerRevision records the template snapshot referenced by a leader Pod.
+func MakeControllerRevision(lws *leaderworkersetv1.LeaderWorkerSet, key string) (*appsv1.ControllerRevision, error) {
+	patch := map[string]any{
+		"spec": map[string]any{
+			"leaderWorkerTemplate": lws.Spec.LeaderWorkerTemplate,
+		},
+	}
+	data, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+	metadata := metav1.ObjectMeta{
+		Name:      lws.Name + "-" + key,
+		Namespace: lws.Namespace,
+		Labels: map[string]string{
+			leaderworkersetv1.SetNameLabelKey: lws.Name,
+			leaderworkersetv1.RevisionKey:     key,
+		},
+		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(lws, leaderworkersetv1.SchemeGroupVersion.WithKind("LeaderWorkerSet"))},
+	}
+	return &appsv1.ControllerRevision{
+		ObjectMeta: metadata,
+		Data:       runtime.RawExtension{Raw: data},
+		Revision:   lws.Generation,
+	}, nil
+}
 
 // LeaderWorkerSetWrapper wraps a LeaderWorkerSet.
 type LeaderWorkerSetWrapper struct {
@@ -75,6 +105,23 @@ func (w *LeaderWorkerSetWrapper) OwnerReferenceWithUID(ownerName string, ownerGV
 // Obj returns the inner LeaderWorkerSet.
 func (w *LeaderWorkerSetWrapper) Obj() *leaderworkersetv1.LeaderWorkerSet {
 	return &w.LeaderWorkerSet
+}
+
+// Clone returns a deep copy of the LeaderWorkerSetWrapper.
+func (w *LeaderWorkerSetWrapper) Clone() *LeaderWorkerSetWrapper {
+	return &LeaderWorkerSetWrapper{LeaderWorkerSet: *w.Obj().DeepCopy()}
+}
+
+// Generation sets the generation of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) Generation(generation int64) *LeaderWorkerSetWrapper {
+	w.ObjectMeta.Generation = generation
+	return w
+}
+
+// ObservedGeneration sets the generation observed by the LeaderWorkerSet controller.
+func (w *LeaderWorkerSetWrapper) ObservedGeneration(generation int64) *LeaderWorkerSetWrapper {
+	w.Status.ObservedGeneration = generation
+	return w
 }
 
 // Label sets the label of the LeaderWorkerSet
