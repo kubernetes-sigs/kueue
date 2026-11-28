@@ -146,12 +146,6 @@ func hasContainer(pod *corev1.Pod, container *corev1.Container) bool {
 	})
 }
 
-func hasInitContainer(pod *corev1.Pod, container *corev1.Container) bool {
-	return slices.ContainsFunc(pod.Spec.InitContainers, func(c corev1.Container) bool {
-		return container.Name == c.Name && container.Image == c.Image
-	})
-}
-
 func findContainer(pod *corev1.Pod) int {
 	switch {
 	case sparkutil.IsDriverPod(pod):
@@ -283,23 +277,38 @@ func addVolumes(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 }
 
 func addInitContainers(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
-	var initContainers []corev1.Container
-	if sparkutil.IsDriverPod(pod) {
-		initContainers = app.Spec.Driver.InitContainers
-	} else if sparkutil.IsExecutorPod(pod) {
-		initContainers = app.Spec.Executor.InitContainers
+	var spec *sparkv1beta2.SparkPodSpec
+	switch {
+	case sparkutil.IsDriverPod(pod):
+		spec = &app.Spec.Driver.SparkPodSpec
+	case sparkutil.IsExecutorPod(pod):
+		spec = &app.Spec.Executor.SparkPodSpec
+	default:
+		return nil
 	}
 
-	if pod.Spec.InitContainers == nil {
-		pod.Spec.InitContainers = []corev1.Container{}
+	initContainers := spec.InitContainers
+	if spec.Template != nil && sparkutil.CompareSemanticVersion(app.Spec.SparkVersion, "3.0.0") >= 0 {
+		// Spark starts from the pod template before the operator adds role-level init containers.
+		initContainers = slices.Concat(spec.Template.Spec.InitContainers, initContainers)
 	}
 
-	for _, container := range initContainers {
-		if !hasInitContainer(pod, &container) {
-			pod.Spec.InitContainers = append(pod.Spec.InitContainers, *container.DeepCopy())
+	pod.Spec.InitContainers = appendInitContainers(pod.Spec.InitContainers, initContainers)
+	return nil
+}
+
+func appendInitContainers(existing, additional []corev1.Container) []corev1.Container {
+	if existing == nil {
+		existing = []corev1.Container{}
+	}
+	for _, container := range additional {
+		if !slices.ContainsFunc(existing, func(c corev1.Container) bool {
+			return container.Name == c.Name && container.Image == c.Image
+		}) {
+			existing = append(existing, *container.DeepCopy())
 		}
 	}
-	return nil
+	return existing
 }
 
 func addSidecarContainers(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {

@@ -32,6 +32,7 @@ type ComparePodSetsOptions struct {
 	ignoreTopologyRequest     bool
 	ignoreTopologyIndexLabels bool
 	ignoreContainerImages     bool
+	ignoreInitContainers      bool
 	ignoreRuntimeClassName    bool
 }
 
@@ -58,6 +59,12 @@ func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 func WithIgnoreContainerImages() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreContainerImages = true
+	}
+}
+
+func WithIgnoreInitContainers() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreInitContainers = true
 	}
 }
 
@@ -104,7 +111,7 @@ func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}
-	if !compareContainers(a.InitContainers, b.InitContainers, opts) {
+	if !opts.ignoreInitContainers && !compareContainers(a.InitContainers, b.InitContainers, opts) {
 		return false
 	}
 	if !compareContainers(a.Containers, b.Containers, opts) {

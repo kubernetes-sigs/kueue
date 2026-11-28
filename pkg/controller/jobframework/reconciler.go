@@ -67,6 +67,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -2041,6 +2042,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	// The priority boost is not derived from the job, so keep the value set on the workload.
 	newWl.Spec.PriorityBoost = wl.Spec.PriorityBoost
 	wl.Spec = newWl.Spec
+	setWorkloadAnnotations(job, wl)
 	PropagatePartialPreemptionAnnotation(job.Object(), wl)
 	if err = r.client.Update(ctx, wl); err != nil {
 		return nil, fmt.Errorf("updating existed workload: %w", err)
@@ -2230,6 +2232,12 @@ func newWorkloadName(job GenericJob, probeExtra string) string {
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
 }
 
+func setWorkloadAnnotations(job GenericJob, wl *kueue.Workload) {
+	if provider, ok := job.(JobWithWorkloadAnnotations); ok {
+		utilmaps.Copy(&wl.Annotations, provider.WorkloadAnnotations())
+	}
+}
+
 func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, labelKeysToCopy, annotationsToCopy sets.Set[string]) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := job.Object()
@@ -2247,6 +2255,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	wl := NewWorkload(newWorkloadName(job, extra), object, podSets, labelKeysToCopy, annotationsToCopy)
+	setWorkloadAnnotations(job, wl)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}

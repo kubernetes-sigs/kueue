@@ -25,7 +25,9 @@ import (
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
+	sparkutil "github.com/kubeflow/spark-operator/v2/pkg/util"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -45,6 +47,7 @@ import (
 	jobframeworktas "sigs.k8s.io/kueue/pkg/controller/jobframework/tas"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -57,6 +60,9 @@ const (
 	FrameworkName      = "sparkoperator.k8s.io/sparkapplication"
 	driverPodSetName   = "driver"
 	executorPodSetName = "executor"
+
+	// inlineInitContainersAnnotation marks Workloads built with inline init container support.
+	inlineInitContainersAnnotation = "kueue.x-k8s.io/spark-inline-init-containers"
 
 	// maxExecutorIDAnnotation records the highest executor ID of the current
 	// submission, which feeds the elastic workload-slice name.
@@ -133,6 +139,38 @@ var _ jobframework.GenericJob = (*SparkApplication)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*SparkApplication)(nil)
 var _ jobframework.JobWithPartialPreemption = (*SparkApplication)(nil)
+var _ jobframework.JobWithWorkloadAnnotations = (*SparkApplication)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*SparkApplication)(nil)
+
+// WorkloadAnnotations records how the PodSets were built. Deduplication can
+// produce identical PodSets from a template and a role-only specification.
+func (j *SparkApplication) WorkloadAnnotations() map[string]string {
+	return map[string]string{inlineInitContainersAnnotation: "true"}
+}
+
+// Older Workloads recorded only role-level init containers. Keep their reservation
+// while the application can still be running, provided both PodSets match that layout.
+func (j *SparkApplication) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	if wl.Annotations[inlineInitContainersAnnotation] == "true" ||
+		!workload.HasQuotaReservation(wl) || (j.IsSuspended() && !j.IsActive()) ||
+		len(wl.Spec.PodSets) != podSetsCount || sparkutil.CompareSemanticVersion(j.Spec.SparkVersion, "3.0.0") < 0 {
+		return nil
+	}
+	roles := [...]*sparkv1beta2.SparkPodSpec{&j.Spec.Driver.SparkPodSpec, &j.Spec.Executor.SparkPodSpec}
+	hasInlineInit := false
+	for i, role := range roles {
+		if role.Template != nil && len(role.Template.Spec.InitContainers) > 0 {
+			hasInlineInit = true
+		}
+		if !apiequality.Semantic.DeepEqual(wl.Spec.PodSets[i].Template.Spec.InitContainers, appendInitContainers(nil, role.InitContainers)) {
+			return nil
+		}
+	}
+	if hasInlineInit {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreInitContainers()}
+	}
+	return nil
+}
 
 func (j *SparkApplication) Object() client.Object {
 	return (*sparkv1beta2.SparkApplication)(j)
