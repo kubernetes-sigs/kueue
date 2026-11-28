@@ -2268,6 +2268,23 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"replacement slice keeps cumulative execution time": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				PastAdmittedTime(50).
+				AdmittedAt(true, now.Add(-5*time.Second)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				PastAdmittedTime(50).
+				AdmittedAt(true, now.Add(-5*time.Second)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Second},
+		},
 		// The state a Workload reaches once a max-execution-time deactivation has been carried
 		// out: inactive, evicted, and with the DeactivationTarget already consumed. Re-targeting
 		// it here would re-emit the warning on every reconcile.

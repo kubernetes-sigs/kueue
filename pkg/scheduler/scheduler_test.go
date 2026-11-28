@@ -6216,6 +6216,8 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					ClusterName("worker-a").
+					MaximumExecutionTimeSeconds(60).
+					PastAdmittedTime(5).
 					ResourceVersion("1").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 10).
@@ -6237,11 +6239,12 @@ func TestSchedule(t *testing.T) {
 						Reason:             kueue.WorkloadAdmitted,
 						Message:            "The workload is admitted",
 						ObservedGeneration: 1,
-						LastTransitionTime: metav1.NewTime(now),
+						LastTransitionTime: metav1.NewTime(now.Add(-45 * time.Second)),
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
 					ResourceVersion("1").
+					MaximumExecutionTimeSeconds(60).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 15).
@@ -6260,6 +6263,8 @@ func TestSchedule(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					ClusterName("worker-a").
+					MaximumExecutionTimeSeconds(60).
+					PastAdmittedTime(5).
 					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 10).
@@ -6288,7 +6293,7 @@ func TestSchedule(t *testing.T) {
 						Reason:             kueue.WorkloadAdmitted,
 						Message:            "The workload is admitted",
 						ObservedGeneration: 1,
-						LastTransitionTime: metav1.NewTime(now),
+						LastTransitionTime: metav1.NewTime(now.Add(-45 * time.Second)),
 					}).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
@@ -6301,6 +6306,8 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
 					ClusterName("worker-a").
+					MaximumExecutionTimeSeconds(60).
+					PastAdmittedTime(50).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
 					Queue("main").
