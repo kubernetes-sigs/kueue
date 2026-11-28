@@ -26,7 +26,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -221,7 +220,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 						Ready().Obj()
 				}
 				makeAdmitted := func(name, flavor, node string) *kueue.Workload {
-					return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").Label("flavor", flavor).
+					return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -234,11 +233,9 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 				}
 
 				rfA, rfB := makeFlavor("flavor-a", "a"), makeFlavor("flavor-b", "b")
-				// Only the blocker on flavor A can become eligible for preemption.
 				preemptionConfig := utiltestingalpha.MakePreemptionConfig("min-execution").
 					Rule("within-queue", kueuealpha.InsufficientQuota,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-							LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"flavor": "flavor-a"}}).
 							Execution(utiltestingalpha.MakeDurationConstraint().MinSeconds(minExecutionSeconds).Obj()).
 							Obj()).
 					Obj()
