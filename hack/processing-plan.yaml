@@ -308,6 +308,24 @@ files:
       - type: INSERT_TEXT
         key: .webhooks.[].name
         value: |
+          {{- with .Values.integrationWebhooks.objectSelector }}
+          objectSelector:
+            {{- toYaml . | nindent 6 }}
+          {{- end }}
+        onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
+        onItemCondition: '.rules[0].apiGroups[0] != "kueue.x-k8s.io" and .rules[0].resources[0] != "pods"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
+          {{- with .Values.integrationWebhooks.objectSelector }}
+          objectSelector:
+            {{- toYaml . | nindent 6 }}
+          {{- end }}
+        onFileCondition: '.kind == "MutatingWebhookConfiguration"'
+        onItemCondition: '.rules[0].apiGroups[0] != "kueue.x-k8s.io" and .rules[0].resources[0] != "pods"'
+      - type: INSERT_TEXT
+        key: .webhooks.[].name
+        value: |
           namespaceSelector:
             {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
               {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}

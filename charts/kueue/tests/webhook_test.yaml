@@ -1,0 +1,118 @@
+suite: test webhook configurations
+templates:
+  - webhook/manifests.yaml
+tests:
+  - it: should not set an objectSelector on the integration webhooks by default
+    asserts:
+      - notExists:
+          path: webhooks[?(@.name == "mjob.kb.io")].objectSelector
+        documentIndex: 0
+      - notExists:
+          path: webhooks[?(@.name == "vjob.kb.io")].objectSelector
+        documentIndex: 1
+
+  - it: should set the configured objectSelector on the mutating integration webhooks
+    set:
+      integrationWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: kueue.x-k8s.io/queue-name
+              operator: Exists
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].objectSelector
+          value:
+            matchExpressions:
+              - key: kueue.x-k8s.io/queue-name
+                operator: Exists
+      - equal:
+          path: webhooks[?(@.name == "mrayjob.kb.io")].objectSelector
+          value:
+            matchExpressions:
+              - key: kueue.x-k8s.io/queue-name
+                operator: Exists
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].objectSelector
+          value:
+            matchExpressions:
+              - key: kueue.x-k8s.io/queue-name
+                operator: Exists
+
+  - it: should set the configured objectSelector on the validating integration webhooks
+    set:
+      integrationWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: kueue.x-k8s.io/queue-name
+              operator: Exists
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ValidatingWebhookConfiguration
+      - equal:
+          path: webhooks[?(@.name == "vjob.kb.io")].objectSelector
+          value:
+            matchExpressions:
+              - key: kueue.x-k8s.io/queue-name
+                operator: Exists
+
+  - it: should keep the namespaceSelector next to the objectSelector
+    set:
+      integrationWebhooks:
+        objectSelector:
+          matchLabels:
+            example.com/queued: "true"
+    documentIndex: 0
+    asserts:
+      - exists:
+          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].objectSelector
+          value:
+            matchLabels:
+              example.com/queued: "true"
+
+  - it: should not set the objectSelector on the webhooks for Kueue's own API group
+    set:
+      integrationWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: kueue.x-k8s.io/queue-name
+              operator: Exists
+    asserts:
+      - notExists:
+          path: webhooks[?(@.name == "mclusterqueue.kb.io")].objectSelector
+        documentIndex: 0
+      - notExists:
+          path: webhooks[?(@.name == "mworkload.kb.io")].objectSelector
+        documentIndex: 0
+      - notExists:
+          path: webhooks[?(@.name == "vclusterqueue.kb.io")].objectSelector
+        documentIndex: 1
+      - notExists:
+          path: webhooks[?(@.name == "vworkload.kb.io")].objectSelector
+        documentIndex: 1
+
+  - it: should not set the objectSelector on the Pod webhooks
+    set:
+      integrationWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: kueue.x-k8s.io/queue-name
+              operator: Exists
+    asserts:
+      - notExists:
+          path: webhooks[?(@.name == "mpod.kb.io")].objectSelector
+        documentIndex: 0
+      - exists:
+          path: webhooks[?(@.name == "mpod.kb.io")].namespaceSelector
+        documentIndex: 0
+      - notExists:
+          path: webhooks[?(@.name == "vpod.kb.io")].objectSelector
+        documentIndex: 1
+      - exists:
+          path: webhooks[?(@.name == "vpod.kb.io")].namespaceSelector
+        documentIndex: 1

@@ -50,6 +50,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - workload.codeflare.dev
@@ -105,6 +109,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -137,6 +145,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - disaggregatedset.x-k8s.io
@@ -169,6 +181,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -200,6 +216,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - batch
@@ -231,6 +251,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - jobset.x-k8s.io
@@ -262,6 +286,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - leaderworkerset.x-k8s.io
@@ -294,6 +322,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -325,6 +357,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -391,6 +427,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -422,6 +462,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -453,6 +497,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -484,6 +532,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -535,6 +587,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - sparkoperator.k8s.io
@@ -570,6 +626,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -602,6 +662,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -633,6 +697,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - trainer.kubeflow.org
@@ -684,6 +752,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -728,6 +800,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - workload.codeflare.dev
@@ -803,6 +879,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -834,6 +914,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - disaggregatedset.x-k8s.io
@@ -865,6 +949,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -896,6 +984,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - batch
@@ -927,6 +1019,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - jobset.x-k8s.io
@@ -958,6 +1054,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - leaderworkerset.x-k8s.io
@@ -989,6 +1089,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -1020,6 +1124,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -1086,6 +1194,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -1117,6 +1229,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -1148,6 +1264,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -1179,6 +1299,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - ray.io
@@ -1230,6 +1354,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - sparkoperator.k8s.io
@@ -1265,6 +1393,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - apps
@@ -1296,6 +1428,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
@@ -1327,6 +1463,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - trainer.kubeflow.org
@@ -1379,6 +1519,10 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
+    {{- with .Values.integrationWebhooks.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups:
           - kubeflow.org
