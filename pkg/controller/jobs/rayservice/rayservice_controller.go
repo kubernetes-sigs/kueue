@@ -37,7 +37,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -84,6 +86,15 @@ var NewReconciler = jobframework.NewGenericReconcilerFactory(newJob,
 		return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
 	},
 )
+
+// Matches KubeRay's common.RayServiceRayClustersAssociationOptions in
+// vendor/github.com/ray-project/kuberay/ray-operator/controllers/ray/common/association.go.
+func childRayClusterLabels(rayServiceName string) client.MatchingLabels {
+	return client.MatchingLabels{
+		rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
+		rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
+	}
+}
 
 type RayService rayv1.RayService
 
@@ -150,13 +161,52 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 	if err != nil {
 		return nil, err
 	}
-
-	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
-	if err != nil {
-		return nil, err
+	if c == nil || !workloadslicing.Enabled(j.Object()) {
+		return podSets, nil
 	}
 
+	var children rayv1.RayClusterList
+	if err := c.List(ctx, &children, client.InNamespace(j.GetNamespace()), childRayClusterLabels(j.GetName())); err != nil {
+		return nil, err
+	}
+	// Fall back to the active RayCluster or MultiKueue runtime-count annotations
+	// when no labeled child RayClusters are available locally.
+	if len(children.Items) == 0 {
+		return raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, j.Status.ActiveServiceStatus.RayClusterName)
+	}
+
+	// Stable PodSet names and summed counts let workload slicing reserve quota for
+	// both children during an upgrade. A slice cannot represent different per-Pod
+	// requests under one name, so reject that transition instead of misaccounting it.
+	podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
+	var order []kueue.PodSetReference
+	for i := range children.Items {
+		child := &children.Items[i]
+		childPodSets, err := raycluster.BuildPodSets(&child.Spec, child.Annotations)
+		if err != nil {
+			return nil, err
+		}
+		for k := range childPodSets {
+			name := childPodSets[k].Name
+			if existing, ok := podSetMap[name]; ok {
+				if !resources.Equal(
+					resources.NewRequestsFromPodSpec(&existing.Template.Spec),
+					resources.NewRequestsFromPodSpec(&childPodSets[k].Template.Spec),
+				) {
+					return nil, fmt.Errorf("child RayClusters have incompatible resource requests for PodSet %q during zero-downtime upgrade", name)
+				}
+				existing.Count += childPodSets[k].Count
+				continue
+			}
+			ps := childPodSets[k]
+			podSetMap[name] = &ps
+			order = append(order, name)
+		}
+	}
+	podSets = make([]kueue.PodSet, 0, len(order))
+	for _, n := range order {
+		podSets = append(podSets, *podSetMap[n])
+	}
 	return podSets, nil
 }
 

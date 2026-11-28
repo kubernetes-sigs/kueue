@@ -98,9 +98,25 @@ Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) Ray
        enableInTreeAutoscaling: true
    ```
 
-### Rolling upgrades limitation
+## Zero-downtime upgrades
 
-Kueue's Workload Slices feature currently manages quota for a single active cluster. Upgrade strategies that provision a secondary surge cluster (`spec.upgradeStrategy.type: NewCluster` or `NewClusterWithIncrementalUpgrade`) are not currently supported when workload slicing is enabled because pending cluster pods will remain gated. To use workload slicing with autoscaling, use `spec.upgradeStrategy.type: None` or apply updates in-place.
+During a zero-downtime upgrade (`spec.upgradeStrategy.type: NewCluster`), KubeRay runs the active RayCluster and a replacement RayCluster at the same time.
+Kueue reserves quota for both RayClusters only for [elastic](/docs/concepts/elastic_workload) RayService objects.
+
+### Requirements
+
+- The `ElasticJobsViaWorkloadSlices` feature gate is enabled.
+- The RayService has the `kueue.x-k8s.io/elastic-job: "true"` annotation.
+- KubeRay v1.7.0 or newer.
+
+### Limitations
+
+- **Resource requests must not change.**
+  A workload slice can change the Pod count of a PodSet, but not its per-Pod resource requests.
+- **`NewClusterWithIncrementalUpgrade` is not supported.**
+- **Non-elastic RayServices are not supported.**
+  Without workload slicing, Kueue reserves quota for one RayCluster only.
+  Use `spec.upgradeStrategy.type: None` for RayServices without the `kueue.x-k8s.io/elastic-job` annotation.
 
 ## Example RayService
 
