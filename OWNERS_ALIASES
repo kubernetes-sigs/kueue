@@ -77,6 +77,8 @@ aliases:
     - mbobrovskyi
   infra-reviewers:
     - vladikkuzn
+  stats-reviewers:
+    - reruno
   release-team:
     - mbobrovskyi
     - Singularity23x0
