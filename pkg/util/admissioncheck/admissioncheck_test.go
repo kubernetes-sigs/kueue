@@ -23,8 +23,10 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -33,6 +35,87 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
+
+func TestPodUsesResources(t *testing.T) {
+	cases := map[string]struct {
+		podSet           *kueue.PodSet
+		managedResources []corev1.ResourceName
+		want             bool
+	}{
+		"pod-level CPU request": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).PodLevelRequest(corev1.ResourceCPU, "2").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"pod-level memory request": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).PodLevelRequest(corev1.ResourceMemory, "1Gi").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceMemory},
+			want:             true,
+		},
+		"pod-level resource limit": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).PodLevelLimit(corev1.ResourceCPU, "2").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"nonmatching pod-level resource": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).PodLevelRequest(corev1.ResourceMemory, "1Gi").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+		},
+		"container request with nil pod-level resources": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "2").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"container resource limit": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).Limit(corev1.ResourceCPU, "2").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"init container request": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "2").Obj()).Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"init container limit": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"container request with nonmatching pod-level resources": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).PodLevelRequest(corev1.ResourceMemory, "1Gi").Request(corev1.ResourceCPU, "2").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+		"no resource declarations": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+		},
+		"empty pod-level resources": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				PodSpec(corev1.PodSpec{Resources: &corev1.ResourceRequirements{}}).Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+		},
+		"empty resource set": {
+			podSet: utiltestingapi.MakePodSet("main", 1).PodLevelRequest(corev1.ResourceCPU, "2").Request(corev1.ResourceCPU, "1").Obj(),
+		},
+		"zero quantity still declares the resource": {
+			podSet:           utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "0").Obj(),
+			managedResources: []corev1.ResourceName{corev1.ResourceCPU},
+			want:             true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := PodUsesResources(&tc.podSet.Template.Spec, sets.New(tc.managedResources...))
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected managed resource match (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestConfigHelper(t *testing.T) {
 	testConfig := utiltestingapi.MakeProvisioningRequestConfig("config").

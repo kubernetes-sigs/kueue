@@ -177,6 +177,14 @@ func TestReconcile(t *testing.T) {
 	tpuConfigWithTimeout := tpuConfig.DeepCopy()
 	tpuConfigWithTimeout.Spec.TimeoutSeconds = new(int32(60))
 	allResourcesConfig := &kueuealpha.CapacityBufferConfig{Name: "config"}
+	podLevelCPUWorkload := baseWorkload.Clone().PodSets(
+		*utiltestingapi.MakePodSet("trainer", 4).Request(gpuResource, "8").Obj(),
+		*utiltestingapi.MakePodSet("loader", 2).PodLevelRequest(corev1.ResourceCPU, "16").Obj(),
+	).Obj()
+	cpuConfig := &kueuealpha.CapacityBufferConfig{
+		Name: "config",
+		Spec: kueuealpha.CapacityBufferConfigSpec{ManagedResources: []corev1.ResourceName{corev1.ResourceCPU}},
+	}
 
 	trainerBufferName := CapacityBufferName("wl", "check", "trainer")
 	loaderBufferName := CapacityBufferName("wl", "check", "loader")
@@ -278,6 +286,14 @@ func TestReconcile(t *testing.T) {
 			wantBuffers:      map[string]int32{trainerBufferName: 2},
 			wantNodeSelector: map[string]map[string]string{trainerBufferName: {"pool": "gpu"}},
 			wantTolerations:  map[string][]corev1.Toleration{trainerBufferName: {gpuToleration}},
+		},
+		"creates a buffer for pod-level managed CPU": {
+			workload:         podLevelCPUWorkload,
+			config:           cpuConfig,
+			wantCheck:        kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, Message: buffersPendingMessage},
+			wantBuffers:      map[string]int32{loaderBufferName: 2},
+			wantNoBuffers:    []string{trainerBufferName},
+			wantNodeSelector: map[string]map[string]string{loaderBufferName: {"pool": "cpu"}},
 		},
 		"creates buffers for all podsets when managedResources is empty": {
 			workload:  baseWorkload.Clone().Obj(),
