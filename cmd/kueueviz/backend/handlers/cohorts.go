@@ -22,7 +22,9 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -114,15 +116,67 @@ func (h *Handlers) fetchCohorts(ctx context.Context, identity middleware.Identit
 		result = append(result, item)
 	}
 
+	// A Cohort referenced by a ClusterQueue or as a parent exists implicitly,
+	// even when no Cohort object was created for it.
+	for _, name := range implicitCohortNames(cohortList.Items, cohortQueues) {
+		item := map[string]any{
+			"name": name,
+		}
+		if hasClusterQueuesAccess {
+			queues := cohortQueues[name]
+			if queues == nil {
+				queues = []map[string]any{}
+			}
+			item["clusterQueues"] = queues
+		}
+		result = append(result, item)
+	}
+
 	return result, nil
+}
+
+// implicitCohortNames returns, sorted, the Cohort names that ClusterQueues or
+// Cohort parents reference but that have no Cohort object.
+func implicitCohortNames(cohorts []kueueapi.Cohort, cohortQueues map[string][]map[string]any) []string {
+	explicit := sets.New[string]()
+	for _, cohort := range cohorts {
+		explicit.Insert(cohort.Name)
+	}
+	implicit := sets.New[string]()
+	for name := range cohortQueues {
+		if !explicit.Has(name) {
+			implicit.Insert(name)
+		}
+	}
+	for _, cohort := range cohorts {
+		if parent := string(cohort.Spec.ParentName); parent != "" && !explicit.Has(parent) {
+			implicit.Insert(parent)
+		}
+	}
+	return sets.List(implicit)
+}
+
+// isParentCohort reports whether another Cohort names cohortName as its parent.
+func (h *Handlers) isParentCohort(ctx context.Context, cohortName string) (bool, error) {
+	cohortList := &kueueapi.CohortList{}
+	if err := h.client.List(ctx, cohortList); err != nil {
+		return false, fmt.Errorf("error fetching cohorts: %v", err)
+	}
+	for _, cohort := range cohortList.Items {
+		if string(cohort.Spec.ParentName) == cohortName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Fetch details for a specific cohort
 func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string, identity middleware.Identity) (map[string]any, error) {
 	// Fetch the specific Cohort CRD
 	cohort := &kueueapi.Cohort{}
-	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: cohortName}, cohort); err != nil {
-		return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, err)
+	getErr := h.client.Get(ctx, ctrlclient.ObjectKey{Name: cohortName}, cohort)
+	if getErr != nil && !apierrors.IsNotFound(getErr) {
+		return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, getErr)
 	}
 
 	var clusterQueues []map[string]any
@@ -162,6 +216,18 @@ func (h *Handlers) fetchCohortDetails(ctx context.Context, cohortName string, id
 					},
 				})
 			}
+		}
+	}
+
+	// Without a Cohort object, the Cohort exists only implicitly, when one of
+	// the ClusterQueues listed above or another Cohort references it.
+	if getErr != nil && len(clusterQueues) == 0 {
+		isParent, err := h.isParentCohort(ctx, cohortName)
+		if err != nil {
+			return nil, err
+		}
+		if !isParent {
+			return nil, fmt.Errorf("error fetching cohort %s: %v", cohortName, getErr)
 		}
 	}
 

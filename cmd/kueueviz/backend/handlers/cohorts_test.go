@@ -142,6 +142,46 @@ func TestFetchCohorts(t *testing.T) {
 				},
 			},
 		},
+		"implicit cohorts from cluster queues and parents are listed": {
+			objs: []ctrlclient.Object{
+				makeCohort("team", "org"),
+				makeClusterQueue("cq-a", "team"),
+				makeClusterQueue("cq-b", "other"),
+			},
+			want: []map[string]any{
+				{
+					"name":          "team",
+					"parentName":    "org",
+					"clusterQueues": []map[string]any{{"name": "cq-a"}},
+				},
+				{
+					"name":          "org",
+					"clusterQueues": []map[string]any{},
+				},
+				{
+					"name":          "other",
+					"clusterQueues": []map[string]any{{"name": "cq-b"}},
+				},
+			},
+		},
+		"denied cluster queue access lists only implicit parents": {
+			objs: []ctrlclient.Object{
+				makeCohort("team", "org"),
+				makeClusterQueue("cq-b", "other"),
+			},
+			authorizer: authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+				return false, nil
+			}),
+			want: []map[string]any{
+				{
+					"name":       "team",
+					"parentName": "org",
+				},
+				{
+					"name": "org",
+				},
+			},
+		},
 		"cohort list error is returned": {
 			objs:    objs,
 			funcs:   listErrorFuncs(errors.New("boom")),
@@ -207,6 +247,26 @@ func TestFetchCohortDetails(t *testing.T) {
 			wantQueues:  []string{},
 			wantOmitted: []string{"clusterQueues"},
 		},
+		"implicit cohort referenced by a cluster queue": {
+			objs:        objs,
+			cohortName:  "other",
+			wantQueues:  []string{"cq-b"},
+			wantOmitted: []string{},
+		},
+		"implicit cohort referenced only by a cluster queue is hidden without access": {
+			objs:       objs,
+			cohortName: "other",
+			authorizer: authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+				return false, nil
+			}),
+			wantErr: true,
+		},
+		"implicit cohort referenced as a parent": {
+			objs:        []ctrlclient.Object{makeCohort("team", "org")},
+			cohortName:  "org",
+			wantQueues:  []string{},
+			wantOmitted: []string{},
+		},
 		"missing cohort returns error": {
 			cohortName: "missing",
 			wantErr:    true,
@@ -245,5 +305,33 @@ func TestFetchCohortDetails(t *testing.T) {
 				t.Errorf("unexpected omittedPanels (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestFetchCohortDetailsImplicitCohortListsOnce(t *testing.T) {
+	cqLists, cohortLists, authCalls := 0, 0, 0
+	funcs := &interceptor.Funcs{
+		List: func(ctx context.Context, c ctrlclient.WithWatch, list ctrlclient.ObjectList, opts ...ctrlclient.ListOption) error {
+			switch list.(type) {
+			case *kueueapi.ClusterQueueList:
+				cqLists++
+			case *kueueapi.CohortList:
+				cohortLists++
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}
+	authorizer := authorizerFunc(func(authorizationv1.ResourceAttributes) (bool, error) {
+		authCalls++
+		return true, nil
+	})
+	h := New(newFakeClient(t, funcs, makeClusterQueue("cq-a", "team")), nil, authorizer)
+
+	if _, err := h.fetchCohortDetails(t.Context(), "team", middleware.Identity{Username: "alice"}); err != nil {
+		t.Fatalf("fetchCohortDetails() error = %v", err)
+	}
+	// A ClusterQueue references the Cohort, so no Cohort list is needed.
+	if cqLists != 1 || cohortLists != 0 || authCalls != 1 {
+		t.Errorf("ClusterQueue lists = %d, Cohort lists = %d, authorization checks = %d, want 1, 0, 1", cqLists, cohortLists, authCalls)
 	}
 }
