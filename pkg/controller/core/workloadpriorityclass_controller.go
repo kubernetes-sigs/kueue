@@ -138,6 +138,14 @@ func (r *WorkloadPriorityClassReconciler) Create(e event.TypedCreateEvent[*kueue
 		logV.Info("WorkloadPriorityClass create event", "workloadPriorityClass", klog.KObj(e.Object))
 	}
 
+	// Events from the informer's initial list don't indicate a change of the priority value,
+	// so reconciling them would overwrite the priorities set directly on the Workloads
+	// every time the controller starts.
+	if e.IsInInitialList {
+		log.V(3).Info("Event from the initial list, skipping reconciliation")
+		return false
+	}
+
 	// Covering the case when the WorkloadPriorityClass was re-created with a different priority,
 	// but the Workload is still referencing it.
 	return true
