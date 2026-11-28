@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -545,14 +543,15 @@ func podSetTopologyRequest(sts *appsv1.StatefulSet) (*kueue.PodSetTopologyReques
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	mgr.GetLogger().WithName(r.logName).V(1).Info("Setting up StatefulSet reconciler")
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&appsv1.StatefulSet{}).
-		WithEventFilter(r).
+		Named("statefulset").
+		Watches(&appsv1.StatefulSet{}, &statefulSetEventHandler{r: r}).
 		Watches(&corev1.Pod{}, &podHandler{}).
 		Watches(&kueue.Workload{}, handler.EnqueueRequestForOwner(
 			mgr.GetScheme(), mgr.GetRESTMapper(), &appsv1.StatefulSet{},
 		)).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "statefulset-reconciler"),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[appsv1.SchemeGroupVersion.WithKind("StatefulSet").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "statefulset-reconciler"),
 		}).
 		Complete(r)
 }
@@ -578,36 +577,14 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	}, nil
 }
 
-func (r *Reconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
-}
-
-var _ predicate.Predicate = (*Reconciler)(nil)
-
-func (r *Reconciler) Generic(event.GenericEvent) bool {
-	return false
-}
-
-func (r *Reconciler) Create(e event.CreateEvent) bool {
-	return r.handle(e.Object)
-}
-
-func (r *Reconciler) Update(e event.UpdateEvent) bool {
-	return r.handle(e.ObjectNew)
-}
-
-func (r *Reconciler) Delete(e event.DeleteEvent) bool {
-	return r.handle(e.Object)
-}
-
-func (r *Reconciler) handle(obj client.Object) bool {
+func (r *Reconciler) handle(ctx context.Context, obj client.Object) bool {
 	sts, isSts := obj.(*appsv1.StatefulSet)
 	if !isSts {
 		return true
 	}
 
-	log := r.logger().WithValues("statefulSet", klog.KObj(sts))
-	ctx := ctrl.LoggerInto(context.Background(), log)
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker).WithValues("statefulSet", klog.KObj(sts))
+	ctx = ctrl.LoggerInto(ctx, log)
 
 	if frameworkName, managed := managedByAnotherFramework(sts); managed {
 		log.V(3).Info("Skipping reconciliation because the object is managed by another framework", "framework", frameworkName)
@@ -659,4 +636,33 @@ func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 			Name:      controllerRef.Name,
 		}, podBatchPeriod)
 	}
+}
+
+// statefulSetEventHandler checks management eligibility with the event context.
+type statefulSetEventHandler struct {
+	r       *Reconciler
+	enqueue handler.EnqueueRequestForObject
+}
+
+var _ handler.EventHandler = (*statefulSetEventHandler)(nil)
+
+func (h *statefulSetEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handle(ctx, e.Object) {
+		h.enqueue.Create(ctx, e, q)
+	}
+}
+
+func (h *statefulSetEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handle(ctx, e.ObjectNew) {
+		h.enqueue.Update(ctx, e, q)
+	}
+}
+
+func (h *statefulSetEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handle(ctx, e.Object) {
+		h.enqueue.Delete(ctx, e, q)
+	}
+}
+
+func (h *statefulSetEventHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }

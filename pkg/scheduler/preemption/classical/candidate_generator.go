@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"context"
 	"slices"
 	"sort"
 	"time"
@@ -95,6 +96,7 @@ func splitEvicted(workloads []*candidateElem) ([]*candidateElem, []*candidateEle
 // might be returned for both, but note that the candidates with borrowing are a subset of
 // candidates without borrowing.
 func NewCandidateIterator(
+	ctx context.Context,
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
@@ -103,7 +105,7 @@ func NewCandidateIterator(
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) CandidateIterator {
 	if features.Enabled(features.ClassicalPreemptionCandidateOrderCache) {
-		return newCacheCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
+		return newCacheCandidateIterator(ctx, hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
 	}
 	return newCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
 }

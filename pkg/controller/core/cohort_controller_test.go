@@ -493,11 +493,11 @@ func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
 			for _, e := range tc.events {
 				switch {
 				case e.create != nil:
-					reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: e.create.DeepCopy()})
+					reconciler.handleCreate(ctx, event.TypedCreateEvent[*kueue.Cohort]{Object: e.create.DeepCopy()})
 				case e.update != nil:
-					reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: e.old.DeepCopy(), ObjectNew: e.update.DeepCopy()})
+					reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: e.old.DeepCopy(), ObjectNew: e.update.DeepCopy()})
 				case e.delete != nil:
-					reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: e.delete.DeepCopy()})
+					reconciler.handleDelete(ctx, event.TypedDeleteEvent[*kueue.Cohort]{Object: e.delete.DeepCopy()})
 				}
 			}
 			if tc.reconcile {
@@ -537,6 +537,7 @@ func checkMetricDataPoints(t *testing.T, got, want []testingmetrics.MetricDataPo
 }
 
 func TestCohortReconcilerFilters(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().
 		Build()
 	cache := schdcache.New(cl)
@@ -544,19 +545,19 @@ func TestCohortReconcilerFilters(t *testing.T) {
 	reconciler := NewCohortReconciler(cl, cache, qManager)
 
 	t.Run("delete returns true", func(t *testing.T) {
-		if !reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{}) {
+		if !reconciler.handleDelete(ctx, event.TypedDeleteEvent[*kueue.Cohort]{}) {
 			t.Fatal("expected delete to return true")
 		}
 	})
 
 	t.Run("create returns true", func(t *testing.T) {
-		if !reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{}) {
+		if !reconciler.handleCreate(ctx, event.TypedCreateEvent[*kueue.Cohort]{}) {
 			t.Fatal("expected create to return true")
 		}
 	})
 
 	t.Run("generic returns true", func(t *testing.T) {
-		if !reconciler.Generic(event.TypedGenericEvent[*kueue.Cohort]{}) {
+		if !reconciler.handleGeneric(ctx, event.TypedGenericEvent[*kueue.Cohort]{}) {
 			t.Fatal("expected generic to return true")
 		}
 	})
@@ -717,7 +718,7 @@ func TestCohortReconcilerFilters(t *testing.T) {
 				ObjectOld: tc.old,
 				ObjectNew: tc.new,
 			}
-			if reconciler.Update(e) != tc.want {
+			if reconciler.handleUpdate(ctx, e) != tc.want {
 				t.Fatalf("expected %v, got %v", tc.want, !tc.want)
 			}
 		})
@@ -744,11 +745,11 @@ func TestCohortReconcilerExpirationTimeOnlyUpdateSkipsClusterQueueNotification(t
 	reconciler.clock = testingclock.NewFakeClock(now)
 	recorder := &cohortUpdateRecorder{}
 	reconciler.AddUpdateWatcher(recorder)
+	handler := &cohortEventHandler{r: reconciler}
+	queue := &utiltesting.MockTypedRateLimitingInterface{}
 	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohort)}
 
-	if !reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}) {
-		t.Fatal("cohort create event was filtered out")
-	}
+	handler.Create(ctx, event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}, queue)
 	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error reconciling cohort: %v", err)
@@ -766,9 +767,7 @@ func TestCohortReconcilerExpirationTimeOnlyUpdateSkipsClusterQueueNotification(t
 	if err := cl.Status().Update(ctx, renewed); err != nil {
 		t.Fatalf("unexpected error renewing expirationTime: %v", err)
 	}
-	if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: &current, ObjectNew: renewed}) {
-		t.Fatal("expirationTime-only update event was filtered out")
-	}
+	handler.Update(ctx, event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: &current, ObjectNew: renewed}, queue)
 	result, err = reconciler.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("unexpected error reconciling cohort: %v", err)
@@ -1102,7 +1101,7 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 				}
 			}
 
-			if !reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}) {
+			if !reconciler.handleCreate(ctx, event.TypedCreateEvent[*kueue.Cohort]{Object: cohort}) {
 				t.Fatal("cohort create event was filtered out")
 			}
 			runReconcile("cohort created")
@@ -1136,14 +1135,14 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 
 			cohortWithStatus := cohort.DeepCopy()
 			cohortWithStatus.Status.FairSharing = &kueue.FairSharingStatus{WeightedShare: 1}
-			if reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithStatus}) {
+			if reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithStatus}) {
 				t.Fatal("cohort status-only update event was not filtered out")
 			}
 			runReconcile("cohort status write")
 
 			cohortWithQuota := cohort.DeepCopy()
 			cohortWithQuota.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("20")
-			if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithQuota}) {
+			if !reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortWithQuota}) {
 				t.Fatal("cohort quota update event was filtered out")
 			}
 			runReconcile("cohort quota change")
@@ -1151,7 +1150,7 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 			// The tree left is notified by the event, the tree joined by Reconcile.
 			cohortMoved := cohort.DeepCopy()
 			cohortMoved.Spec.ParentName = "other-root"
-			if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortMoved}) {
+			if !reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: cohort, ObjectNew: cohortMoved}) {
 				t.Fatal("cohort parent update event was filtered out")
 			}
 			runReconcile("cohort moved")
@@ -1163,7 +1162,7 @@ func TestCohortReconcileNotifiesClusterQueuesOnQuotaChangesOnly(t *testing.T) {
 			if recorder.updates[len(recorder.updates)-1] != nil {
 				t.Fatal("cohort deletion was not notified as a deletion")
 			}
-			if !reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: cohort}) {
+			if !reconciler.handleDelete(ctx, event.TypedDeleteEvent[*kueue.Cohort]{Object: cohort}) {
 				t.Fatal("cohort delete event was filtered out")
 			}
 			expectNotified("cohort delete event")

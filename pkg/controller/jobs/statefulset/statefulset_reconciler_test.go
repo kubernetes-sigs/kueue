@@ -1930,7 +1930,7 @@ func TestHandle(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			r := Reconciler{}
-			got := r.handle(tc.obj)
+			got := r.handle(t.Context(), tc.obj)
 			if got != tc.want {
 				t.Errorf("handle(%T) = %v, want %v", tc.obj, got, tc.want)
 			}

@@ -49,6 +49,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		WorkloadOrdering:  preemptor.workloadOrdering,
 	}
 	candidatesGenerator := classical.NewCandidateIterator(
+		ctx,
 		hierarchicalReclaimCtx,
 		preemptor.enabledAfs,
 		preemptionCtx.frsNeedPreemption,

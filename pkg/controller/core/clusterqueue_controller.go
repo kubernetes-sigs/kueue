@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -76,7 +75,6 @@ type ClusterQueueReconciler struct {
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
-var _ predicate.TypedPredicate[*kueue.ClusterQueue] = (*ClusterQueueReconciler)(nil)
 
 type ClusterQueueReconcilerOptions struct {
 	Watchers              []ClusterQueueUpdateWatcher
@@ -149,8 +147,8 @@ func NewClusterQueueReconciler(
 	}
 }
 
-func (r *ClusterQueueReconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+func (r *ClusterQueueReconciler) logger(ctx context.Context) logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker)
 }
 
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
@@ -353,12 +351,12 @@ func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.
 	}
 }
 
-func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
+func (r *ClusterQueueReconciler) handleCreate(ctx context.Context, e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 
-	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
+	log := r.logger(ctx).WithValues("clusterQueue", klog.KObj(e.Object))
 	log.V(3).Info("ClusterQueue create event")
-	ctx := ctrl.LoggerInto(context.Background(), log)
+	ctx = ctrl.LoggerInto(ctx, log)
 
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CQStore(kueue.ClusterQueueReference(e.Object.GetName()), e.Object.GetLabels(), e.Object.GetAnnotations())
@@ -379,11 +377,11 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 	return true
 }
 
-func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQueue]) bool {
+func (r *ClusterQueueReconciler) handleDelete(ctx context.Context, e event.TypedDeleteEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(e.Object, nil)
 
-	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
-	log.V(3).Info("ClusterQueue delete event")
+	log := r.logger(ctx)
+	log.V(3).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(e.Object))
 	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
 	r.cache.RecordCohortMetrics(log, e.Object.Spec.CohortName)
@@ -398,8 +396,8 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	return true
 }
 
-func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
-	log := r.logger().WithValues("clusterQueue", klog.KObj(e.ObjectNew))
+func (r *ClusterQueueReconciler) handleUpdate(ctx context.Context, e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
+	log := r.logger(ctx).WithValues("clusterQueue", klog.KObj(e.ObjectNew))
 	log.V(3).Info("ClusterQueue update event")
 
 	var labelsUpdated bool
@@ -445,8 +443,8 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	return true
 }
 
-func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
-	r.logger().V(5).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
+func (r *ClusterQueueReconciler) handleGeneric(ctx context.Context, e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
+	r.logger(ctx).V(5).Info("Got ClusterQueue generic event", "clusterQueue", klog.KObj(e.Object))
 	return true
 }
 
@@ -531,8 +529,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.ClusterQueue{},
-			&handler.TypedEnqueueRequestForObject[*kueue.ClusterQueue]{},
-			r,
+			&clusterQueueEventHandler{r: r},
 		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
@@ -598,4 +595,36 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		}
 	}
 	return requeueAfter, nil
+}
+
+// clusterQueueEventHandler updates the caches on every replica before enqueuing reconciliation.
+type clusterQueueEventHandler struct {
+	r       *ClusterQueueReconciler
+	enqueue handler.TypedEnqueueRequestForObject[*kueue.ClusterQueue]
+}
+
+var _ handler.TypedEventHandler[*kueue.ClusterQueue, reconcile.Request] = (*clusterQueueEventHandler)(nil)
+
+func (h *clusterQueueEventHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.ClusterQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleCreate(ctx, e) {
+		h.enqueue.Create(ctx, e, q)
+	}
+}
+
+func (h *clusterQueueEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.ClusterQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleUpdate(ctx, e) {
+		h.enqueue.Update(ctx, e, q)
+	}
+}
+
+func (h *clusterQueueEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*kueue.ClusterQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleDelete(ctx, e) {
+		h.enqueue.Delete(ctx, e, q)
+	}
+}
+
+func (h *clusterQueueEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.ClusterQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleGeneric(ctx, e) {
+		h.enqueue.Generic(ctx, e, q)
+	}
 }

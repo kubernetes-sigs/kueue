@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -39,13 +38,11 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -117,22 +114,19 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	}, nil
 }
 
-func (r *Reconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
-}
-
 var _ jobframework.JobReconcilerInterface = (*Reconciler)(nil)
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	mgr.GetLogger().WithName(r.logName).V(1).Info("Setting up LeaderWorkerSet reconciler")
 
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&leaderworkersetv1.LeaderWorkerSet{}, builder.WithPredicates(r)).
+		Watches(&leaderworkersetv1.LeaderWorkerSet{}, &leaderWorkerSetEventHandler{r: r}).
 		Named(controllerName).
 		Watches(&kueue.Workload{}, &lwsWorkloadHandler{}).
 		Watches(&corev1.Pod{}, &lwsPodHandler{}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "leaderworkerset-reconciler"),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[leaderworkersetv1.GroupVersion.WithKind("LeaderWorkerSet").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "leaderworkerset-reconciler"),
 		}).
 		Complete(r)
 }
@@ -690,32 +684,14 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	return true
 }
 
-var _ predicate.Predicate = (*Reconciler)(nil)
-
-func (r *Reconciler) Generic(event.GenericEvent) bool {
-	return false
-}
-
-func (r *Reconciler) Create(e event.CreateEvent) bool {
-	return r.handle(e.Object)
-}
-
-func (r *Reconciler) Update(e event.UpdateEvent) bool {
-	return r.handle(e.ObjectNew)
-}
-
-func (r *Reconciler) Delete(event.DeleteEvent) bool {
-	return false
-}
-
-func (r *Reconciler) handle(obj client.Object) bool {
+func (r *Reconciler) handle(ctx context.Context, obj client.Object) bool {
 	lws, isLws := obj.(*leaderworkersetv1.LeaderWorkerSet)
 	if !isLws {
 		return false
 	}
 
-	log := r.logger().WithValues("leaderWorkerSet", klog.KObj(lws))
-	ctx := ctrl.LoggerInto(context.Background(), log)
+	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker).WithValues("leaderWorkerSet", klog.KObj(lws))
+	ctx = ctrl.LoggerInto(ctx, log)
 
 	// Handle only leaderworkerset managed by kueue.
 	suspend, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
@@ -829,4 +805,30 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 		},
 		constants.UpdatesBatchPeriod,
 	)
+}
+
+// leaderWorkerSetEventHandler checks management eligibility with the event context.
+type leaderWorkerSetEventHandler struct {
+	r       *Reconciler
+	enqueue handler.EnqueueRequestForObject
+}
+
+var _ handler.EventHandler = (*leaderWorkerSetEventHandler)(nil)
+
+func (h *leaderWorkerSetEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handle(ctx, e.Object) {
+		h.enqueue.Create(ctx, e, q)
+	}
+}
+
+func (h *leaderWorkerSetEventHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handle(ctx, e.ObjectNew) {
+		h.enqueue.Update(ctx, e, q)
+	}
+}
+
+func (h *leaderWorkerSetEventHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *leaderWorkerSetEventHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }

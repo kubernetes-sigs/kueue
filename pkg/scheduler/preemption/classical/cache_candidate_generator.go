@@ -17,6 +17,7 @@ limitations under the License.
 package classical
 
 import (
+	"context"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -144,6 +145,7 @@ func noRealCandidate(ctx *HierarchicalPreemptionCtx, classes []classifiedCluster
 }
 
 func newCacheCandidateIterator(
+	ctx context.Context,
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
@@ -160,7 +162,7 @@ func newCacheCandidateIterator(
 
 	sameQueueClasses := collectSameQueueCQ(hierarchicalReclaimCtx)
 	hierarchyClasses, priorityClasses := collectHierarchicalReclaimCQs(hierarchicalReclaimCtx)
-	attachSortedWorkloads(cache, cmp, sameQueueClasses, hierarchyClasses, priorityClasses)
+	attachSortedWorkloads(ctx, cache, cmp, sameQueueClasses, hierarchyClasses, priorityClasses)
 
 	evictedHierarchy, nonEvictedHierarchy := buildBuckets(hierarchyClasses)
 	evictedPriority, nonEvictedPriority := buildBuckets(priorityClasses)
@@ -262,7 +264,7 @@ func (c *cacheCandidateIterator) Reset() {
 // classified ClusterQueue concurrently, then fills in each class's
 // sortedWorkloads slice from the cache. Warming first makes the subsequent Get
 // calls cache hits.
-func attachSortedWorkloads(cache *schdcache.CandidateOrderCache, cmp schdcache.CandidateOrderComparator, groups ...[]classifiedClusterQueue) {
+func attachSortedWorkloads(ctx context.Context, cache *schdcache.CandidateOrderCache, cmp schdcache.CandidateOrderComparator, groups ...[]classifiedClusterQueue) {
 	seen := sets.New[kueue.ClusterQueueReference]()
 	var cqs []*schdcache.ClusterQueueSnapshot
 	add := func(cq *schdcache.ClusterQueueSnapshot) {
@@ -277,7 +279,7 @@ func attachSortedWorkloads(cache *schdcache.CandidateOrderCache, cmp schdcache.C
 			add(g[i].cq)
 		}
 	}
-	cache.Warm(cqs, cmp)
+	cache.Warm(ctx, cqs, cmp)
 
 	for _, g := range groups {
 		for i := range g {

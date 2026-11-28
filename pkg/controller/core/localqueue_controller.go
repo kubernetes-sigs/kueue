@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -127,7 +126,6 @@ type LocalQueueReconciler struct {
 }
 
 var _ reconcile.Reconciler = (*LocalQueueReconciler)(nil)
-var _ predicate.TypedPredicate[*kueue.LocalQueue] = (*LocalQueueReconciler)(nil)
 
 func NewLocalQueueReconciler(
 	client client.Client,
@@ -153,8 +151,8 @@ func NewLocalQueueReconciler(
 	}
 }
 
-func (r *LocalQueueReconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
+func (r *LocalQueueReconciler) logger(ctx context.Context) logr.Logger {
+	return roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx).WithName(r.logName), r.roleTracker)
 }
 
 func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
@@ -243,8 +241,8 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
-func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
-	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
+func (r *LocalQueueReconciler) handleCreate(ctx context.Context, e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
+	log := r.logger(ctx).WithValues("localQueue", klog.KObj(e.Object))
 	log.V(3).Info("LocalQueue create event")
 
 	if features.Enabled(features.CustomMetricLabels) {
@@ -252,7 +250,7 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	}
 
 	if ptr.Deref(e.Object.Spec.StopPolicy, kueue.None) == kueue.None {
-		ctx := logr.NewContext(context.Background(), log)
+		ctx = ctrl.LoggerInto(ctx, log)
 		if err := r.queues.AddLocalQueue(ctx, e.Object); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
@@ -269,12 +267,12 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
+func (r *LocalQueueReconciler) handleDelete(ctx context.Context, e event.TypedDeleteEvent[*kueue.LocalQueue]) bool {
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQDelete(utilqueue.Key(e.Object))
 	}
 
-	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
+	log := r.logger(ctx).WithValues("localQueue", klog.KObj(e.Object))
 	log.V(3).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	// The cache clears the LocalQueue metrics, so it goes after the queue manager,
@@ -291,8 +289,8 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 	return true
 }
 
-func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
-	log := r.logger().WithValues("localQueue", klog.KObj(e.ObjectNew))
+func (r *LocalQueueReconciler) handleUpdate(ctx context.Context, e event.TypedUpdateEvent[*kueue.LocalQueue]) bool {
+	log := r.logger(ctx).WithValues("localQueue", klog.KObj(e.ObjectNew))
 	log.V(3).Info("LocalQueue update event")
 	oldMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectOld.GetLabels())
 	newMetricsExposed := r.lqMetrics.ShouldExposeLocalQueueMetrics(e.ObjectNew.GetLabels())
@@ -325,7 +323,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 			}
 		}
 	case newStopPolicy == kueue.None:
-		ctx := logr.NewContext(context.Background(), log)
+		ctx = ctrl.LoggerInto(ctx, log)
 		if err := r.queues.AddLocalQueue(ctx, e.ObjectNew); err != nil {
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
@@ -554,8 +552,8 @@ func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue
 	)
 }
 
-func (r *LocalQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
-	r.logger().V(5).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
+func (r *LocalQueueReconciler) handleGeneric(ctx context.Context, e event.TypedGenericEvent[*kueue.LocalQueue]) bool {
+	r.logger(ctx).V(5).Info("LocalQueue generic event", "localQueue", klog.KObj(e.Object))
 	return true
 }
 
@@ -632,7 +630,7 @@ func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.Clu
 	var queues kueue.LocalQueueList
 	err := h.reconciler.client.List(ctx, &queues, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name})
 	if err != nil {
-		h.reconciler.logger().Error(err, "Could not list queues that match the clusterQueue", "clusterQueue", klog.KObj(cq))
+		h.reconciler.logger(ctx).Error(err, "Could not list queues that match the clusterQueue", "clusterQueue", klog.KObj(cq))
 		return
 	}
 	for _, q := range queues.Items {
@@ -652,8 +650,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.LocalQueue{},
-			&handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]{},
-			r,
+			&localQueueEventHandler{r: r},
 		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
@@ -726,4 +723,36 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 		return r.client.Status().Update(ctx, queue)
 	}
 	return nil
+}
+
+// localQueueEventHandler updates the caches on every replica before enqueuing reconciliation.
+type localQueueEventHandler struct {
+	r       *LocalQueueReconciler
+	enqueue handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]
+}
+
+var _ handler.TypedEventHandler[*kueue.LocalQueue, reconcile.Request] = (*localQueueEventHandler)(nil)
+
+func (h *localQueueEventHandler) Create(ctx context.Context, e event.TypedCreateEvent[*kueue.LocalQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleCreate(ctx, e) {
+		h.enqueue.Create(ctx, e, q)
+	}
+}
+
+func (h *localQueueEventHandler) Update(ctx context.Context, e event.TypedUpdateEvent[*kueue.LocalQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleUpdate(ctx, e) {
+		h.enqueue.Update(ctx, e, q)
+	}
+}
+
+func (h *localQueueEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*kueue.LocalQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleDelete(ctx, e) {
+		h.enqueue.Delete(ctx, e, q)
+	}
+}
+
+func (h *localQueueEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.LocalQueue], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleGeneric(ctx, e) {
+		h.enqueue.Generic(ctx, e, q)
+	}
 }

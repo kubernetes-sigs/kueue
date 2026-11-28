@@ -30,10 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -961,7 +963,7 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 			}
 			var deleted *kueue.ClusterQueue
 			for _, cq := range tc.clusterQueues {
-				r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+				r.handleCreate(ctx, event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
 				if cq.Name == tc.deleteClusterQueue {
 					deleted = cq
 				}
@@ -972,7 +974,7 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 				cqCache.RecordCohortMetrics(log, cq.Spec.CohortName)
 			}
 
-			r.Delete(event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: deleted})
+			r.handleDelete(ctx, event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: deleted})
 
 			gotQuota := make(map[string]float64)
 			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{"flavor": "default"}) {
@@ -1054,7 +1056,7 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			)
 			r := NewClusterQueueReconciler(cl, qManager, cqCache, WithClusterQueueCustomLabels(cLabels))
 
-			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+			r.handleCreate(ctx, event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
 			lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue(cq.Name).Obj()
 			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatalf("Adding localQueue to manager: %v", err)
@@ -1085,11 +1087,11 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				if _, err := r.Reconcile(ctx, req); err != nil {
 					t.Fatalf("Reconcile error: %v", err)
 				}
-				if !r.Update(updateEvt) {
+				if !r.handleUpdate(ctx, updateEvt) {
 					t.Fatal("Update returned false")
 				}
 			} else {
-				if !r.Update(updateEvt) {
+				if !r.handleUpdate(ctx, updateEvt) {
 					t.Fatal("Update returned false")
 				}
 				if _, err := r.Reconcile(ctx, req); err != nil {
@@ -1228,7 +1230,10 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 			)
 			r := NewClusterQueueReconciler(cl, qManager, cqCache)
 
-			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: oldCQ})
+			eventQueue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer eventQueue.ShutDown()
+			h := clusterQueueEventHandler{r: r}
+			h.Create(ctx, event.TypedCreateEvent[*kueue.ClusterQueue]{Object: oldCQ}, eventQueue)
 			// Drain any requeue notifications generated during initial setup.
 			requeuer.ProcessRequeues(ctx)
 			lq := utiltestingapi.MakeLocalQueue(string(lqName), "default").ClusterQueue(string(cqName)).Obj()
@@ -1253,7 +1258,7 @@ func TestClusterQueueUpdateAssignmentPlannerRequeue(t *testing.T) {
 				t.Fatalf("Precondition: expected workload in inadmissible queue (-want,+got):\n%s", diff)
 			}
 
-			r.Update(event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: oldCQ, ObjectNew: newCQ})
+			h.Update(ctx, event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: oldCQ, ObjectNew: newCQ}, eventQueue)
 			requeuer.ProcessRequeues(ctx)
 
 			var wantActive, wantInadmissible map[kueue.ClusterQueueReference][]workload.Reference
