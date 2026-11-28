@@ -765,7 +765,6 @@ func (c *Controller) syncCheckStates(
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
 ) error {
-	log := ctrl.LoggerFrom(ctx)
 	wlInfo.update(wl, c.clock)
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.AdmissionCheckReference { return c.Name })
 	recorderMessages := make([]string, 0, len(checkConfig))
@@ -776,110 +775,22 @@ func (c *Controller) syncCheckStates(
 		// in subsequent steps due to the missing field.
 		// We should deep-copy the admission checks into wlPatch.
 		// NOTE: Once WorkloadRequestUseMergePatch reaches GA, this deep copy can be removed.
-		wlPatch.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, len(wl.Status.AdmissionChecks))
-		for index := range wl.Status.AdmissionChecks {
-			wlPatch.Status.AdmissionChecks[index] = *wl.Status.AdmissionChecks[index].DeepCopy()
-		}
+		wlPatch.Status.AdmissionChecks = copyAdmissionChecks(wl.Status.AdmissionChecks)
 
 		for check, prc := range checkConfig {
 			checkState := *checksMap[check]
-			if prc == nil {
-				// the check is not active
-				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-				updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated
-			} else if reqNeeded, err := c.reqIsNeeded(ctx, wl, prc); err != nil {
+			checkUpdated, skip, err := c.syncCheckState(ctx, wl, check, &checkState, prc, activeOrLastPRForChecks[check])
+			if err != nil {
 				return false, err
-			} else if !reqNeeded {
-				if updateCheckState(&checkState, kueue.CheckStateReady) {
-					updated = true
-					checkState.Message = NoRequestNeeded
-					checkState.PodSetUpdates = nil
-				}
-			} else {
-				pr := activeOrLastPRForChecks[check]
-				if pr == nil {
-					// Returning would drop what the other checks stage in this patch.
-					log.V(4).Info("Skipping admission check without a ProvisioningRequest", "admissionCheck", klog.KRef("", string(check)))
-					continue
-				}
-				log.V(4).Info("Synchronizing admission check state based on provisioning request",
-					"admissionCheck", klog.KRef("", string(check)),
-					"provisioningRequest", klog.KObj(pr),
-					"failed", isFailed(pr),
-					"provisioned", isProvisioned(pr),
-					"accepted", isAccepted(pr),
-					"bookingExpired", isBookingExpired(pr),
-					"capacityRevoked", isCapacityRevoked(pr))
-				backoffLimitCount := *prc.Spec.RetryStrategy.BackoffLimitCount
-				switch {
-				case isFailed(pr):
-					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= backoffLimitCount {
-						// it is going to be retried
-						message := fmt.Sprintf("Retrying after failure: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message)
-						updated = updateCheckMessage(&checkState, message) || updated
-						if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
-							// We don't want to Retry on old ProvisioningRequests
-							updated = true
-							setAdmissionCheckRetry(&checkState, prc, c.clock)
-						}
-					} else {
-						updated = true
-						checkState.State = kueue.CheckStateRejected
-						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
-					}
-				case isCapacityRevoked(pr):
-					if workload.IsActive(wl) && !workloadfinish.IsFinished(wl) {
-						// We mark the admission check as rejected to trigger workload deactivation.
-						// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
-						// as the nodes are already deleted by Cluster Autoscaler.
-						updated = updateCheckState(&checkState, kueue.CheckStateRejected) || updated
-						updated = updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.CapacityRevoked).Message) || updated
-					}
-				case isBookingExpired(pr):
-					if !workload.IsAdmitted(wl) {
-						if attempt := getAttempt(log, pr, wl.Name, check); attempt <= backoffLimitCount {
-							// it is going to be retried
-							message := fmt.Sprintf("Retrying after booking expired: %s", apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message)
-							updated = updateCheckMessage(&checkState, message) || updated
-							if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
-								updated = true
-								setAdmissionCheckRetry(&checkState, prc, c.clock)
-							}
-						} else {
-							updated = true
-							checkState.State = kueue.CheckStateRejected
-							checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.BookingExpired).Message
-						}
-					}
-				case isProvisioned(pr):
-					if updateCheckState(&checkState, kueue.CheckStateReady) {
-						updated = true
-						// add the pod podSetUpdates
-						checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
-						// propagate the message from the provisioning request status into the workload
-						// to change to the "successfully provisioned" message after provisioning
-						updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
-					}
-				case isAccepted(pr):
-					if provisionedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned); provisionedCond != nil {
-						// propagate the ETA update from the provisioning request into the workload
-						updated = updateCheckMessage(&checkState, provisionedCond.Message) || updated
-						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-					}
-				default:
-					// Nothing to report until the autoscaler sets a condition, and whatever the
-					// previous state left behind, notably a handleError message, no longer holds.
-					updated = updateCheckMessage(&checkState, "") || updated
-					updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
-				}
 			}
+			if skip {
+				// Returning would drop what the other checks stage in this patch.
+				continue
+			}
+			updated = checkUpdated || updated
 
 			existingCondition := admissioncheck.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
-			if existingCondition != nil && existingCondition.State != checkState.State {
-				message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
-				if checkState.Message != "" {
-					message += fmt.Sprintf(" with message: %s", checkState.Message)
-				}
+			if message, changed := stateChangeMessage(existingCondition, &checkState); changed {
 				recorderMessages = append(recorderMessages, message)
 			}
 			workloadpatching.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState, c.clock)
@@ -896,6 +807,147 @@ func (c *Controller) syncCheckStates(
 	}
 	wlInfo.update(wl, c.clock)
 	return nil
+}
+
+func copyAdmissionChecks(checks []kueue.AdmissionCheckState) []kueue.AdmissionCheckState {
+	copied := make([]kueue.AdmissionCheckState, len(checks))
+	for i := range checks {
+		copied[i] = *checks[i].DeepCopy()
+	}
+	return copied
+}
+
+// syncCheckState updates checkState for one admission check, reporting whether it changed.
+// skip reports that the check needs a ProvisioningRequest that does not exist yet, so its state
+// must not be written.
+func (c *Controller) syncCheckState(
+	ctx context.Context, wl *kueue.Workload, check kueue.AdmissionCheckReference,
+	checkState *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, pr *autoscaling.ProvisioningRequest,
+) (updated, skip bool, err error) {
+	if prc == nil {
+		// the check is not active
+		updated = updateCheckState(checkState, kueue.CheckStatePending)
+		updated = updateCheckMessage(checkState, CheckInactiveMessage) || updated
+		return updated, false, nil
+	}
+
+	reqNeeded, err := c.reqIsNeeded(ctx, wl, prc)
+	if err != nil {
+		return false, false, err
+	}
+	if !reqNeeded {
+		if !updateCheckState(checkState, kueue.CheckStateReady) {
+			return false, false, nil
+		}
+		checkState.Message = NoRequestNeeded
+		checkState.PodSetUpdates = nil
+		return true, false, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	if pr == nil {
+		log.V(4).Info("Skipping admission check without a ProvisioningRequest", "admissionCheck", klog.KRef("", string(check)))
+		return false, true, nil
+	}
+	return c.syncCheckStateFromPR(log, wl, check, checkState, prc, pr), false, nil
+}
+
+// syncCheckStateFromPR maps the conditions of the ProvisioningRequest to checkState,
+// reporting whether it changed.
+func (c *Controller) syncCheckStateFromPR(
+	log logr.Logger, wl *kueue.Workload, check kueue.AdmissionCheckReference,
+	checkState *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, pr *autoscaling.ProvisioningRequest,
+) bool {
+	log.V(4).Info("Synchronizing admission check state based on provisioning request",
+		"admissionCheck", klog.KRef("", string(check)),
+		"provisioningRequest", klog.KObj(pr),
+		"failed", isFailed(pr),
+		"provisioned", isProvisioned(pr),
+		"accepted", isAccepted(pr),
+		"bookingExpired", isBookingExpired(pr),
+		"capacityRevoked", isCapacityRevoked(pr))
+	switch {
+	case isFailed(pr):
+		return c.retryOrReject(log, wl, check, checkState, prc, pr, autoscaling.Failed, "Retrying after failure")
+	case isCapacityRevoked(pr):
+		if !workload.IsActive(wl) || workloadfinish.IsFinished(wl) {
+			return false
+		}
+		// We mark the admission check as rejected to trigger workload deactivation.
+		// This is needed to prevent replacement pods being stuck in the pending phase indefinitely
+		// as the nodes are already deleted by Cluster Autoscaler.
+		updated := updateCheckState(checkState, kueue.CheckStateRejected)
+		return updateCheckMessage(checkState, conditionMessage(pr, autoscaling.CapacityRevoked)) || updated
+	case isBookingExpired(pr):
+		if workload.IsAdmitted(wl) {
+			return false
+		}
+		return c.retryOrReject(log, wl, check, checkState, prc, pr, autoscaling.BookingExpired, "Retrying after booking expired")
+	case isProvisioned(pr):
+		if !updateCheckState(checkState, kueue.CheckStateReady) {
+			return false
+		}
+		// add the pod podSetUpdates
+		checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
+		// propagate the message from the provisioning request status into the workload
+		// to change to the "successfully provisioned" message after provisioning
+		updateCheckMessage(checkState, conditionMessage(pr, autoscaling.Provisioned))
+		return true
+	case isAccepted(pr):
+		provisionedCond := apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned)
+		if provisionedCond == nil {
+			return false
+		}
+		// propagate the ETA update from the provisioning request into the workload
+		updated := updateCheckMessage(checkState, provisionedCond.Message)
+		return updateCheckState(checkState, kueue.CheckStatePending) || updated
+	default:
+		// Nothing to report until the autoscaler sets a condition, and whatever the
+		// previous state left behind, notably a handleError message, no longer holds.
+		updated := updateCheckMessage(checkState, "")
+		return updateCheckState(checkState, kueue.CheckStatePending) || updated
+	}
+}
+
+// retryOrReject handles a ProvisioningRequest that ended with condType: the check is retried
+// while the attempt is within the backoff limit, and rejected after that.
+func (c *Controller) retryOrReject(
+	log logr.Logger, wl *kueue.Workload, check kueue.AdmissionCheckReference,
+	checkState *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, pr *autoscaling.ProvisioningRequest,
+	condType, retryMessagePrefix string,
+) bool {
+	message := conditionMessage(pr, condType)
+	attempt := getAttempt(log, pr, wl.Name, check)
+	if attempt > *prc.Spec.RetryStrategy.BackoffLimitCount {
+		checkState.State = kueue.CheckStateRejected
+		checkState.Message = message
+		return true
+	}
+
+	updated := updateCheckMessage(checkState, fmt.Sprintf("%s: %s", retryMessagePrefix, message))
+	if attempt > ptr.Deref(checkState.RetryCount, 0) {
+		// We don't want to Retry on old ProvisioningRequests
+		setAdmissionCheckRetry(checkState, prc, c.clock)
+		return true
+	}
+	return updated
+}
+
+// stateChangeMessage describes the change from the existing check state to the new one,
+// reporting false when the state did not change.
+func stateChangeMessage(existing, checkState *kueue.AdmissionCheckState) (string, bool) {
+	if existing == nil || existing.State == checkState.State {
+		return "", false
+	}
+	message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existing.State, checkState.State)
+	if checkState.Message != "" {
+		message += fmt.Sprintf(" with message: %s", checkState.Message)
+	}
+	return message, true
+}
+
+func conditionMessage(pr *autoscaling.ProvisioningRequest, condType string) string {
+	return apimeta.FindStatusCondition(pr.Status.Conditions, condType).Message
 }
 
 func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {

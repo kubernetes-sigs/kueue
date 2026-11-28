@@ -2361,6 +2361,116 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"when no request is needed and the check is already ready": {
+			workload: baseWorkloadWithCheck1Ready.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.Clone().WithManagedResource("example.org/gpu").Obj()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkloadWithCheck1Ready.DeepCopy(),
+			},
+		},
+		"when request is provisioned and the check is already ready": {
+			workload: baseWorkloadWithCheck1Ready.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkloadWithCheck1Ready.DeepCopy(),
+			},
+		},
+		"when request is accepted without a provisioned condition the check message is kept": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:    "check1",
+					State:   kueue.CheckStatePending,
+					Message: "previous message",
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Accepted, metav1.ConditionTrue),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStatePending,
+						Message: "previous message",
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+		},
+		"when an already retried request fails only the check message is updated": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:       "check1",
+					State:      kueue.CheckStatePending,
+					RetryCount: new(int32(1)),
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.Clone().RetryLimit(2).Obj()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Failed, metav1.ConditionTrue),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:       "check1",
+						State:      kueue.CheckStatePending,
+						Message:    "Retrying after failure: By test",
+						RetryCount: new(int32(1)),
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-2"`,
+				},
+			},
+		},
+		"when capacity is revoked for an inactive workload the check is not rejected": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Active(false).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.CapacityRevoked, metav1.ConditionTrue),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					Active(false).
+					Obj(),
+			},
+		},
 		"when request is needed for one PodSet (resource request)": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
