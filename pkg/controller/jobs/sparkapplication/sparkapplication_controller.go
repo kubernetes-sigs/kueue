@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -64,6 +66,10 @@ const (
 	// maxExecutorIDSubmissionAnnotation records the submission that
 	// maxExecutorIDAnnotation belongs to.
 	maxExecutorIDSubmissionAnnotation = "kueue.x-k8s.io/spark-max-executor-id-submission"
+	// failedExecutorIDsAnnotation records the failed executor IDs of the current
+	// submission, so they do not count towards the created executors while the
+	// driver ramps up to its starting executors.
+	failedExecutorIDsAnnotation = "kueue.x-k8s.io/spark-failed-executor-ids"
 	// executorsStartedSubmissionAnnotation records the submission whose executors
 	// have started: its starting executors (see startingExecutors) have all been
 	// ready.
@@ -515,7 +521,7 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	if c == nil || !j.driverStarted() {
 		return initialTarget, nil
 	}
-	count, maxID, err := j.countExecutorPods(ctx, c)
+	count, maxID, failedIDs, err := j.countExecutorPods(ctx, c)
 	if err != nil {
 		return 0, err
 	}
@@ -526,8 +532,14 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	// before it creates them all, and it stops an executor only after lowering its
 	// target, so once one has stopped the driver is no longer ramping up. The pods
 	// of stopped executors can be deleted, so the highest ID also comes from
-	// maxExecutorIDAnnotation.
+	// maxExecutorIDAnnotation. While the driver ramps up, Spark replaces a failed
+	// executor with a new, higher ID, so failed executors do not count as created.
+	// Once the starting executors have started, the ramp-up is over and failures
+	// no longer matter here.
 	created := max(j.recordedMaxExecutorID(), maxID)
+	if !j.executorsStarted() {
+		created = max(0, created-len(failedIDs))
+	}
 	createdAll := created >= int(j.startingExecutors(da))
 	if !createdAll && created <= int(count) {
 		return initialTarget, nil
@@ -548,22 +560,26 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 // executor ID among all of them. It reads pods rather than
 // status.executorState, because the Spark Operator stops adding executors
 // there once their ID exceeds its tracking limit.
-func (j *SparkApplication) countExecutorPods(ctx context.Context, c client.Client) (int32, int, error) {
+func (j *SparkApplication) countExecutorPods(ctx context.Context, c client.Client) (int32, int, sets.Set[int], error) {
 	pods, err := j.listExecutorPods(ctx, c)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, err
 	}
 	var active int32
 	var maxID int
+	failedIDs := j.recordedFailedExecutorIDs()
 	for _, pod := range pods.Items {
 		if pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning {
 			active++
 		}
 		if id, err := strconv.Atoi(pod.Labels[sparkcommon.LabelSparkExecutorID]); err == nil {
 			maxID = max(maxID, id)
+			if pod.Status.Phase == corev1.PodFailed {
+				failedIDs.Insert(id)
+			}
 		}
 	}
-	return active, maxID, nil
+	return active, maxID, failedIDs, nil
 }
 
 // recordedMaxExecutorID returns the highest executor ID recorded in
@@ -575,6 +591,31 @@ func (j *SparkApplication) recordedMaxExecutorID() int {
 	}
 	id, _ := strconv.Atoi(j.Annotations[maxExecutorIDAnnotation])
 	return id
+}
+
+// recordedFailedExecutorIDs returns the failed executor IDs recorded in
+// failedExecutorIDsAnnotation for the current submission, or an empty set if the
+// record belongs to a previous one.
+func (j *SparkApplication) recordedFailedExecutorIDs() sets.Set[int] {
+	ids := sets.New[int]()
+	if j.Annotations[maxExecutorIDSubmissionAnnotation] != j.Status.SubmissionID {
+		return ids
+	}
+	for _, v := range strings.Split(j.Annotations[failedExecutorIDsAnnotation], ",") {
+		if id, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+			ids.Insert(id)
+		}
+	}
+	return ids
+}
+
+func formatFailedExecutorIDs(ids sets.Set[int]) string {
+	sorted := slices.Sorted(slices.Values(ids.UnsortedList()))
+	strs := make([]string, len(sorted))
+	for i, id := range sorted {
+		strs[i] = strconv.Itoa(id)
+	}
+	return strings.Join(strs, ",")
 }
 
 // listExecutorPods lists the executor pods of the current submission.
@@ -664,13 +705,25 @@ func (j *SparkApplication) GetCustomAnnotations(ctx context.Context, c client.Cl
 	if !isAnElasticJob(j) || j.Status.SubmissionID == "" {
 		return nil, nil
 	}
-	_, maxID, err := j.countExecutorPods(ctx, c)
+	_, maxID, failedIDs, err := j.countExecutorPods(ctx, c)
 	if err != nil {
 		return nil, err
 	}
 	annotations := map[string]string{
 		maxExecutorIDAnnotation:           strconv.Itoa(max(j.recordedMaxExecutorID(), maxID)),
 		maxExecutorIDSubmissionAnnotation: j.Status.SubmissionID,
+	}
+	// The failed IDs only matter while the driver ramps up. Once its executors
+	// have started they are no longer written, so the annotation stops growing;
+	// the job reconciler only adds or updates annotations, so the recorded set
+	// stays as it was.
+	//
+	// An existing record is rewritten even when the set is now empty, so the IDs
+	// of a previous submission are cleared in the same update that moves
+	// maxExecutorIDSubmissionAnnotation to the current one. Otherwise the next
+	// reconcile would read them as failures of this submission.
+	if !j.executorsStarted() && (len(failedIDs) > 0 || j.Annotations[failedExecutorIDsAnnotation] != "") {
+		annotations[failedExecutorIDsAnnotation] = formatFailedExecutorIDs(failedIDs)
 	}
 	if da := j.dynamicAllocation(); da.Enabled && !j.executorsStarted() {
 		ready, err := j.readyExecutors(ctx, c)
