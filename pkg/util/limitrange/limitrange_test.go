@@ -491,7 +491,7 @@ func TestValidatePodSpec(t *testing.T) {
 				},
 			},
 		},
-		"container limit to request ratio within max rounded up to milli": {
+		"container limit to request ratio over sub-milli max": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
 				WithType(corev1.LimitTypeContainer).
 				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2.0001").
@@ -501,6 +501,62 @@ func TestValidatePodSpec(t *testing.T) {
 					*testingutil.MakeContainer().
 						WithResourceReq(corev1.ResourceCPU, "1").
 						WithResourceLimit(corev1.ResourceCPU, "2001m").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]corev1.ResourceName{corev1.ResourceCPU},
+					LimitsMustNotExceedLimitRangeMaxRatioMessage,
+				),
+			},
+		},
+		"container limit to request ratio equal to sub-milli max": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2.0001").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceLimit(corev1.ResourceCPU, "2.0001").
+						Obj(),
+				},
+			},
+		},
+		"container limit to request ratio over max with sub-milli request and limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "300u").
+						WithResourceLimit(corev1.ResourceCPU, "700u").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]corev1.ResourceName{corev1.ResourceCPU},
+					LimitsMustNotExceedLimitRangeMaxRatioMessage,
+				),
+			},
+		},
+		"container limit to request ratio equal to max with sub-milli request and limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "300u").
+						WithResourceLimit(corev1.ResourceCPU, "600u").
 						Obj(),
 				},
 			},
