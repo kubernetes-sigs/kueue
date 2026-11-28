@@ -48,7 +48,9 @@ const preemptionLimitPruneInterval = time.Minute
 const preemptionLimitTopAggregatedCountsMaxItems = 100
 
 // PreemptionLimitReconciler aligns the in-memory representation of the PreemptionLimits
-// (see PreemptionLimitTracker) with their current specs.
+// (see PreemptionLimitTracker) with their current specs. It runs on all replicas, so a
+// replica that becomes the leader already tracks the PreemptionLimits, and only the leader
+// reports the status.
 type PreemptionLimitReconciler struct {
 	client        client.Client
 	tracker       *limits.PreemptionLimitTracker
@@ -103,8 +105,8 @@ func NewPreemptionLimitReconciler(
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=preemptionlimits/status,verbs=get;update;patch
 
 // Reconcile keeps the in-memory state of the PreemptionLimit (see
-// PreemptionLimitTracker) consistent with its current spec, and reports active
-// counts in its status. Whenever the PreemptionLimit spec changes, and every
+// PreemptionLimitTracker) consistent with its current spec, and, on the leader,
+// reports active counts in its status. Whenever the PreemptionLimit spec changes, and every
 // preemptionLimitPruneInterval, it syncs the PreemptionLimit into the tracker:
 //   - starts tracking a new PreemptionLimit, as preemptions are only recorded
 //     for tracked ones;
@@ -112,9 +114,12 @@ func NewPreemptionLimitReconciler(
 //     aggregation or selectors changed, as past events no longer count toward it;
 //   - otherwise keeps recorded events (e.g. on a limit or window change).
 //
-// It then prunes events that fell out of the window, and updates the status
-// with the preemptions counted within the window. Once the PreemptionLimit is
-// deleted, it forgets its tracked state and events.
+// It then prunes events that fell out of the window, and, on the leader, updates
+// the status with the preemptions counted within the window. Once the PreemptionLimit
+// is deleted, it forgets its tracked state and events.
+//
+// The status is a write to the API server that is shared by all replicas, and the
+// preemption events are only recorded by the leader, so followers leave it to the leader.
 func (r *PreemptionLimitReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var limit kueuealpha.PreemptionLimit
 	if err := r.client.Get(ctx, req.NamespacedName, &limit); err != nil {
@@ -136,6 +141,11 @@ func (r *PreemptionLimitReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		qcache.NotifyRetryInadmissible(r.manager, sets.New(r.manager.GetClusterQueueNames()...))
 	}
 	r.tracker.Prune(now, policy.PreemptionLimitReference(limit.Name))
+
+	if roletracker.GetRole(r.roleTracker) == roletracker.RoleFollower {
+		// Requeue, so that the status is reported soon after this replica becomes the leader.
+		return ctrl.Result{RequeueAfter: r.pruneInterval}, nil
+	}
 
 	limit.Status = r.preemptionLimitStatus(now, &limit)
 	if err := r.client.Status().Update(ctx, &limit); err != nil {
@@ -178,9 +188,10 @@ func (r *PreemptionLimitReconciler) preemptionLimitStatus(now time.Time, limit *
 	}
 }
 
-// SetupWithManager sets up the controller with the Manager. It keeps the default
-// leader election, so the controller runs only on the leader, where the scheduler
-// records the preemption events.
+// SetupWithManager sets up the controller with the Manager. The controller does not
+// need the leader election, so the followers also keep the in-memory state of the
+// PreemptionLimits, which the scheduler of a new leader relies on. See Reconcile for the
+// part that is left to the leader.
 func (r *PreemptionLimitReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.pruneInterval <= 0 {
 		return errors.New("PreemptionLimit prune interval must be positive")
@@ -193,7 +204,8 @@ func (r *PreemptionLimitReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// Make sure that update to the status part aren't triggering additional Reconcile.
 		For(&kueuealpha.PreemptionLimit{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "preemptionlimit-reconciler"),
+			NeedLeaderElection: new(false),
+			LogConstructor:     roletracker.NewLogConstructor(r.roleTracker, "preemptionlimit-reconciler"),
 		}).
 		Complete(r)
 }
