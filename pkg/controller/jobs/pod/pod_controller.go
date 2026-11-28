@@ -83,10 +83,11 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 
 // Event reasons used by the pod controller
 const (
-	ReasonExcessPodDeleted       = "ExcessPodDeleted"
-	ReasonOwnerReferencesAdded   = "OwnerReferencesAdded"
-	ReasonWorkloadNameConflict   = "WorkloadNameConflict"
-	ReasonPodExceedsRoleRequests = "PodExceedsRoleRequests"
+	ReasonExcessPodDeleted           = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded       = "OwnerReferencesAdded"
+	ReasonWorkloadNameConflict       = "WorkloadNameConflict"
+	ReasonPodExceedsRoleRequests     = "PodExceedsRoleRequests"
+	ReasonLegacyPodGroupRoleMismatch = "LegacyPodGroupRoleMismatch"
 )
 
 const (
@@ -323,6 +324,9 @@ func (p *Pod) Suspend() {
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
+	if err := p.restoreLegacyGroupRoles(ctx, c, wl); err != nil {
+		return err
+	}
 
 	var keepGated sets.Set[string]
 	if !p.isGroup {
@@ -1690,6 +1694,9 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	if ptr.Deref(workload.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(jobframework.MaximumExecutionTimeSeconds(p), defaultDuration) {
 		return nil, []*kueue.Workload{workload}, nil
 	}
+	if err := p.restoreLegacyGroupRoles(ctx, c, workload); err != nil {
+		return nil, nil, err
+	}
 
 	// Cleanup excess pods for each workload pod set (role)
 	activePods, inactivePods := p.partitionPods()
@@ -1749,6 +1756,24 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		return nil, nil, errPendingOps
 	}
 
+	if err := p.warnLegacyGroupRoleMismatch(workload, r); err != nil {
+		return nil, nil, err
+	}
+	// Rejected replacements do not belong to a persisted role. Once deleted,
+	// release their finalizers through the same cleanup as replaced members.
+	for i := range inactivePods {
+		pod := &inactivePods[i]
+		if pod.DeletionTimestamp.IsZero() {
+			continue
+		}
+		role, err := getRoleHash(*pod)
+		if err != nil {
+			return nil, nil, errRoleHashCalculationForPod(pod.Name, err)
+		}
+		if !slices.ContainsFunc(workload.Spec.PodSets, func(ps kueue.PodSet) bool { return string(ps.Name) == role }) {
+			replacedInactivePods = append(replacedInactivePods, *pod)
+		}
+	}
 	p.absentPods = absentPods
 	p.list.Items = keptPods
 	if err := p.EnsureWorkloadOwnedByAllMembers(ctx, c, r, workload); err != nil {
@@ -1923,6 +1948,9 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
 	if !p.isGroup {
 		return jobframework.EquivalentToWorkload(ctx, c, p, wl)
+	}
+	if err := p.restoreLegacyGroupRoles(ctx, c, wl); err != nil {
+		return false, err
 	}
 
 	podSets, err := p.constructGroupPodSets(podSetReferenceOrder(wl.Spec.PodSets))
