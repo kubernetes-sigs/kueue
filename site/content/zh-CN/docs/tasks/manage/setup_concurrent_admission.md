@@ -2,7 +2,7 @@
 title: "设置并发准入"
 linkTitle: "并发准入"
 date: 2026-05-05
-weight: 8
+weight: 140
 description: >
   配置 Kueue，将已准入的工作负载迁移到更优先的 ResourceFlavor，并发运行按规格划分的准入检查。
 ---

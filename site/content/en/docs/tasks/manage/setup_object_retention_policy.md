@@ -1,7 +1,7 @@
 ---
 title: "Setup garbage-collection of workload"
 date: 2025-05-16
-weight: 11
+weight: 160
 description: >
   Configure automatic garbage-collection of finished and deactivated Workloads
   by defining retention policies.

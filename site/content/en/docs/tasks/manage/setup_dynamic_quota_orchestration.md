@@ -2,7 +2,7 @@
 title: "Set Up Dynamic Quota Orchestration"
 linkTitle: "Dynamic Quota Orchestration"
 date: 2026-10-30
-weight: 8
+weight: 190
 description: >
   Configure Kueue to set ClusterQueue and Cohort quotas from reported capacity.
 ---

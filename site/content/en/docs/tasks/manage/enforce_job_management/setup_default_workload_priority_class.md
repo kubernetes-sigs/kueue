@@ -1,7 +1,7 @@
 ---
 title: "Setup default WorkloadPriorityClass"
 date: 2026-04-27
-weight: 11
+weight: 40
 description: >
   Setup a default WorkloadPriorityClass to assign a queueing priority to jobs that don't specify one.
 ---

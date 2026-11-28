@@ -2,7 +2,7 @@
 title: "Share Quotas Across Resource Flavors"
 linkTitle: "Share Quotas"
 date: 2026-01-28
-weight: 3
+weight: 50
 description: >
   Use resource transformations to enforce a shared quota across multiple resource flavors
 ---

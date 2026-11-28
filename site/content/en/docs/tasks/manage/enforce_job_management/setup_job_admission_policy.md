@@ -1,7 +1,7 @@
 ---
 title: "Setup a Job Admission Policy"
 date: 2024-06-28
-weight: 10
+weight: 20
 description: >
   Implementing Validating Admission Policy to prevent job creation without queue name.
 ---

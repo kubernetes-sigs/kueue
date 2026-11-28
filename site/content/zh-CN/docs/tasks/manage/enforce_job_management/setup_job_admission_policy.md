@@ -1,7 +1,7 @@
 ---
 title: "制定 Job 准入策略"
 date: 2024-06-28
-weight: 10
+weight: 30
 description: >
   实施验证准入策略以防止创建没有队列名称的 Job。
 ---

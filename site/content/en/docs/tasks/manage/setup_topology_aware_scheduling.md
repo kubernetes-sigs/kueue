@@ -1,7 +1,7 @@
 ---
 title: "Setup Topology-Aware Scheduling"
 date: 2026-07-03
-weight: 6
+weight: 100
 description: >
   A hands-on guide to configuring Topology-Aware Scheduling and observing how it places workloads.
 ---

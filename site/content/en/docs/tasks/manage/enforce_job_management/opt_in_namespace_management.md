@@ -1,7 +1,7 @@
 ---
 title: "Opt-in Namespace Management"
 date: 2025-11-25
-weight: 15
+weight: 50
 description: >
   Configure Kueue to only manage workloads in explicitly labeled namespaces.
 ---

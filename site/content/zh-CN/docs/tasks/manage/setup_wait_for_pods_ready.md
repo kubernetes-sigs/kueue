@@ -1,7 +1,7 @@
 ---
 title: "使用就绪态 Pod 配置全有或全无调度"
 date: 2022-03-14
-weight: 5
+weight: 90
 description: 基于超时的全有或全无调度实现
 ---
 

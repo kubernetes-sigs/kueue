@@ -1,7 +1,7 @@
 ---
 title: "Use Custom Preemption Configurations"
 date: 2026-09-22
-weight: 7
+weight: 120
 description: >
   Set up and verify declarative preemption configurations for hero workloads and topology defragmentation using PreemptionConfig.
 ---
