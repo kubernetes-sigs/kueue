@@ -270,9 +270,21 @@ func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *
 	return ss.Request(r, v).Limit(r, v)
 }
 
+// Volume adds a volume to the pod template.
+func (ss *StatefulSetWrapper) Volume(v corev1.Volume) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Volumes = append(ss.Spec.Template.Spec.Volumes, v)
+	return ss
+}
+
 // VolumeMount adds a volume mount to the default container.
 func (ss *StatefulSetWrapper) VolumeMount(m corev1.VolumeMount) *StatefulSetWrapper {
 	ss.Spec.Template.Spec.Containers[0].VolumeMounts = append(ss.Spec.Template.Spec.Containers[0].VolumeMounts, m)
+	return ss
+}
+
+// VolumeDevice adds a volume device to the default container.
+func (ss *StatefulSetWrapper) VolumeDevice(d corev1.VolumeDevice) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].VolumeDevices = append(ss.Spec.Template.Spec.Containers[0].VolumeDevices, d)
 	return ss
 }
 

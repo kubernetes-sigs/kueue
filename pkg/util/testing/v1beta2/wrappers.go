@@ -667,6 +667,11 @@ func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Volumes(volumes ...corev1.Volume) *PodSetWrapper {
+	p.Template.Spec.Volumes = volumes
+	return p
+}
+
 func (p *PodSetWrapper) Containers(containers ...corev1.Container) *PodSetWrapper {
 	p.Template.Spec.Containers = containers
 	return p
