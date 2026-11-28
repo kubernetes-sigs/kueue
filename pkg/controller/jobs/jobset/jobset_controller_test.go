@@ -119,6 +119,147 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
+func TestPodsNotReadyDetails(t *testing.T) {
+	testcases := map[string]struct {
+		replicatedJobs []testingjobset.ReplicatedJobRequirements
+		jobsStatus     []jobset.ReplicatedJobStatus
+		want           string
+	}{
+		"all replicated jobs are ready or succeeded": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    4,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 1},
+				{Name: "workers", Ready: 3, Succeeded: 1},
+			},
+			want: "",
+		},
+		"one replicated job is partially ready": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    4,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 1},
+				{Name: "workers", Ready: 1, Succeeded: 1},
+			},
+			want: "replicatedJobs not ready: workers",
+		},
+		"two replicated jobs are not ready, listed in spec order": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "workers",
+					Replicas:    4,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 0},
+				{Name: "workers", Ready: 2},
+			},
+			want: "replicatedJobs not ready: workers, driver",
+		},
+		"zero-replica replicated job is never reported": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "idle",
+					Replicas:    0,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "workers", Ready: 1},
+			},
+			want: "replicatedJobs not ready: workers",
+		},
+		"jobset without any status lists every replicated job": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			want: "replicatedJobs not ready: driver, workers",
+		},
+		"replicated job without status counts as zero ready": {
+			replicatedJobs: []testingjobset.ReplicatedJobRequirements{
+				{
+					Name:        "driver",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+				{
+					Name:        "workers",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			},
+			jobsStatus: []jobset.ReplicatedJobStatus{
+				{Name: "driver", Ready: 1},
+			},
+			want: "replicatedJobs not ready: workers",
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			jobSet := (*JobSet)(testingjobset.MakeJobSet("jobset", "ns").
+				ReplicatedJobs(tc.replicatedJobs...).
+				JobsStatus(tc.jobsStatus...).
+				Obj())
+			if got := jobSet.PodsNotReadyDetails(); got != tc.want {
+				t.Errorf("PodsNotReadyDetails() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReclaimablePods(t *testing.T) {
 	baseWrapper := testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
 		testingjobset.ReplicatedJobRequirements{

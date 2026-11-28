@@ -2677,9 +2677,27 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 		return false, err
 	}
 	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
-	if workload.HasConditionWithTypeAndReason(wl, &condition) {
-		log.V(5).Info("No update for PodsReady condition")
-		return false, nil
+	if prev := apimeta.FindStatusCondition(wl.Status.Conditions, condition.Type); prev != nil &&
+		prev.Status == condition.Status && prev.Reason == condition.Reason {
+		// Once the workload is evicted or loses its admission, keep the last details:
+		// they explain the eviction, and teardown should not cost extra writes.
+		if prev.Message == api.TruncateConditionMessage(condition.Message) || !workload.IsAdmitted(wl) || workloadevict.IsEvicted(wl) {
+			log.V(5).Info("No update for PodsReady condition")
+			return false, nil
+		}
+		// Only the job-provided not-ready details changed. Keep the transition time,
+		// because the recovery timeout is measured from it.
+		condition.LastTransitionTime = prev.LastTransitionTime
+		condition.ObservedGeneration = wl.Generation
+		condition.Message = api.TruncateConditionMessage(condition.Message)
+		err = workloadpatching.PatchStatus(ctx, r.client, wl, client.FieldOwner(constants.JobControllerName+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
+			return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
+		})
+		if err != nil {
+			return false, fmt.Errorf("updating Workload %s PodsReady condition message: %w", klog.KObj(wl), err)
+		}
+		log.V(3).Info("Updated PodsReady condition message", "workload", klog.KObj(wl), "reason", condition.Reason)
+		return true, nil
 	}
 	var prevPodsReadyReason string
 	var prevPodsReadyTransitionTime time.Time
@@ -2761,25 +2779,22 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 			clock)
 	}
 
+	var cond metav1.Condition
 	switch {
-	case podsReadyCond == nil:
-		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
-
-	case podsReadyCond.Status == metav1.ConditionTrue:
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
+	case podsReadyCond != nil && (podsReadyCond.Status == metav1.ConditionTrue || podsReadyCond.Reason == kueue.WorkloadWaitForRecovery):
+		cond = workload.CreatePodsReadyCondition(metav1.ConditionFalse,
 			kueue.WorkloadWaitForRecovery,
 			waitingForRecoveryMsg,
 			clock)
-
-	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery:
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForRecovery,
-			waitingForRecoveryMsg,
-			clock)
-
 	default:
-		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
+		cond = waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 	}
+	if jd, ok := job.(JobWithPodsNotReadyDetails); ok {
+		if details := jd.PodsNotReadyDetails(); details != "" {
+			cond.Message += "; " + details
+		}
+	}
+	return cond
 }
 
 func waitForSchedulingOrStartPodsReadyCondition(wl *kueue.Workload, clock clock.Clock, podsScheduledTracking bool) metav1.Condition {

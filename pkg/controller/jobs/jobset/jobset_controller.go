@@ -19,6 +19,7 @@ package jobset
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -78,6 +79,7 @@ type JobSet jobsetapi.JobSet
 var _ jobframework.GenericJob = (*JobSet)(nil)
 var _ jobframework.JobWithReclaimablePods = (*JobSet)(nil)
 var _ jobframework.JobWithManagedBy = (*JobSet)(nil)
+var _ jobframework.JobWithPodsNotReadyDetails = (*JobSet)(nil)
 
 func fromObject(obj runtime.Object) *JobSet {
 	return (*JobSet)(obj.(*jobsetapi.JobSet))
@@ -193,6 +195,28 @@ func (j *JobSet) PodsReady(ctx context.Context, _ client.Client, _ ...jobframewo
 		readyReplicas += replicatedJobStatus.Ready + replicatedJobStatus.Succeeded
 	}
 	return replicas == readyReplicas
+}
+
+// PodsNotReadyDetails lists, in spec order, the replicatedJobs whose ready plus
+// succeeded child Jobs are below the desired replicas, counted as in PodsReady.
+// Only names are listed, so the Workload is patched when the not-ready set
+// changes rather than on every ready-count change.
+func (j *JobSet) PodsNotReadyDetails() string {
+	statuses := slices.ToRefMap(j.Status.ReplicatedJobsStatus, func(s *jobsetapi.ReplicatedJobStatus) string { return s.Name })
+	var notReady []string
+	for _, rj := range j.Spec.ReplicatedJobs {
+		var ready int32
+		if status, found := statuses[rj.Name]; found {
+			ready = status.Ready + status.Succeeded
+		}
+		if ready < rj.Replicas {
+			notReady = append(notReady, rj.Name)
+		}
+	}
+	if len(notReady) == 0 {
+		return ""
+	}
+	return "replicatedJobs not ready: " + strings.Join(notReady, ", ")
 }
 
 func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {

@@ -230,6 +230,15 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithPodsNotReadyDetails is an optional interface that should be implemented
+// by generic jobs that can explain which of their parts are not ready yet.
+type JobWithPodsNotReadyDetails interface {
+	// PodsNotReadyDetails returns a short, deterministic description of the parts
+	// of the job that are not ready, or an empty string if there is nothing to add.
+	// It is appended to the PodsReady=False condition message.
+	PodsNotReadyDetails() string
+}
+
 // JobWithCustomEquivalenceOptions is an optional interface that should be implemented
 // by generic jobs when custom ComparePodSetsOption need to be passed to EquivalentToWorkload.
 type JobWithCustomEquivalenceOptions interface {

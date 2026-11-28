@@ -3514,6 +3514,255 @@ func TestReconcileJobSetReclaimablePods(t *testing.T) {
 	}
 }
 
+func TestReconcileJobSetPodsReadyMessage(t *testing.T) {
+	const (
+		readyMsg              = "All pods reached readiness and the workload is running"
+		waitingForRecoveryMsg = "At least one pod has failed, waiting for recovery"
+	)
+	gvk := v1alpha2.GroupVersion.WithKind("JobSet")
+	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+	admittedAt := fakeClock.Now().Add(-time.Minute)
+	prevTransition := metav1.NewTime(admittedAt.Add(time.Second))
+
+	const (
+		notReadyWorkers       = workload.PodsNotReadyMessage + "; replicatedJobs not ready: workers"
+		notReadyDriverWorkers = workload.PodsNotReadyMessage + "; replicatedJobs not ready: driver, workers"
+	)
+	evicted := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+		Message:            "Exceeded the PodsReady timeout ns/job-1",
+		LastTransitionTime: prevTransition,
+	}
+
+	testCases := map[string]struct {
+		driverReady   int32
+		workersReady  int32
+		notAdmitted   bool
+		extraCond     *metav1.Condition
+		prevCondition *metav1.Condition
+		wantCondition metav1.Condition
+		wantNoWrite   bool
+	}{
+		"no PodsReady condition yet: message names the not-ready replicatedJob": {
+			driverReady:  1,
+			workersReady: 2,
+			wantCondition: metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: notReadyWorkers,
+			},
+		},
+		"not-ready set changed: message is refreshed without moving the transition time": {
+			driverReady:  1,
+			workersReady: 3,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyDriverWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+				ObservedGeneration: 2,
+			},
+		},
+		"ready count changed but the not-ready set did not: no status write": {
+			driverReady:  1,
+			workersReady: 3,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantNoWrite: true,
+		},
+		"was ready, now waiting for recovery: message names the not-ready replicatedJob": {
+			driverReady:  1,
+			workersReady: 1,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.WorkloadStarted,
+				Message:            readyMsg,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForRecovery,
+				Message: waitingForRecoveryMsg + "; replicatedJobs not ready: workers",
+			},
+		},
+		"recovery not-ready set changed: message is refreshed without moving the transition time": {
+			driverReady:  1,
+			workersReady: 2,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForRecovery,
+				Message:            waitingForRecoveryMsg + "; replicatedJobs not ready: driver, workers",
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForRecovery,
+				Message:            waitingForRecoveryMsg + "; replicatedJobs not ready: workers",
+				LastTransitionTime: prevTransition,
+				ObservedGeneration: 2,
+			},
+		},
+		"all replicatedJobs ready: ready message is unchanged": {
+			driverReady:  1,
+			workersReady: 4,
+			wantCondition: metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: readyMsg,
+			},
+		},
+		"evicted and no longer admitted: the last details are kept": {
+			driverReady:  1,
+			workersReady: 4,
+			notAdmitted:  true,
+			extraCond:    &evicted,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantNoWrite: true,
+		},
+		"evicted but still admitted: the not-ready set change is not written": {
+			driverReady:  0,
+			workersReady: 2,
+			extraCond:    &evicted,
+			prevCondition: &metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantCondition: metav1.Condition{
+				Type:               kueue.WorkloadPodsReady,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForStart,
+				Message:            notReadyWorkers,
+				LastTransitionTime: prevTransition,
+			},
+			wantNoWrite: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			jobSetObj := jobset.MakeJobSet("job-1", "ns").
+				ReplicatedJobs(
+					jobset.ReplicatedJobRequirements{Name: "driver", Replicas: 1, Parallelism: 1, Completions: 1},
+					jobset.ReplicatedJobRequirements{Name: "workers", Replicas: 4, Parallelism: 1, Completions: 1},
+				).
+				Queue("lq").UID("job-1").Suspend(false).
+				JobsStatus(
+					v1alpha2.ReplicatedJobStatus{Name: "driver", Ready: tc.driverReady},
+					v1alpha2.ReplicatedJobStatus{Name: "workers", Ready: tc.workersReady},
+				).
+				Obj()
+			genericJob := (*workloadjobset.JobSet)(jobSetObj)
+			podSets, err := genericJob.PodSets(ctx, nil)
+			if err != nil {
+				t.Fatalf("getting job pod sets: %v", err)
+			}
+			wlWrapper := utiltestingapi.MakeWorkload("job-1", "ns").
+				Generation(2).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Label(constants.JobUIDLabel, "job-1").
+				ControllerReference(gvk, "job-1", "job-1").
+				Queue("lq").
+				PodSets(podSets...)
+			if !tc.notAdmitted {
+				wlWrapper = wlWrapper.Admission(&kueue.Admission{ClusterQueue: "cq"}).AdmittedAt(true, admittedAt)
+			}
+			if tc.extraCond != nil {
+				wlWrapper = wlWrapper.Condition(*tc.extraCond)
+			}
+			if tc.prevCondition != nil {
+				wlWrapper = wlWrapper.Condition(*tc.prevCondition)
+			}
+			wl := wlWrapper.Obj()
+
+			cl := utiltesting.NewClientBuilder(v1alpha2.AddToScheme).
+				WithObjects(jobSetObj, wl, utiltesting.MakeNamespace("ns")).
+				WithStatusSubresource(jobSetObj, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
+				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+				Build()
+			var beforeWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &beforeWl); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
+
+			r := NewReconciler(cl, &utiltesting.EventRecorder{},
+				WithClock(fakeClock),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+				WithCache(schdcache.New(cl)),
+			)
+			req := controllerruntime.Request{Namespace: "ns", Name: "job-1"}
+			if _, err := r.ReconcileGenericJob(ctx, req, genericJob); err != nil {
+				t.Fatalf("ReconcileGenericJob() unexpected error: %v", err)
+			}
+
+			var gotWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &gotWl); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
+			if tc.wantNoWrite && gotWl.ResourceVersion != beforeWl.ResourceVersion {
+				t.Errorf("Workload was written: resourceVersion %s -> %s", beforeWl.ResourceVersion, gotWl.ResourceVersion)
+			}
+			var ignore []string
+			if tc.wantCondition.ObservedGeneration == 0 {
+				ignore = append(ignore, "ObservedGeneration")
+			}
+			if tc.wantCondition.LastTransitionTime.IsZero() {
+				ignore = append(ignore, "LastTransitionTime")
+			}
+			gotCondition := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadPodsReady)
+			if diff := cmp.Diff(&tc.wantCondition, gotCondition, cmpopts.IgnoreFields(metav1.Condition{}, ignore...)); diff != "" {
+				t.Errorf("unexpected PodsReady condition (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
 

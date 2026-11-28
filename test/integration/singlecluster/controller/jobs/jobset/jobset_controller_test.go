@@ -751,6 +751,8 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 		jobSetStatus       jobsetapi.JobSetStatus
 		suspended          bool
 		wantCondition      *metav1.Condition
+		// wantSameTransitionTime checks that wantCondition keeps the lastTransitionTime of beforeCondition.
+		wantSameTransitionTime bool
 	}
 
 	var (
@@ -843,12 +845,14 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
 			}
 
+			var beforeTransitionTime metav1.Time
 			if podsReadyTestSpec.beforeCondition != nil {
 				ginkgo.By("Update the workload status")
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
 					g.Expect(cond).Should(gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+					beforeTransitionTime = cond.LastTransitionTime
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
 
@@ -868,6 +872,9 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				cond := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
 				g.Expect(cond).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+				if podsReadyTestSpec.wantSameTransitionTime {
+					g.Expect(cond.LastTransitionTime).Should(gomega.Equal(beforeTransitionTime))
+				}
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		},
 		ginkgo.Entry("Unscheduled Pods", podsReadyTestSpec{
@@ -882,7 +889,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForScheduling,
-				Message: "Not all pods are ready or succeeded",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 		}),
 		ginkgo.Entry("Scheduling observation ignored with feature disabled", podsReadyTestSpec{
@@ -897,7 +904,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 		}),
 		ginkgo.Entry("No progress", podsReadyTestSpec{
@@ -905,7 +912,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 		}),
 		ginkgo.Entry("Running JobSet", podsReadyTestSpec{
@@ -930,12 +937,39 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				Message: "All pods reached readiness and the workload is running",
 			},
 		}),
+		ginkgo.Entry("One replicatedJob becomes ready; PodsReady=False before", podsReadyTestSpec{
+			beforeCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
+			},
+			jobSetStatus: jobsetapi.JobSetStatus{
+				ReplicatedJobsStatus: []jobsetapi.ReplicatedJobStatus{
+					{
+						Name:  "replicated-job-1",
+						Ready: 1,
+					},
+					{
+						Name:  "replicated-job-2",
+						Ready: 2,
+					},
+				},
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-2",
+			},
+			wantSameTransitionTime: true,
+		}),
 		ginkgo.Entry("Running JobSet; PodsReady=False before", podsReadyTestSpec{
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded",
+				Message: "Not all pods are ready or succeeded; replicatedJobs not ready: replicated-job-1, replicated-job-2",
 			},
 			jobSetStatus: jobsetapi.JobSetStatus{
 				ReplicatedJobsStatus: []jobsetapi.ReplicatedJobStatus{
