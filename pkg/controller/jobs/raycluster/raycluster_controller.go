@@ -24,6 +24,7 @@ import (
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -97,7 +98,8 @@ func (j *RayCluster) IsSuspended() bool {
 }
 
 func (j *RayCluster) IsActive() bool {
-	return j.Status.State == rayv1.Ready
+	cond := apimeta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayClusterSuspended))
+	return cond != nil && cond.Status != metav1.ConditionTrue
 }
 
 func (j *RayCluster) Suspend() {
