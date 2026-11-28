@@ -537,7 +537,9 @@ func (j *SparkApplication) numExecutors(ctx context.Context, c client.Client) (i
 	// Once the starting executors have started, the ramp-up is over and failures
 	// no longer matter here.
 	created := max(j.recordedMaxExecutorID(), maxID)
-	if !j.executorsStarted() {
+	// A driver that is stopping or has stopped creates no replacements, so the
+	// failed executors are not subtracted and the count follows the active pods.
+	if !j.executorsStarted() && !j.driverStopped() {
 		created = max(0, created-len(failedIDs))
 	}
 	createdAll := created >= int(j.startingExecutors(da))
@@ -696,6 +698,17 @@ func (j *SparkApplication) driverStarted() bool {
 	switch j.Status.AppState.State {
 	case sparkv1beta2.ApplicationStateRunning, sparkv1beta2.ApplicationStateUnknown,
 		sparkv1beta2.ApplicationStateSucceeding, sparkv1beta2.ApplicationStateCompleted,
+		sparkv1beta2.ApplicationStateFailing, sparkv1beta2.ApplicationStateFailed:
+		return true
+	}
+	return false
+}
+
+// driverStopped reports whether the driver is stopping or has stopped, so it
+// creates no more executors.
+func (j *SparkApplication) driverStopped() bool {
+	switch j.Status.AppState.State {
+	case sparkv1beta2.ApplicationStateSucceeding, sparkv1beta2.ApplicationStateCompleted,
 		sparkv1beta2.ApplicationStateFailing, sparkv1beta2.ApplicationStateFailed:
 		return true
 	}
