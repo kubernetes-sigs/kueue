@@ -1057,8 +1057,8 @@ run-large-scale-performance-scheduler-in-cluster: envtest performance-scheduler-
 
 .PHONY: ginkgo-top
 ginkgo-top:
-	cd $(TOOLS_DIR) && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
+# Let Go fetch only this report tool's dependencies rather than every pinned tool.
+	cd $(TOOLS_DIR) && $(NETWORK_INSTALL_RETRY) $(GO_BUILD_ENV) $(GO_CMD) build -mod=readonly -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
 # helm is added here only for an E2E_USE_HELM=true override; the -helm, Spark operator and DRA targets depend on it directly.

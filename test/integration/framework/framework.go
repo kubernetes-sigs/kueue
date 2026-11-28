@@ -23,7 +23,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,37 +105,23 @@ var setupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
 	return observedLogs
 })
 
-// Each process reads the generated CRDs once. envtest deep-copies the definitions
-// before applying cluster-specific conversion webhook settings and installing them.
-var readBaseCRDs = sync.OnceValues(func() ([]*apiextensionsv1.CustomResourceDefinition, error) {
-	options := envtest.CRDInstallOptions{
-		Paths:              []string{filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")},
-		ErrorIfPathMissing: true,
-	}
-	if err := envtest.ReadCRDFiles(&options); err != nil {
-		return nil, err
-	}
-	return options.CRDs, nil
-})
-
 func (f *Framework) Init() *rest.Config {
 	ginkgo.GinkgoHelper()
 	f.ObservedLogs = setupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCRDs, err := readBaseCRDs()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			Scheme:                  runtime.NewScheme(),
-			CRDs:                    slices.Concat(f.DepCRDs, baseCRDs),
-			CRDDirectoryPaths:       f.DepCRDPaths,
+			CRDs:                    f.DepCRDs,
+			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
 			ControlPlaneStopTimeout: 90 * time.Second,
 		}
 		// Keep conversion webhook type registration local to this environment so
 		// independent control planes can start concurrently without mutating a shared scheme.
-		err = scheme.AddToScheme(f.testEnv.Scheme)
+		err := scheme.AddToScheme(f.testEnv.Scheme)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(f.WebhookPath) > 0 {
