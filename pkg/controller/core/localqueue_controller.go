@@ -223,7 +223,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		// before this reconcile. Without this, self-triggered status
 		// updates cause sub-millisecond reconciles where the decay math
 		// truncates CPU consumed resources to zero.
-		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval && !r.queues.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval && !r.afsPenaltyBypassesInterval(&cq, lqKey) {
 			return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 		}
 		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
@@ -354,6 +354,16 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	}
 
 	return true
+}
+
+// afsPenaltyBypassesInterval reports whether a pending entry penalty lets the
+// LocalQueue sample its AFS usage before the sampling interval elapses.
+// Only an active ClusterQueue can settle the penalty, so on an inactive one,
+// for example on Hold, the penalty stays pending and bypassing the interval
+// would turn each status write into another immediate reconcile.
+func (r *LocalQueueReconciler) afsPenaltyBypassesInterval(cq *kueue.ClusterQueue, lqKey utilqueue.LocalQueueReference) bool {
+	return meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) &&
+		r.queues.AfsUsageLedger.HasPendingPenalty(lqKey)
 }
 
 func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadCache bool, entry queueafs.UsageLedgerEntry) {
