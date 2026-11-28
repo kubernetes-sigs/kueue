@@ -52,9 +52,15 @@ default to `:8443`, which is rejected with `None`.
 Setting `metrics.accessControlMode` requires the `MetricsAccessControl` feature
 gate, including when metrics are disabled. With the gate enabled,
 `metrics.bindAddress: "0"` disables metrics and skips the loopback checks.
-The access-control mode must still be `Delegated` or `None`. Omitted or null modes
-default to `Delegated` when the gate is enabled; empty and unknown values are invalid.
-With the gate disabled, leave the field unset to retain delegated authentication.
+The access-control mode must still be recognized. Omitted or null modes default
+to `Delegated` when the gate is enabled; empty and unknown values are invalid.
+With the gate disabled, leave `accessControlMode` and `clientCAFile` unset to
+retain delegated authentication.
+
+To authenticate an external scraper without a bearer token while retaining
+Kubernetes authorization, see
+[Scrape metrics with a client certificate](/docs/tasks/manage/observability/metrics_client_certificates).
+That mode additionally requires a configured public client-CA bundle.
 
 ## Configure the sidecar
 
