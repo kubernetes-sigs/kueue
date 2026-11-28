@@ -740,6 +740,57 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", func() {
 				g.Expect(memUsage.Cmp(resource.MustParse("80Gi"))).To(gomega.Equal(0))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should admit workload with multiple CEL-selected requests sharing a device with allowMultipleAllocations", func() {
+			ginkgo.By("Creating ResourceSlice with a single shared device")
+			slice := testingdra.MakeResourceSlice("cc-multi-cel-shared-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").
+				DeviceCapacity("memory", "80Gi", nil).
+				AllowMultipleAllocations(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, slice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating RCT with two CEL-selected requests sharing the device")
+			rct := utiltesting.MakeResourceClaimTemplate("cc-multi-cel-shared", ns.Name).
+				DeviceRequest("req-a", "vgpu.example.com", 1).
+				WithCELSelectors("device.allowMultipleAllocations == true").
+				WithCapacityRequests(map[string]string{"memory": "40Gi"}).
+				DeviceRequest("req-b", "vgpu.example.com", 1).
+				WithCELSelectors("device.allowMultipleAllocations == true").
+				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating workload")
+			wl := utiltestingapi.MakeWorkload("cc-multi-cel-shared-wl", ns.Name).
+				Queue("cc-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "gpu", ResourceClaimTemplateName: new("cc-multi-cel-shared")},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "gpu"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is admitted with combined 60Gi gpu.memory charge")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
+				memUsage := assignment.ResourceUsage["gpu.memory"]
+				g.Expect(memUsage.Cmp(resource.MustParse("60Gi"))).To(gomega.Equal(0))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
 	})
 })
 

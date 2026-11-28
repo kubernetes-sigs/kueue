@@ -43,7 +43,9 @@ type celDeviceMatcher struct {
 	classCache map[string]*resourcev1.DeviceClass
 	// alternatives[r][a] matches requests[r].alternatives[a]; nil until first use.
 	alternatives [][]*celAlternativeMatcher
-	// used[d] reports whether a request holds devices[d].
+	// used[d] reports whether a request holds exclusive devices[d].
+	// Devices with AllowMultipleAllocations set to true are not marked used so
+	// subsequent requests in the same claim can also match them.
 	used []bool
 	// steps counts device visits against maxCELSearchSteps.
 	steps int
@@ -126,7 +128,8 @@ func (m *celDeviceMatcher) takeFirstMatches(ctx context.Context) (*field.Error, 
 }
 
 // takeFirstMatch gives request r the first unused devices of its first
-// alternative that has enough of them, or returns its shortage.
+// alternative that has enough of them, or all matching devices when allocation
+// mode is All, or returns its shortage.
 func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Error, field.ErrorList) {
 	cr := m.requests[r]
 	matchCounts := make([]int64, 0, len(cr.alternatives))
@@ -135,14 +138,25 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 		if errs != nil {
 			return nil, errs
 		}
-		// Requests with allocation mode All have a count of zero but still need one match.
-		required := max(alt.count, 1)
-		picked, errs := m.firstUnusedMatches(ctx, am, required)
+		var (
+			picked    []int
+			satisfied bool
+		)
+		if cr.allDevices {
+			var conflict bool
+			picked, conflict, errs = m.allMatches(ctx, am)
+			satisfied = !conflict && len(picked) > 0
+		} else {
+			picked, errs = m.firstUnusedMatches(ctx, am, alt.count)
+			satisfied = int64(len(picked)) >= alt.count
+		}
 		// Devices matched before an error stay taken, so that a later request that
 		// needs them falls short and the workload controller retries the check.
-		if errs != nil || int64(len(picked)) >= required {
+		if errs != nil || satisfied {
 			for _, d := range picked {
-				m.used[d] = true
+				if m.isExclusive(d) {
+					m.used[d] = true
+				}
 			}
 			return nil, errs
 		}
@@ -150,6 +164,27 @@ func (m *celDeviceMatcher) takeFirstMatch(ctx context.Context, r int) (*field.Er
 	}
 	// Cluster-state shortage: retryable until matching ResourceSlices are published.
 	return shortageError(cr, m.requestPath(r), matchCounts), nil
+}
+
+// allMatches returns every device that matches am, in order, and reports
+// whether any matched device is already held by an earlier request.
+// It stops at the first CEL evaluation error.
+func (m *celDeviceMatcher) allMatches(ctx context.Context, am *celAlternativeMatcher) ([]int, bool, field.ErrorList) {
+	var (
+		picked   []int
+		conflict bool
+	)
+	for d := range m.devices {
+		match, errs := am.matches(ctx, d, m.devices[d])
+		if errs != nil {
+			return picked, conflict, errs
+		}
+		if match {
+			conflict = conflict || m.used[d]
+			picked = append(picked, d)
+		}
+	}
+	return picked, conflict, nil
 }
 
 // firstUnusedMatches returns up to count unused devices that match am, in order.
@@ -221,9 +256,14 @@ func (m *celDeviceMatcher) pick(ctx context.Context, r int, am *celAlternativeMa
 		if !match {
 			continue
 		}
-		m.used[d] = true
+		exclusive := m.isExclusive(d)
+		if exclusive {
+			m.used[d] = true
+		}
 		found, errs := m.pick(ctx, r, am, remaining-1, d+1)
-		m.used[d] = false
+		if exclusive {
+			m.used[d] = false
+		}
 		if found || errs != nil || m.outOfSteps() {
 			return found, errs
 		}
@@ -287,13 +327,21 @@ func (m *celDeviceMatcher) holdAll(ctx context.Context, r int, am *celAlternativ
 		return false, nil
 	}
 	for _, d := range held {
-		m.used[d] = true
+		if m.isExclusive(d) {
+			m.used[d] = true
+		}
 	}
 	found, errs := m.search(ctx, r+1)
 	for _, d := range held {
-		m.used[d] = false
+		if m.isExclusive(d) {
+			m.used[d] = false
+		}
 	}
 	return found, errs
+}
+
+func (m *celDeviceMatcher) isExclusive(d int) bool {
+	return m.devices[d].AllowMultipleAllocations == nil || !*m.devices[d].AllowMultipleAllocations
 }
 
 func (m *celDeviceMatcher) outOfSteps() bool {
@@ -361,6 +409,16 @@ func shortageError(cr celDeviceRequest, reqPath *field.Path, matchCounts []int64
 	if !cr.firstAvailable {
 		alt := cr.alternatives[0]
 		if cr.allDevices {
+			if matchCounts[0] > 0 {
+				return field.InternalError(
+					cr.selectorsPath(reqPath, alt),
+					fmt.Errorf(
+						"insufficient matching devices for CEL selector in DeviceClass %s: %d device(s) match for allocationMode All, but another request in the claim already holds one of them",
+						alt.deviceClassName,
+						matchCounts[0],
+					),
+				)
+			}
 			return field.InternalError(
 				cr.selectorsPath(reqPath, alt),
 				fmt.Errorf("insufficient matching devices for CEL selector in DeviceClass %s: allocationMode All requires at least one matching device", alt.deviceClassName),
