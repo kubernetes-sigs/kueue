@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -866,7 +867,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	}
 	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
-	draRequestsRefreshed := false
+	draRequestsRefreshed, effectiveSpecsRefreshed := false, false
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
 		// DRA quota charges are resolved by the workload controller and cannot be
 		// rebuilt here, because the spec carries resourceClaims rather than the quota
@@ -889,6 +890,12 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 			info.TotalRequests = queuedInfo.TotalRequests
 			info.SchedulingHash = ""
 		}
+		// The scheduler judged the effective PodSpecs this Info carried at checkout.
+		// A RuntimeClass or LimitRange change reaches a DRA workload's queued copy
+		// only through the reconcile it triggers, so a retry for that change can pop
+		// the stale copy first. The reconcile then pushes the same charges, which
+		// leaves the workload where this requeue puts it, so retry it right away.
+		effectiveSpecsRefreshed = !equality.Semantic.DeepEqual(info.EffectivePodSpecs, fresh.EffectivePodSpecs)
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(log, &w, options...)
@@ -901,7 +908,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	}
 
 	var added bool
-	if draRequestsRefreshed && reason != RequeueReasonNamespaceMismatch {
+	if (draRequestsRefreshed || effectiveSpecsRefreshed) && reason != RequeueReasonNamespaceMismatch {
 		added = cq.requeueIfNotPresent(log, info, true, reason, quotaReservedReason)
 	} else {
 		added = cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)

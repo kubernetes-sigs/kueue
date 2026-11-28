@@ -459,6 +459,9 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		// wantSentGeneration is the generation handed back on the reconcile
 		// channel, 0 when nothing is sent.
 		wantSentGeneration int64
+		// changeRuntimeClass changes the RuntimeClass's nodeSelector while the
+		// workload is inflight, so the scheduler judged a stale effective PodSpec.
+		changeRuntimeClass bool
 	}{
 		"requeues with the charges it holds while the object has not changed": {
 			draIntegration:    true,
@@ -483,6 +486,14 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			wantInadmissible:  true,
 			wantRequeued:      true,
 			wantTotalRequests: refreshedGPUCharge,
+		},
+		"retries at once when a RuntimeClass change refreshed the effective PodSpec while inflight": {
+			draIntegration:     true,
+			clientGeneration:   1,
+			changeRuntimeClass: true,
+			requeueReason:      RequeueReasonNoFit,
+			wantRequeued:       true,
+			wantTotalRequests:  gpuCharge,
 		},
 		"hands the workload to the controller once the object has moved on": {
 			draIntegration:     true,
@@ -511,10 +522,15 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
 			// quota key it translates to ("gpu") only ever comes from preprocessing.
+			podSpec := corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
+			}
+			runtimeClass := utiltesting.MakeRuntimeClass("kata", "kata").Scheduling(map[string]string{"pool": "cpu"}).Obj()
+			if tc.changeRuntimeClass {
+				podSpec.RuntimeClassName = &runtimeClass.Name
+			}
 			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq").Generation(1).PodSets(
-				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PodSpec(corev1.PodSpec{
-					ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
-				}).Obj(),
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PodSpec(podSpec).Obj(),
 			).Obj()
 			peer := wl.DeepCopy()
 			peer.Name = "peer"
@@ -524,7 +540,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 
 			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
 			kClient := utiltesting.NewClientBuilder().
-				WithObjects(clientWl, lq).
+				WithObjects(clientWl, lq, runtimeClass).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			// Keep the queued object at the version the client actually stored.
@@ -593,15 +609,21 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				// hash must be invalidated because it still describes the old charges.
 				inflight.SchedulingHash = probe
 			}
+			if tc.changeRuntimeClass {
+				runtimeClass.Scheduling.NodeSelector = map[string]string{"pool": "gpu"}
+				if err := kClient.Update(ctx, runtimeClass); err != nil {
+					t.Fatalf("Failed updating RuntimeClass: %v", err)
+				}
+			}
 
 			if got := manager.RequeueWorkload(ctx, inflight, tc.requeueReason, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
 			}
 			gotInadmissible := manager.hm.ClusterQueue("cq").workloads.GetInadmissible(workload.Key(inflight.Obj)) != nil
-			if tc.refreshCharges && gotInadmissible != tc.wantInadmissible {
+			if (tc.refreshCharges || tc.changeRuntimeClass) && gotInadmissible != tc.wantInadmissible {
 				t.Errorf("workload inadmissible = %t, want %t", gotInadmissible, tc.wantInadmissible)
 			}
-			if tc.requeueReason == RequeueReasonNoFit {
+			if tc.refreshCharges && tc.requeueReason == RequeueReasonNoFit {
 				peerInfo := manager.hm.ClusterQueue("cq").trackedInfo(workload.Key(peer))
 				if peerInfo == nil {
 					t.Fatal("peer workload was not retained in the ClusterQueue")
