@@ -233,6 +233,10 @@ vet: ## Run go vet against code.
 sync-hugo-version:
 	$(SED) -r 's/(.*(HUGO_VERSION).*)/  HUGO_VERSION = "$(subst v,,$(HUGO_VERSION))"/g' -i netlify.toml
 
+.PHONY: sync-kal-golangci-version
+sync-kal-golangci-version:
+	$(SED) -r 's/^version: .*/version: $(GOLANGCI_LINT_VERSION)/' -i hack/testing/kal-linter/.custom-gcl.yaml
+
 ##@ Build
 
 .PHONY: build
