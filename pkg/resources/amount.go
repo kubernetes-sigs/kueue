@@ -348,13 +348,17 @@ func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
 	return f
 }
 
-// PerThousandOf returns a over b in thousandths as a float64, or 0 when b is
-// zero. The division is taken on the exact values and only the result is
-// rounded, so operands past the range float64 holds exactly do not move the
+// PerThousandOf returns a over b in thousandths as a float64.
+// It returns 0 when a is zero, and +Inf or -Inf (matching the sign of a) when
+// only b is zero. The division is taken on the exact values and only the result
+// is rounded, so operands past the range float64 holds exactly do not move the
 // answer.
 func (a Amount) PerThousandOf(b Amount) float64 {
+	if a.Sign() == 0 {
+		return 0.0
+	}
 	if b.Sign() == 0 {
-		return 0
+		return math.Inf(a.Sign())
 	}
 	// Both operands are exact in float64 and the scale is applied without
 	// leaving that range, so the IEEE division is already the correctly
