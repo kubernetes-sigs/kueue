@@ -18,6 +18,7 @@ package api
 
 import (
 	"maps"
+	"unicode/utf8"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -29,20 +30,26 @@ const (
 
 // TruncateEventMessage truncates a message if it hits the maxEventMessage.
 func TruncateEventMessage(message string) string {
-	return truncateMessage(message, maxEventMsgSize)
+	return TruncateMessage(message, maxEventMsgSize)
 }
 
 func TruncateConditionMessage(message string) string {
-	return truncateMessage(message, maxConditionMsgSize)
+	return TruncateMessage(message, maxConditionMsgSize)
 }
 
-// truncateMessage truncates a message if it hits the NoteLengthLimit.
-func truncateMessage(message string, limit int) string {
+// TruncateMessage truncates a message to at most limit bytes, including the
+// " ..." suffix, if it is longer than limit. The message is cut at a UTF-8
+// character boundary, so the result is valid UTF-8 for valid UTF-8 input.
+func TruncateMessage(message string, limit int) string {
 	if len(message) <= limit {
 		return message
 	}
 	suffix := " ..."
-	return message[:limit-len(suffix)] + suffix
+	cut := max(limit-len(suffix), 0)
+	for cut > 0 && !utf8.RuneStart(message[cut]) {
+		cut--
+	}
+	return message[:cut] + suffix
 }
 
 // CloneObjectMetaForCreation creates a copy of the provided ObjectMeta containing

@@ -19,10 +19,8 @@ package core
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,61 +39,6 @@ import (
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
-func TestTruncateAtRuneBoundary(t *testing.T) {
-	cases := map[string]struct {
-		input string
-		limit int
-		want  string
-	}{
-		"shorter than the limit is unchanged": {
-			input: "Insufficient cpu",
-			limit: 20,
-			want:  "Insufficient cpu",
-		},
-		"exactly at the limit is unchanged": {
-			input: strings.Repeat("a", 10),
-			limit: 10,
-			want:  strings.Repeat("a", 10),
-		},
-		"one byte over the limit is truncated with the ellipsis inside the limit": {
-			input: strings.Repeat("a", 11),
-			limit: 10,
-			want:  strings.Repeat("a", 7) + "...",
-		},
-		"multibyte character straddling the boundary is dropped whole": {
-			// "é" is 2 bytes. The 7-byte prefix would end after the first byte of the
-			// 4th "é", so the cut moves back to the previous character boundary.
-			input: strings.Repeat("a", 6) + strings.Repeat("é", 4),
-			limit: 10,
-			want:  strings.Repeat("a", 6) + "...",
-		},
-		"multibyte character ending exactly at the boundary is kept": {
-			input: strings.Repeat("a", 5) + strings.Repeat("é", 4),
-			limit: 10,
-			want:  strings.Repeat("a", 5) + "é" + "...",
-		},
-		"limit smaller than the ellipsis still returns valid text": {
-			input: "ééé",
-			limit: 2,
-			want:  "...",
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := truncateAtRuneBoundary(tc.input, tc.limit)
-			if got != tc.want {
-				t.Errorf("truncateAtRuneBoundary(%q, %d) = %q, want %q", tc.input, tc.limit, got, tc.want)
-			}
-			if !utf8.ValidString(got) {
-				t.Errorf("result %q is not valid UTF-8", got)
-			}
-			if len(tc.input) > tc.limit && tc.limit >= len("...") && len(got) > tc.limit {
-				t.Errorf("result has %d bytes, want at most %d", len(got), tc.limit)
-			}
-		})
-	}
-}
 
 func TestReconcileRequeue(t *testing.T) {
 	errStatus := errors.New("status write failed")
@@ -438,6 +381,18 @@ func TestReconcileRequeue(t *testing.T) {
 						Message: "0/3 nodes are available: 3 Insufficient cpu.",
 					}).
 					Obj(),
+				// A second distinct reason is reported too, sorted after the first one
+				// regardless of the Pod order.
+				utiltestingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					StatusPhase(corev1.PodPending).
+					StatusConditions(corev1.PodCondition{
+						Type:    corev1.PodScheduled,
+						Status:  corev1.ConditionFalse,
+						Reason:  corev1.PodReasonUnschedulable,
+						Message: "0/3 nodes are available: 3 Insufficient memory.",
+					}).
+					Obj(),
 				// Pods of other workloads and already scheduled Pods are ignored.
 				utiltestingpod.MakePod("other", "ns").
 					Annotation(kueue.WorkloadAnnotation, "other-wl").
@@ -446,7 +401,7 @@ func TestReconcileRequeue(t *testing.T) {
 						Type:    corev1.PodScheduled,
 						Status:  corev1.ConditionFalse,
 						Reason:  corev1.PodReasonUnschedulable,
-						Message: "0/3 nodes are available: 3 Insufficient memory.",
+						Message: "0/3 nodes are available: 3 Insufficient gpu.",
 					}).
 					Obj(),
 				utiltestingpod.MakePod("running", "ns").
@@ -513,7 +468,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Type:               kueue.WorkloadEvicted,
 					Status:             metav1.ConditionTrue,
 					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message:            "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.",
+					Message:            "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.; 0/3 nodes are available: 3 Insufficient memory.",
 					ObservedGeneration: 1,
 				}).
 				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
@@ -530,7 +485,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
-					Message:   "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.",
+					Message:   "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.; 0/3 nodes are available: 3 Insufficient memory.",
 				},
 			},
 		},

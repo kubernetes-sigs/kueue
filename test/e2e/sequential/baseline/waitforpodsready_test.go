@@ -757,6 +757,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with a short UnscheduledTimeout", gink
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted).Message).To(
+					gomega.ContainSubstring("didn't match Pod's node affinity/selector"),
+					"the Evicted message should include the reason reported by kube-scheduler",
+				)
 				g.Expect(wl.Status.SchedulingStats).NotTo(gomega.BeNil())
 				g.Expect(wl.Status.SchedulingStats.Evictions).To(
 					gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{

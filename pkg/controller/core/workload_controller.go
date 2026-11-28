@@ -25,7 +25,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
@@ -1393,22 +1392,6 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 // to the eviction message, as the scheduler can report one clause per node.
 const maxUnschedulableReasonLength = 512
 
-// truncateAtRuneBoundary returns s unchanged when it fits in limit bytes.
-// Otherwise it returns a prefix of s followed by "...", at most limit bytes in
-// total (for limit >= 3), cut at a UTF-8 character boundary so the result is
-// valid UTF-8.
-func truncateAtRuneBoundary(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	const ellipsis = "..."
-	cut := max(limit-len(ellipsis), 0)
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + ellipsis
-}
-
 // unschedulablePodsMessage returns a suffix for the eviction message with the
 // reason kube-scheduler reported for the workload's unschedulable Pods
 // (for example "Insufficient cpu"), or an empty string when none is available.
@@ -1433,7 +1416,7 @@ func (r *WorkloadReconciler) unschedulablePodsMessage(ctx context.Context, wl *k
 	if reasons.Len() == 0 {
 		return ""
 	}
-	reason := truncateAtRuneBoundary(strings.Join(sets.List(reasons), "; "), maxUnschedulableReasonLength)
+	reason := api.TruncateMessage(strings.Join(sets.List(reasons), "; "), maxUnschedulableReasonLength)
 	return ". Unschedulable Pods: " + reason
 }
 

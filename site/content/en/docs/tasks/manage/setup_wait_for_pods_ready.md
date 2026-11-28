@@ -143,9 +143,9 @@ several nodes and no single node fits a Pod. Quota tracks aggregate resources, s
 admits the Workload again after each requeue while the node layout is unchanged. To
 reduce such retries:
 
-- Enable [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/), so
-  admission takes node capacity into account. See
-  [All-or-nothing scheduling](/docs/concepts/all_or_nothing/).
+- [Set up Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/),
+  including a ResourceFlavor with `topologyName`, so admission takes node capacity
+  into account.
 - Set `backoffLimitCount` and keep the default exponential backoff, so a Workload that
   cannot be placed is deactivated instead of being requeued indefinitely. See
   [Requeuing Strategy](#requeuing-strategy).
