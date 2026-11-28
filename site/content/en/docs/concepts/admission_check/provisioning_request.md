@@ -106,6 +106,7 @@ It offers two options:
   scheduling requirements: 
   - `spec.containers[*].resources.requests`
   - `spec.initContainers[*].resources.requests`
+  - whether each of `spec.initContainers` is a sidecar (`restartPolicy: Always`)
   - `spec.resources`
   - `spec.nodeSelector`
   - `spec.tolerations`

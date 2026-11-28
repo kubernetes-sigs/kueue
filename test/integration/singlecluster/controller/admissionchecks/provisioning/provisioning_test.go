@@ -1827,6 +1827,69 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
 			})
 		})
+
+		ginkgo.It("Should keep a PodSet with a sidecar apart from a PodSet whose init container runs to completion", func() {
+			sidecarWl := utiltestingapi.MakeWorkload("wl-sidecar", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("ordinary", 1).
+						Request(corev1.ResourceCPU, "1").
+						InitContainers(*utiltesting.MakeContainer().Name("init").Image("image").WithResourceReq(corev1.ResourceCPU, "1").Obj()).
+						Image("image").
+						Obj(),
+					*utiltestingapi.MakePodSet("sidecar", 2).
+						Request(corev1.ResourceCPU, "1").
+						InitContainers(*utiltesting.MakeContainer().Name("init").Image("image").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+						Image("image").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sidecarWl)
+			sidecarWlKey := client.ObjectKeyFromObject(sidecarWl)
+			sidecarReqKey := types.NamespacedName{
+				Namespace: sidecarWlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(sidecarWlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+			}
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, sidecarWlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("ordinary").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("sidecar").
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "4").
+							Count(2).
+							Obj(),
+					).
+					Obj())
+			})
+
+			ginkgo.By("Checking that the sidecar PodSet has a PodTemplate of its own, with the sidecar", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, sidecarReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdRequest.Spec.PodSets[1].Count).To(gomega.Equal(int32(2)))
+				gomega.Expect(createdRequest.Spec.PodSets[0].PodTemplateRef.Name).NotTo(gomega.Equal(createdRequest.Spec.PodSets[1].PodTemplateRef.Name))
+
+				sidecarTemplate := &corev1.PodTemplate{}
+				sidecarTemplateKey := types.NamespacedName{
+					Namespace: createdRequest.Namespace,
+					Name:      createdRequest.Spec.PodSets[1].PodTemplateRef.Name,
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, sidecarTemplateKey, sidecarTemplate)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				ignoreContainersDefaults := cmpopts.IgnoreFields(corev1.Container{}, "TerminationMessagePath", "TerminationMessagePolicy", "ImagePullPolicy")
+				gomega.Expect(sidecarTemplate.Template.Spec.InitContainers).To(gomega.BeComparableTo(sidecarWl.Spec.PodSets[1].Template.Spec.InitContainers, ignoreContainersDefaults))
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				integration.SetQuotaReservation(ctx, k8sClient, sidecarWlKey, nil)
+			})
+		})
 	})
 
 	// These specs exercise the ProvisioningRequest side of elastic Jobs:

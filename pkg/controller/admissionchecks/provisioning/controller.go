@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1293,7 +1294,16 @@ func arePodTemplatesSimilar(template1, template2 *corev1.PodTemplateSpec) bool {
 		equality.Semantic.DeepEqual(template1.Spec.NodeSelector, template2.Spec.NodeSelector) &&
 		equality.Semantic.DeepEqual(template1.Spec.Tolerations, template2.Spec.Tolerations) &&
 		equality.Semantic.DeepEqual(template1.Spec.Affinity, template2.Spec.Affinity) &&
-		equality.Semantic.DeepEqual(template1.Spec.ResourceClaims, template2.Spec.ResourceClaims)
+		equality.Semantic.DeepEqual(template1.Spec.ResourceClaims, template2.Spec.ResourceClaims) &&
+		haveSidecarsAtSamePositions(template1.Spec.InitContainers, template2.Spec.InitContainers)
+}
+
+// haveSidecarsAtSamePositions is needed because a sidecar's requests add to those
+// of the init containers after it and of the app containers.
+func haveSidecarsAtSamePositions(initContainers1, initContainers2 []corev1.Container) bool {
+	return arrayslices.EqualFunc(initContainers1, initContainers2, func(c1, c2 corev1.Container) bool {
+		return podutil.IsRestartableInitContainer(&c1) == podutil.IsRestartableInitContainer(&c2)
+	})
 }
 
 // areContainersEqual compares the resource requests of containers between two lists of PodSet containers.

@@ -714,6 +714,68 @@ func TestMergePodSetsComparesEffectiveTemplates(t *testing.T) {
 			},
 			want: []mergedPodSet{{Name: "ps0", Count: 4}},
 		},
+		"init containers with the same requests and a sidecar in only one PodSet": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+				*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+					Obj(),
+			},
+			// The Pod of ps0 requests 1 CPU and the Pod of ps1 2 CPU.
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "1").Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "2").Count(1).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 1}, {Name: "ps1", Count: 1}},
+		},
+		"sidecars with the same requests": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+					Obj(),
+				*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+					Obj(),
+			},
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "2").Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "2").Count(1).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 2}},
+		},
+		"init containers with the same requests and sidecars at different positions": {
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("zone", "a").Obj(),
+			},
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(
+						*utiltesting.MakeContainer().Name("first").WithResourceReq(corev1.ResourceCPU, "2").AsSidecar().Obj(),
+						*utiltesting.MakeContainer().Name("second").WithResourceReq(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakePodSet("ps1", 1).Request(corev1.ResourceCPU, "1").
+					InitContainers(
+						*utiltesting.MakeContainer().Name("first").WithResourceReq(corev1.ResourceCPU, "2").Obj(),
+						*utiltesting.MakeContainer().Name("second").WithResourceReq(corev1.ResourceCPU, "2").AsSidecar().Obj(),
+					).
+					Obj(),
+			},
+			// The Pod of ps0 requests 4 CPU and the Pod of ps1 3 CPU.
+			assignments: []kueue.PodSetAssignment{
+				utiltestingapi.MakePodSetAssignment("ps0").Assignment(corev1.ResourceCPU, "flv1", "4").Count(1).Obj(),
+				utiltestingapi.MakePodSetAssignment("ps1").Assignment(corev1.ResourceCPU, "flv1", "3").Count(1).Obj(),
+			},
+			want: []mergedPodSet{{Name: "ps0", Count: 1}, {Name: "ps1", Count: 1}},
+		},
 	}
 
 	for name, tc := range cases {
