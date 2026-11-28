@@ -12,6 +12,25 @@ steps:
     env:
       - DOCKER_BUILDX_CMD=/buildx-entrypoint
       - GOTOOLCHAIN=auto
+      - DIGEST_DIR=/workspace/digests
+  # Attest the digests that the push step recorded. It runs after every push.
+  # The image is the push step's image at the same tag; this step also pins it by digest.
+  # When the push step's tag changes, use the same tag here and resolve its digest again
+  # (for example with `crane digest <image>:<tag>`).
+  # TODO(KEP-1466): remove allowFailure when SIGN becomes true, so that a failed attestation fails the build.
+  # While SIGN is false, allowFailure keeps a dry-run bug from turning the postsubmit red.
+  - name: 'gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20260127-c1affcc8de@sha256:8e58105524e23875214a02f615ee9cab9a97b3f9e4b8e9da54726615758e1285'
+    entrypoint: bash
+    args:
+      - hack/attest-artifacts.sh
+    env:
+      - DIGEST_DIR=/workspace/digests
+      - SIGN=${_SIGN}
+      - PULL_BASE_REF=${_PULL_BASE_REF}
+      - BUILD_ID=${BUILD_ID}
+      - PROJECT_ID=${PROJECT_ID}
+      - PROJECT_NUMBER=${PROJECT_NUMBER}
+    allowFailure: true
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution
@@ -19,6 +38,9 @@ substitutions:
   # _PULL_BASE_REF will contain the ref that was pushed to trigger this build -
   # a branch like 'main' or 'release-0.2', or a tag like 'v0.2'.
   _PULL_BASE_REF: 'main'
+  # _SIGN enables the attestation of the pushed artifacts. 'false' is a dry run that only
+  # writes the predicates. See KEP-1466, "Disabling build provenance".
+  _SIGN: 'false'
 options:
   substitution_option: ALLOW_LOOSE
   machineType: 'E2_HIGHCPU_32'

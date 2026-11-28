@@ -426,8 +426,9 @@ verify-ci-tools: ## Validate tool installation without network or containers.
 	python3 $(PROJECT_DIR)/hack/tools-installer/install_test.py
 
 .PHONY: verify-image-build-test
-verify-image-build-test: ## Validate image builder lifetime and platform coverage without Docker.
+verify-image-build-test: ## Validate image builder lifetime, platform coverage and digest recording without Docker or Helm.
 	python3 $(PROJECT_DIR)/hack/testing/image-build_test.py
+	python3 $(PROJECT_DIR)/hack/testing/helm-chart-package_test.py
 
 .PHONY: verify-issue-assignee-cap-test
 verify-issue-assignee-cap-test: ## Validate issue assignee cap logic without network.
