@@ -601,7 +601,7 @@ func (j *SparkApplication) recordedFailedExecutorIDs() sets.Set[int] {
 	if j.Annotations[maxExecutorIDSubmissionAnnotation] != j.Status.SubmissionID {
 		return ids
 	}
-	for _, v := range strings.Split(j.Annotations[failedExecutorIDsAnnotation], ",") {
+	for v := range strings.SplitSeq(j.Annotations[failedExecutorIDsAnnotation], ",") {
 		if id, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
 			ids.Insert(id)
 		}
