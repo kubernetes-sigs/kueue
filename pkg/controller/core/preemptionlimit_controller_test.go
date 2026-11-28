@@ -92,6 +92,8 @@ func TestPreemptionLimitReconcile(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		// role is the role of the replica, the leader unless set.
+		role string
 		// limit is "limit" when it is reconciled, or nil once deleted.
 		limit       *kueuealpha.PreemptionLimit
 		recorded    recorded
@@ -239,6 +241,60 @@ func TestPreemptionLimitReconcile(t *testing.T) {
 			simulateForgottenLimit:    true,
 			wantRequeuedClusterQueues: new(sets.New[kueue.ClusterQueueReference]()),
 		},
+		"follower tracks the limit but leaves its status to the leader": {
+			role:       roletracker.RoleFollower,
+			limit:      limit,
+			recorded:   seeded,
+			wantResult: reconcile.Result{RequeueAfter: preemptionLimitPruneInterval},
+			wantCounts: policy.PreemptionLimitAggregationCounts{"cq-a": 1, "cq-b": 1},
+			// The status stays as it was created: without any window.
+			wantLimitStatus:           &kueuealpha.PreemptionLimitStatus{},
+			wantRequeuedClusterQueues: new(sets.New[kueue.ClusterQueueReference]()),
+		},
+		"follower applies a changed spec": {
+			role:       roletracker.RoleFollower,
+			limit:      limitBase.Clone().Generation(2).Aggregation(kueuealpha.ByPreempteeCQLimitAggregation).Obj(),
+			recorded:   seeded,
+			wantResult: reconcile.Result{RequeueAfter: preemptionLimitPruneInterval},
+			// The aggregation changed, so the events no longer count toward the limit.
+			wantLimitStatus:           &kueuealpha.PreemptionLimitStatus{},
+			wantRequeuedClusterQueues: &allClusterQueues,
+		},
+		"follower forgets a deleted limit": {
+			role:                      roletracker.RoleFollower,
+			recorded:                  seeded,
+			wantRequeuedClusterQueues: &allClusterQueues,
+		},
+		"follower does not fail when the status cannot be updated": {
+			role:     roletracker.RoleFollower,
+			limit:    limit,
+			recorded: seeded,
+			clientFuncs: interceptor.Funcs{
+				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+					return errTest
+				},
+			},
+			wantResult:                reconcile.Result{RequeueAfter: preemptionLimitPruneInterval},
+			wantCounts:                policy.PreemptionLimitAggregationCounts{"cq-a": 1, "cq-b": 1},
+			wantRequeuedClusterQueues: new(sets.New[kueue.ClusterQueueReference]()),
+		},
+		"standalone replica updates the status": {
+			role:       roletracker.RoleStandalone,
+			limit:      limit,
+			recorded:   seeded,
+			wantResult: reconcile.Result{RequeueAfter: preemptionLimitPruneInterval},
+			wantCounts: policy.PreemptionLimitAggregationCounts{"cq-a": 1, "cq-b": 1},
+			wantLimitStatus: &kueuealpha.PreemptionLimitStatus{
+				Window: &kueuealpha.PreemptionLimitWindowStatus{
+					LastUpdateTime: lastUpdateTime,
+					TopAggregatedCounts: []kueuealpha.PreemptionLimitTopAggregatedCount{
+						{Key: "cq-a", Value: 1},
+						{Key: "cq-b", Value: 1},
+					},
+				},
+			},
+			wantRequeuedClusterQueues: new(sets.New[kueue.ClusterQueueReference]()),
+		},
 		"get error other than NotFound is returned and the events are kept": {
 			limit:    limit,
 			recorded: seeded,
@@ -296,7 +352,11 @@ func TestPreemptionLimitReconcile(t *testing.T) {
 			}
 
 			tracker := limits.NewPreemptionLimitTracker()
-			roleTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+			role := tc.role
+			if role == "" {
+				role = roletracker.RoleLeader
+			}
+			roleTracker := roletracker.NewFakeRoleTracker(role)
 			reconcilerOpts := append([]PreemptionLimitReconcilerOption{WithPreemptionLimitClock(testingclock.NewFakeClock(now))}, tc.opts...)
 			reconciler := NewPreemptionLimitReconciler(cl, tracker, roleTracker, qManager, reconcilerOpts...)
 			// Preemptions are only recorded for the reconciled PreemptionLimits.
