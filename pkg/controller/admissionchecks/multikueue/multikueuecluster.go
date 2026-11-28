@@ -75,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utildqo "sigs.k8s.io/kueue/pkg/util/dqo"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -985,6 +986,7 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 		rc.StopWatchers()
 		delete(c.remoteClients, clusterName)
 	}
+	metrics.ClearMultiKueueClusterMetrics(clusterName)
 }
 
 // disconnectCluster marks the remoteClient for clusterName as disconnected
