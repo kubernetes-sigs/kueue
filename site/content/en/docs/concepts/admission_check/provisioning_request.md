@@ -14,7 +14,7 @@ Kueue's enhanced admission requires two sequential checks:
 2. **Capacity Guarantee:** This step uses ProvisioningRequest and [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) (CA) to verify physical resource availability. 
     - The Kueue controller creates a ProvisioningRequest object by attaching the Workload's PodTemplates(optionally merged via [PodSetMergePolicy](/docs/concepts/admission_check/provisioning_request/#podset-merge-policy)) , applying [ProvisioningRequestConfig](/docs/concepts/admission_check/provisioning_request/#provisioningrequestconfig) settings, and setting owner reference to Workload.
     - Cluster Autoscaler receives ProvisioningRequest, checks actual cluster capacity, triggers scaling if needed and updates ProvisioningRequest status with this possible states: 
-      - `Provisioned=true`: CA provisioned the capacity and it's ready to use
+      - `Provisioned=true`: CA provisioned the capacity. With `best-effort-atomic-scale-up`, this is set when the scale-up call returns, which can be before the new nodes are Ready, so Pods can stay Pending until they are.
       - `Provisioned=false`: Provisioning in progress
       - `Failed=true`:  CA couldn't provision the capacity
       - `BookingExpired=true`: CA stopped booking the capacity, it will scale down if there are no Pods running on it  
@@ -30,12 +30,12 @@ Scenario: *AI training job requiring 16 GPUs :*
 - **Step 1** *(Quota Reservation)*: ClusterQueue has 32 GPU quota available. Kueue reserves 16 GPUs from this quota.
 
 - **Step 2** *(Admission Check)*: Kueue creates a ProvisioningRequest requesting for 16 GPUs. 
-  - Cluster Autoscaler checks cloud provider GPU inventory and initiates scaling of 4x GPU nodes (4 GPUs each). It sets `Provisioned=true` when nodes are ready.
+  - Cluster Autoscaler checks cloud provider GPU inventory and initiates scaling of 4x GPU nodes (4 GPUs each). It sets `Provisioned=true` when the scale-up call returns; the nodes may still be starting.
 
   - Kueue sees the `Provisioned=true` marks the AdmissionCheck `Ready` and admits workload.
 
 Outcome:
-*Job starts immediately with all 16 GPUs available.*
+*Job is admitted, and its Pods start as soon as the 4 new nodes are Ready.*
 
 
 

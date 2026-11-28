@@ -11,6 +11,7 @@
     - [Story 2](#story-2)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [BookingExpired condition](#bookingexpired-condition)
+    - [Provisioned before nodes are Ready](#provisioned-before-nodes-are-ready)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -88,6 +89,33 @@ This could result in the scheduling of only a subset of pods. To mitigate the fi
 a Workload is evicted if not all of its pods are scheduled after a specified timeout. For the second scenario, cluster
 administrators should ensure their control plane is adequately provisioned with sufficient resources - larger VMs and/or
 higher qps for the pod-creating controller) to handle large jobs efficiently.
+
+#### Provisioned before nodes are Ready
+
+Kueue marks the AdmissionCheck `Ready` when the ProvisioningRequest reports `Provisioned=true`.
+For `best-effort-atomic-scale-up.autoscaling.x-k8s.io`, Cluster Autoscaler sets `Provisioned=true`
+when the node group resize call returns. This can happen before the new nodes are registered and
+Ready, so the nodes may still be booting when the Workload is admitted.
+
+This can lead to:
+
+- **Pending Pods after admission**: Pods are created before their nodes exist and stay Pending until
+  the nodes are Ready.
+- **Booking expiring during boot**: the capacity booking starts at `Provisioned=true`. If the nodes
+  take longer than the booking period to become Ready, the booking can expire before the Pods are
+  scheduled. Kueue ignores `BookingExpired` once the Workload is admitted.
+- **Capacity that never arrives**: if the scale-up is accepted but never fulfilled (for example, spot
+  capacity), the Workload stays admitted with Pending Pods. Pods that consume a ProvisioningRequest
+  are excluded from regular scale-up, so Cluster Autoscaler does not retry for them.
+
+Mitigations:
+
+- Configure [`WaitForPodsReady`](https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing)
+  with a timeout longer than the expected node boot time, so Workloads whose Pods never start are
+  evicted and requeued.
+- An opt-in Cluster Autoscaler parameter that keeps `Provisioned=false` until the new nodes are Ready
+  is proposed in [kubernetes/autoscaler#10430](https://github.com/kubernetes/autoscaler/issues/10430).
+  Kueue passes `ProvisioningRequestConfig` parameters through, so no Kueue change is needed to use it.
 
 ## Design Details
 
