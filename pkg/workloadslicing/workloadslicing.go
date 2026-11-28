@@ -178,6 +178,66 @@ func listMatchingWorkloadSlices(
 	return slicesutil.Pick(list.Items, keep), nil
 }
 
+func compareWorkloadCreation(a, b kueue.Workload) int {
+	if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+		return c
+	}
+	return cmp.Compare(a.UID, b.UID)
+}
+
+// GarbageCollectSliceHistory deletes oldest inactive finished slices when
+// count exceeds limit. Finished predecessors still needed as delta baseline
+// by in-flight replacements are protected and excluded from the count.
+// This is required because PreviousAdmittedPodSetCounts (KEP-14615) uses
+// WithFinishedWorkloads to find the baseline for ProvisioningRequest deltas.
+func GarbageCollectSliceHistory(ctx context.Context, c client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind, limit int32) error {
+	list := &kueue.WorkloadList{}
+	if err := c.List(ctx, list, client.InNamespace(jobObject.GetNamespace()),
+		indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
+		return err
+	}
+	chain := list.Items
+
+	// A finished predecessor referenced by a pending replacement (non-finished,
+	// non-admitted) is still needed for ProvisioningRequest delta calculation.
+	protected := sets.New[workload.Reference]()
+	for i := range chain {
+		successor := &chain[i]
+		if workloadfinish.IsFinished(successor) || workload.IsAdmitted(successor) {
+			continue
+		}
+		if predecessor := ReplacementForKey(successor); predecessor != nil {
+			protected.Insert(*predecessor)
+		}
+	}
+
+	// Inactive history: finished with Replaced or OutOfSync, not protected.
+	history := slicesutil.Pick(chain, func(candidate *kueue.Workload) bool {
+		finished := apimeta.FindStatusCondition(candidate.Status.Conditions, kueue.WorkloadFinished)
+		return finished != nil && finished.Status == metav1.ConditionTrue &&
+			(finished.Reason == kueue.WorkloadSliceReplaced || finished.Reason == kueue.WorkloadFinishedReasonOutOfSync) &&
+			!protected.Has(workload.Key(candidate))
+	})
+	slices.SortFunc(history, compareWorkloadCreation)
+
+	if len(history) <= int(limit) {
+		return nil
+	}
+
+	excess := len(history) - int(limit)
+	for i := range excess {
+		sliceKey := workload.Key(&history[i])
+		if _, err := workload.Delete(ctx, c, &history[i]); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("failed to delete finished workload slice %q: %w", sliceKey, err)
+		}
+	}
+
+	return nil
+}
+
 func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, options ...FindLatestAdmittedWorkloadSliceOption) (*kueue.Workload, error) {
 	opts := findLatestAdmittedWorkloadSliceOptions{}
 	for _, option := range options {
@@ -223,12 +283,7 @@ func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workl
 	workloads = slices.Clone(workloads)
 
 	// Sort oldest-first; break same-second ties by UID for stable ordering.
-	slices.SortFunc(workloads, func(a, b kueue.Workload) int {
-		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.UID, b.UID)
-	})
+	slices.SortFunc(workloads, compareWorkloadCreation)
 
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(workloads, func(w kueue.Workload) bool {

@@ -1781,6 +1781,18 @@ A nil value disables automatic deletion.
 Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
 </td>
 </tr>
+<tr><td><code>finishedSliceLimit</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>FinishedSliceLimit is the number of inactive finished WorkloadSlices
+retained for each elastic workload slice chain.
+A value of 0 retains no inactive history.
+A nil value disables count-based WorkloadSlice cleanup.
+WorkloadSlices that are still needed as the admitted-capacity baseline
+for an in-flight replacement do not count towards this limit.</p>
+</td>
+</tr>
 <tr><td><code>afterDeactivatedByKueue</code><br/>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>

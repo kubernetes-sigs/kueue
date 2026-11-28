@@ -90,4 +90,5 @@ integrations:
 #objectRetentionPolicies:
 #  workloads:
 #    afterFinished: null # null indicates infinite retention, 0s means no retention at all
+#    finishedSliceLimit: null # null disables count-based cleanup, 0 retains no inactive history
 #    afterDeactivatedByKueue: null # null indicates infinite retention, 0s means no retention at all

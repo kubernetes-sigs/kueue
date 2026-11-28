@@ -265,9 +265,11 @@ Currently, a Workload can become outdated, marked by Kueue as "out-of-sync", and
 This also applies to outdated Workload slices: when multiple successive updates are issued for a given Job, any superseded slices are marked as "Finished" to reflect their obsolescence.
 
 Preempted (i.e., aggregated) Workload slices are marked as Finished.
-Under the current design proposal, all finished workload slices are retained indefinitely and are not garbage collected.
-To address potential resource buildup, a `PreemptedWorkloadSliceHistory` mechanism whether as a configuration option or an API field on the Workload, could be introduced to limit the number of retained inactive slices, 
-similar to how `revisionHistoryLimit` is used in Kubernetes Deployments to manage ReplicaSet history.
+To address potential resource buildup, Kueue provides `finishedSliceLimit` in the
+object retention policy, limiting the number of retained inactive slices per chain,
+analogous to `revisionHistoryLimit` in Kubernetes Deployments. Finished slices
+still needed as delta baselines for in-flight replacements (see KEP-14615) are
+protected and excluded from the limit.
 
 Preempted Workload slices that fail admission requirements are not marked as Finished, as they were never actually started (i.e., never admitted or executed). 
 

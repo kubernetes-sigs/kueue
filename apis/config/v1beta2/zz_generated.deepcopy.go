@@ -890,6 +890,11 @@ func (in *WorkloadRetentionPolicy) DeepCopyInto(out *WorkloadRetentionPolicy) {
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.FinishedSliceLimit != nil {
+		in, out := &in.FinishedSliceLimit, &out.FinishedSliceLimit
+		*out = new(int32)
+		**out = **in
+	}
 	if in.AfterDeactivatedByKueue != nil {
 		in, out := &in.AfterDeactivatedByKueue, &out.AfterDeactivatedByKueue
 		*out = new(v1.Duration)

@@ -24,6 +24,7 @@ etcd 存储并降低 Kueue 的内存占用。
       objectRetentionPolicies:
         workloads:
           afterFinished: "1h"
+          finishedSliceLimit: 1
           afterDeactivatedByKueue: "1h"
 ```
 
@@ -32,6 +33,10 @@ etcd 存储并降低 Kueue 的内存占用。
 Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义。
 包含以下可选字段：
 - `afterFinished`：已完成Workload在多长时间后被删除。
+- `finishedSliceLimit`：每个弹性 Workload slice 链保留的非活跃已完成
+  WorkloadSlice 的数量。`null` 禁用基于数量的清理，`0` 不保留非活跃历史，
+  正数值保留最新的历史条目至该上限。仍被作为正在进行的替换的
+  准入容量基线所需的已完成 slice 会被保留，不计入该上限。
 - `afterDeactivatedByKueue`：Kueue 已停用的 Workload（例如 Job、JobSet 或其他自定义
 	Workload 类型）在多长时间后被删除。
 
@@ -45,6 +50,7 @@ Workload 的保留策略在 `.objectRetentionPolicies.workloads` 字段下定义
   objectRetentionPolicies:
     workloads:
       afterFinished: "1m"
+      finishedSliceLimit: 1
       afterDeactivatedByKueue: "1m"
   waitForPodsReady:
     enable: true

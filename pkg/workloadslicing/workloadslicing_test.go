@@ -959,6 +959,105 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 	}
 }
 
+func TestGarbageCollectSliceHistory(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	finished := func(reason string) metav1.Condition {
+		return metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             reason,
+			LastTransitionTime: metav1.NewTime(now),
+		}
+	}
+	slice := func(name string, created time.Time, reason string) *kueue.Workload {
+		return testWorkload(name, testJobObject.Name, testJobObject.UID, created).
+			Condition(finished(reason)).
+			Obj()
+	}
+	pendingReplacement := func(name, predecessor string, created time.Time) *kueue.Workload {
+		return testWorkload(name, testJobObject.Name, testJobObject.UID, created).
+			Annotation(WorkloadSliceReplacementFor, string(workload.NewReference("default", predecessor))).
+			Obj()
+	}
+
+	tests := map[string]struct {
+		workloads  []*kueue.Workload
+		limit      int32
+		wantRemain sets.Set[string]
+	}{
+		"within limit": {
+			workloads: []*kueue.Workload{
+				slice("slice-1", now.Add(-2*time.Minute), kueue.WorkloadSliceReplaced),
+			},
+			limit:      1,
+			wantRemain: sets.New("slice-1"),
+		},
+		"deletes oldest excess history": {
+			workloads: []*kueue.Workload{
+				slice("slice-1", now.Add(-3*time.Minute), kueue.WorkloadSliceReplaced),
+				slice("slice-2", now.Add(-2*time.Minute), kueue.WorkloadFinishedReasonOutOfSync),
+				slice("slice-3", now.Add(-time.Minute), kueue.WorkloadSliceReplaced),
+			},
+			limit:      1,
+			wantRemain: sets.New("slice-3"),
+		},
+		"zero deletes all inactive history": {
+			workloads: []*kueue.Workload{
+				slice("slice-1", now.Add(-2*time.Minute), kueue.WorkloadSliceReplaced),
+			},
+			limit:      0,
+			wantRemain: sets.New[string](),
+		},
+		"protected baseline is retained and excluded from limit": {
+			workloads: []*kueue.Workload{
+				slice("slice-1", now.Add(-4*time.Minute), kueue.WorkloadSliceReplaced),
+				slice("slice-2", now.Add(-3*time.Minute), kueue.WorkloadSliceReplaced),
+				slice("slice-3", now.Add(-2*time.Minute), kueue.WorkloadSliceReplaced),
+				pendingReplacement("slice-4", "slice-2", now.Add(-time.Minute)),
+			},
+			limit:      1,
+			wantRemain: sets.New("slice-2", "slice-3", "slice-4"),
+		},
+		"non-slice finished workloads are retained": {
+			workloads: []*kueue.Workload{
+				slice("slice-1", now.Add(-2*time.Minute), kueue.WorkloadSliceReplaced),
+				testWorkload("finished-job", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).
+					Condition(finished(kueue.WorkloadFinishedReasonSucceeded)).
+					Obj(),
+			},
+			limit:      0,
+			wantRemain: sets.New("finished-job"),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			objects := make([]client.Object, 0, len(tc.workloads))
+			for _, wl := range tc.workloads {
+				objects = append(objects, wl.DeepCopy())
+			}
+			cl := testWorkloadClientBuilder().WithObjects(objects...).Build()
+
+			if err := GarbageCollectSliceHistory(ctx, cl, testJobObject, testJobGVK, tc.limit); err != nil {
+				t.Fatal(err)
+			}
+
+			var remaining kueue.WorkloadList
+			if err := cl.List(ctx, &remaining, client.InNamespace(testJobObject.Namespace)); err != nil {
+				t.Fatal(err)
+			}
+			gotRemain := sets.New[string]()
+			for i := range remaining.Items {
+				gotRemain.Insert(remaining.Items[i].Name)
+			}
+			if diff := cmp.Diff(tc.wantRemain, gotRemain); diff != "" {
+				t.Errorf("remaining workloads differ (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestEnsureWorkloadSlices(t *testing.T) {
 	type args struct {
 		clnt         client.Client

@@ -893,6 +893,10 @@ func validateObjectRetentionPolicies(c *configapi.Configuration) field.ErrorList
 		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterFinished"),
 			c.ObjectRetentionPolicies.Workloads.AfterFinished, apimachineryvalidation.IsNegativeErrorMsg))
 	}
+	if rr.Workloads.FinishedSliceLimit != nil && *rr.Workloads.FinishedSliceLimit < 0 {
+		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("finishedSliceLimit"),
+			*rr.Workloads.FinishedSliceLimit, apimachineryvalidation.IsNegativeErrorMsg))
+	}
 	if rr.Workloads.AfterDeactivatedByKueue != nil && rr.Workloads.AfterDeactivatedByKueue.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(objectRetentionPoliciesWorkloadsPath.Child("afterDeactivatedByKueue"),
 			c.ObjectRetentionPolicies.Workloads.AfterDeactivatedByKueue.Duration.String(), apimachineryvalidation.IsNegativeErrorMsg))

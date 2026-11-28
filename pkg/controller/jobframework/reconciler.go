@@ -96,6 +96,7 @@ var (
 
 type WorkloadRetentionPolicy struct {
 	AfterDeactivatedByKueue *time.Duration
+	FinishedSliceLimit      *int32
 }
 
 // JobReconciler reconciles a GenericJob object
@@ -329,8 +330,11 @@ func WithClock(c clock.Clock) Option {
 // WithObjectRetentionPolicies sets DeactivationRetentionPeriod policy.
 func WithObjectRetentionPolicies(value *configapi.ObjectRetentionPolicies) Option {
 	return func(o *Options) {
-		if value != nil && value.Workloads != nil && value.Workloads.AfterDeactivatedByKueue != nil {
-			o.WorkloadRetentionPolicy.AfterDeactivatedByKueue = &value.Workloads.AfterDeactivatedByKueue.Duration
+		if value != nil && value.Workloads != nil {
+			if value.Workloads.AfterDeactivatedByKueue != nil {
+				o.WorkloadRetentionPolicy.AfterDeactivatedByKueue = &value.Workloads.AfterDeactivatedByKueue.Duration
+			}
+			o.WorkloadRetentionPolicy.FinishedSliceLimit = value.Workloads.FinishedSliceLimit
 		}
 	}
 }
@@ -1417,6 +1421,11 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			if wl != nil {
 				if err := UpdateWaitForPodsReady(ctx, r.client, r.record, job.Object(), wl); err != nil {
 					return nil, err
+				}
+				if limit := r.workloadRetentionPolicy.FinishedSliceLimit; limit != nil {
+					if err := workloadslicing.GarbageCollectSliceHistory(ctx, r.client, object, job.GVK(), *limit); err != nil {
+						log.V(2).Info("Failed to garbage collect workload slice history", "error", err)
+					}
 				}
 			}
 			return wl, nil
