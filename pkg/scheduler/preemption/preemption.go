@@ -108,6 +108,10 @@ type PreemptionStrategy struct {
 	verify func(targets []*Target) (bool, string)
 	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
 	targetsByKey map[workload.Reference]*Target
+	// candidateKeys retains the order in which Candidates yielded workloads. It lets
+	// callers select quota-only victims after an external scheduler has consumed
+	// the candidate sequence but could not represent those victims itself.
+	candidateKeys []workload.Reference
 }
 
 var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
@@ -145,11 +149,39 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[workload.Reference] {
 		for target := range ps.candidates {
 			wlKey := workload.Key(target.WorkloadInfo.Obj)
 			ps.targetsByKey[wlKey] = target
+			ps.candidateKeys = append(ps.candidateKeys, wlKey)
 			if !yield(wlKey) {
 				return
 			}
 		}
 	}
+}
+
+// GetQuotaOnlyTargets returns a quota-fitting set from candidates already
+// consumed by Candidates, without requiring a Pod-level preemption simulation.
+// Callers must independently establish that their Pods are feasible on the
+// current nodes.
+func (ps *PreemptionStrategy) GetQuotaOnlyTargets() ([]*Target, error) {
+	ps.Reset()
+	keys := make([]workload.Reference, 0, len(ps.candidateKeys))
+	for _, wlKey := range ps.candidateKeys {
+		ps.PreemptWorkload(wlKey)
+		keys = append(keys, wlKey)
+		if !ps.MayFit() {
+			continue
+		}
+		for i := len(keys) - 1; i >= 0; i-- {
+			ps.UnpreemptWorkload(keys[i])
+			if ps.MayFit() {
+				keys = append(keys[:i], keys[i+1:]...)
+			} else {
+				ps.PreemptWorkload(keys[i])
+			}
+		}
+		return ps.GetTargets(keys)
+	}
+	ps.Reset()
+	return nil, nil
 }
 
 func (ps *PreemptionStrategy) PreemptWorkload(wlKey workload.Reference) {

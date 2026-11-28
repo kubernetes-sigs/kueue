@@ -94,7 +94,10 @@ type simulationStep struct {
 	// may also preempt additional candidates to satisfy MayFit() and reprieve
 	// non-node victims in reverse order, producing SchedulingResult.PreemptionVictims.
 	nodeVictims []workload.Reference
-	err         error
+	// skippedCandidates emulate workloads without Pods. scheduler-library pulls
+	// their keys but cannot represent them as Pod-level preemption victims.
+	skippedCandidates sets.Set[workload.Reference]
+	err               error
 }
 
 func (s simulationStep) allPodsPlaced() bool {
@@ -160,6 +163,7 @@ func (s *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 			scheduleOpts.PreemptionCandidates,
 			scheduleOpts.PreemptionFilter,
 			step.nodeVictims,
+			step.skippedCandidates,
 			allPlaced,
 		)
 		if allPlaced && nodeVictimsSeen && scheduleOpts.PreemptionFilter != nil {
@@ -186,12 +190,16 @@ func consumePreemptionCandidates(
 	candidates iter.Seq[workload.Reference],
 	pf simulator.PreemptionFilter,
 	nodeVictims []workload.Reference,
+	skippedCandidates sets.Set[workload.Reference],
 	allPlaced bool,
 ) ([]workload.Reference, bool) {
 	var consumed []workload.Reference
 	seen := sets.New[workload.Reference]()
 	for wlKey := range candidates {
 		consumed = append(consumed, wlKey)
+		if skippedCandidates.Has(wlKey) {
+			continue
+		}
 		seen.Insert(wlKey)
 		if pf != nil {
 			pf.PreemptWorkload(wlKey)
@@ -451,6 +459,8 @@ func TestPlan(t *testing.T) {
 		// PreemptionVictims specifies node-level victims required to place pods;
 		// when PreemptionFilter is passed, testSimulator also computes quota victims.
 		schedulingResult *simulator.SchedulingResult
+		// podlessCandidates emulate candidates that hold quota but have no Pods.
+		podlessCandidates sets.Set[workload.Reference]
 		// preemptionResult, when set, scripts the node-level outcome of the preemption
 		// ScheduleWorkload call after initial Fit simulation fails.
 		preemptionResult *simulator.SchedulingResult
@@ -557,6 +567,33 @@ func TestPlan(t *testing.T) {
 			},
 			wantMode: flavorassigner.Preempt,
 			wantFit:  true,
+			wantCalls: []scheduleWorkloadCall{
+				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
+			},
+			wantPreemptionTargets: []workload.Reference{workload.NewReference(testNamespace, victimName)},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				Status:             *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
+				TopologyAssignment: onNodes(domain(testNode2, 1)),
+				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{
+					Flavor:                testFlavor,
+					Mode:                  flavorassigner.Preempt,
+					PreemptionPossibility: new(policy.Preempt),
+				}},
+			}},
+		},
+		"initial assignment requires preemption and only podless candidates can free quota: fits": {
+			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
+			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
+			initialMode:  flavorassigner.Preempt,
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
+				},
+			},
+			podlessCandidates: sets.New(workload.NewReference(testNamespace, victimName)),
+			wantMode:          flavorassigner.Preempt,
+			wantFit:           true,
 			wantCalls: []scheduleWorkloadCall{
 				{consumedCandidates: []workload.Reference{workload.NewReference(testNamespace, victimName)}},
 			},
@@ -1079,6 +1116,7 @@ func TestPlan(t *testing.T) {
 			}
 			if tc.schedulingResult != nil {
 				firstStep := stepFromSchedulingResult(*tc.schedulingResult)
+				firstStep.skippedCandidates = tc.podlessCandidates
 				testSim.steps = []simulationStep{firstStep}
 				if tc.preemptionResult != nil {
 					testSim.steps = append(testSim.steps, stepFromSchedulingResult(*tc.preemptionResult))

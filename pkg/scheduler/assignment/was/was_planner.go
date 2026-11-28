@@ -197,6 +197,12 @@ func (p *wasPlanner) scheduleWithPreemption(
 			if err != nil {
 				return nil, nil, nil, err
 			}
+			if len(targets) == 0 && len(preemptedWorkloads) == 0 {
+				targets, err = strategy.GetQuotaOnlyTargets()
+				if err != nil {
+					return nil, nil, nil, err
+				}
+			}
 			if len(targets) > 0 {
 				return placementSummary, nil, targets, nil
 			}
