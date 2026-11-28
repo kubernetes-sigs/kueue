@@ -11533,7 +11533,7 @@ func TestStatusUpdateWhenWorkloadDeleted(t *testing.T) {
 		"block admission while admitted workloads are not ready": {
 			podsReadyTracking: true,
 			run: func(ctx context.Context, log logr.Logger, s *Scheduler, e *entry) {
-				// Cancelled so that WaitForPodsReady returns instead of blocking on the not-ready Workload.
+				// Cancelled so that the test cannot hang on the not-ready Workload if WaitForPodsReady is called.
 				ctx, cancel := context.WithCancel(ctx)
 				cancel()
 				s.waitForPodsReadyIfNeeded(ctx, log, e)
@@ -11584,6 +11584,118 @@ func TestStatusUpdateWhenWorkloadDeleted(t *testing.T) {
 				}
 				tc.run(ctx, logger, scheduler, &entry{Head: heads[0]})
 
+				for _, entry := range logger.GetSink().(ktesting.Underlier).GetBuffer().Data() {
+					if entry.Type == ktesting.LogError {
+						t.Errorf("Unexpected error log %q: %v", entry.Message, entry.Err)
+					}
+				}
+				if len(recorder.RecordedEvents) != 0 {
+					t.Errorf("Unexpected events: %+v", recorder.RecordedEvents)
+				}
+			})
+		}
+	}
+}
+
+// TestSchedulerSkipsPodsReadyWaitForDeletedWorkload covers a head Workload that is deleted
+// while admission is blocked on not-ready Workloads: the scheduler neither waits for them
+// nor tries to admit the deleted Workload. A Workload that already waits for PodsReady
+// gets no status request, so its deletion has to be detected without one.
+func TestSchedulerSkipsPodsReadyWaitForDeletedWorkload(t *testing.T) {
+	for _, mergePatch := range []bool{false, true} {
+		for _, alreadyWaiting := range []bool{false, true} {
+			t.Run(fmt.Sprintf("WorkloadRequestUseMergePatch=%t/alreadyWaiting=%t", mergePatch, alreadyWaiting), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, mergePatch)
+				logger := ktesting.NewLogger(t, ktesting.NewConfig(ktesting.BufferLogs(true)))
+				ctx := ctrl.LoggerInto(t.Context(), logger)
+
+				ns := utiltesting.MakeNamespace("ns")
+				rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj()
+				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
+				podSet := *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()
+				wl := utiltestingapi.MakeWorkload("wl", "ns").Queue(kueue.LocalQueueName(lq.Name)).PodSets(podSet).Obj()
+				if alreadyWaiting {
+					reason := workload.UnadmittedWorkloadReasonWithFallback(
+						kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+						//nolint:staticcheck // SA1019: intentional deprecated fallback
+						kueue.WorkloadWaiting,
+					)
+					workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", time.Now())
+				}
+				notReady := utiltestingapi.MakeWorkload("not-ready", "ns").
+					PodSets(podSet).
+					SimpleReserveQuota(kueue.ClusterQueueReference(cq.Name), rf.Name, time.Now()).
+					Obj()
+
+				objs := []client.Object{ns, rf, cq, lq, wl}
+				statusWrites := 0
+				countStatusWrites := interceptor.Funcs{
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						statusWrites++
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, obj, opts...)
+					},
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						statusWrites++
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+				}
+				cl := utiltesting.NewClientBuilder().
+					WithInterceptorFuncs(countStatusWrites).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(objs...).WithStatusSubresource(&kueue.Workload{}).Build()
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl, schdcache.WithPodsReadyTracking(true))
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				cqCache.AddOrUpdateResourceFlavor(logger, rf)
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s to cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+				}
+				if !cqCache.AddOrUpdateWorkload(ctx, logger, notReady) {
+					t.Fatalf("Adding workload %s to cache", notReady.Name)
+				}
+				// The queue still holds the Workload, as it does until the workload controller sees the deletion.
+				if err := cl.Delete(ctx, wl); err != nil {
+					t.Fatalf("Deleting workload: %v", err)
+				}
+
+				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+				waited := false
+				scheduler.waitForPodsReady = func(context.Context) { waited = true }
+				wg := sync.WaitGroup{}
+				admissionAttempts := 0
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() {
+						admissionAttempts++
+						wg.Add(1)
+					},
+					func() { wg.Done() },
+				))
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				defer cancel()
+				go qManager.CleanUpOnContext(ctx)
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+
+				if alreadyWaiting && statusWrites != 0 {
+					t.Errorf("Got %d status writes for the Workload that already waits for PodsReady, want 0", statusWrites)
+				}
+				if waited {
+					t.Error("The scheduler waited for PodsReady on behalf of the deleted Workload")
+				}
+				if admissionAttempts != 0 {
+					t.Errorf("Got %d admission attempts for the deleted Workload, want 0", admissionAttempts)
+				}
 				for _, entry := range logger.GetSink().(ktesting.Underlier).GetBuffer().Data() {
 					if entry.Type == ktesting.LogError {
 						t.Errorf("Unexpected error log %q: %v", entry.Message, entry.Err)

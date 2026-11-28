@@ -100,6 +100,9 @@ type Scheduler struct {
 	refillBudget                        int
 	failedTASReplacementRecoveryTimeout time.Duration
 
+	// waitForPodsReady is cache.WaitForPodsReady; tests replace it to observe the wait.
+	waitForPodsReady func(context.Context)
+
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
@@ -256,6 +259,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		resourceFormatter:                   options.resourceFormatter,
 		refillBudget:                        options.refillBudget,
 		failedTASReplacementRecoveryTimeout: options.failedTASReplacementRecoveryTimeout,
+		waitForPodsReady:                    cache.WaitForPodsReady,
 	}
 	return s
 }
@@ -658,7 +662,11 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	s.waitForPodsReadyIfNeeded(ctx, log, e)
+	if deleted := s.waitForPodsReadyIfNeeded(ctx, log, e); deleted {
+		e.inadmissibleMsg = "Workload was deleted"
+		e.skipStatusUpdate = true
+		return
+	}
 
 	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
@@ -819,31 +827,44 @@ func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *en
 // among the admitted-but-not-ready workloads the block waits on, so blocking would trip
 // on the very workload being evaluated and unset its own reservation - and, for a
 // failed-node replacement, its admission along with it.
-func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logger, e *entry) {
+//
+// It reports whether the Workload was deleted, in which case it does not wait: the
+// Workload cannot be admitted, so blocking the scheduler on its behalf is pointless.
+func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logger, e *entry) (deleted bool) {
 	if workload.NeedsSecondPass(e.Obj) {
-		return
+		return false
 	}
 	if s.cache.PodsReadyForAllAdmittedWorkloads(log) {
-		return
+		return false
 	}
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
-	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+	patched := false
+	err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
 			//nolint:staticcheck // SA1019: intentional deprecated fallback
 			kueue.WorkloadWaiting,
 		)
-		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.V(3).Info("Workload status not updated because it was deleted")
-		} else {
-			log.Error(err, "Could not update Workload status")
+		patched = workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now())
+		return patched, nil
+	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+	if err == nil && !patched {
+		// The condition was already set, so no request reached the API server to report a deletion.
+		if getErr := s.client.Get(ctx, client.ObjectKeyFromObject(wl), &kueue.Workload{}); apierrors.IsNotFound(getErr) {
+			err = getErr
 		}
 	}
-	s.cache.WaitForPodsReady(ctx)
+	if apierrors.IsNotFound(err) {
+		log.V(3).Info("Workload not admitted because it was deleted")
+		return true
+	}
+	if err != nil {
+		log.Error(err, "Could not update Workload status")
+	}
+	s.waitForPodsReady(ctx)
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
+	return false
 }
 
 type entryStatus string
