@@ -579,6 +579,42 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			),
 			wantCount: 3,
 		},
+		"elastic, executors started, then a scale-down kills executors that show Failed: count follows the kept executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(executorsStartedSubmissionAnnotation, "sub-1").
+				Annotation(maxExecutorIDAnnotation, "4").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods: slices.Concat(
+				executorPods(corev1.PodRunning, 1, 2),
+				executorPods(corev1.PodFailed, 3, 4),
+			),
+			wantCount: 2,
+		},
+		"elastic, executors started with failed IDs recorded during ramp-up, then a scale-down: count follows the kept executors": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(executorsStartedSubmissionAnnotation, "sub-1").
+				Annotation(maxExecutorIDAnnotation, "5").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Annotation(failedExecutorIDsAnnotation, "2").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 3),
+			wantCount: 2,
+		},
+		"elastic, ramp-up, failed executor Pod deleted before any reconcile saw it Failed: count drops below the initial executors (known limit)": {
+			sparkApp: dynamicSparkApp.Clone().
+				DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, InitialExecutors: new(int32(4)), MaxExecutors: new(int32(10))}).
+				AppState(sparkappv1beta2.ApplicationStateRunning).
+				Annotation(maxExecutorIDAnnotation, "3").
+				Annotation(maxExecutorIDSubmissionAnnotation, "sub-1").
+				Obj(),
+			pods:      executorPods(corev1.PodRunning, 1, 2),
+			wantCount: 2,
+		},
 		"elastic, unknown: counts pods": {
 			sparkApp:  dynamicSparkApp.Clone().AppState(sparkappv1beta2.ApplicationStateUnknown).Obj(),
 			pods:      executorPods(corev1.PodRunning, 1, 2, 3),
