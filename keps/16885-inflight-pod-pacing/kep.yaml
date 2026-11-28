@@ -1,0 +1,28 @@
+title: In-flight Pod Pacing
+kep-number: 16885
+authors:
+  - "@kaushik229"
+status: provisional
+creation-date: 2026-10-30
+reviewers:
+  - "@sohankunkerkar"
+approvers:
+  - "@mimowo"
+see-also:
+  - "/keps/349-all-or-nothing"
+  - "/keps/13502-unscheduled-pods-timeout"
+  - "/keps/6915-scheduling-gated-by-annotation"
+  - "/keps/2724-topology-aware-scheduling"
+  - "/keps/77-dynamically-sized-jobs"
+  - "/keps/1136-provisioning-request-support"
+  - "/keps/4803-workload-level-wait-for-pods-ready"
+  - "/keps/976-plain-pods"
+  - "/keps/10852-inadmissible-workloads-observability"
+stage: alpha
+latest-milestone: "v0.21"
+milestone:
+  alpha: "v0.21"
+feature-gates:
+  - name: MaxInFlightPods
+disable-supported: true
+metrics: []
