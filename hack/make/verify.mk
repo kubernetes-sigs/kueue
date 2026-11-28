@@ -135,6 +135,7 @@ verify-checks: \
 	verify-lint-api \
 	verify-fmt-verify \
 	verify-e2e-common-test \
+	verify-helm-chart-package-test \
 	verify-release-utils-test \
 	verify-milestone-pull-test \
 	verify-cherry-pick-pull-test \
@@ -372,6 +373,10 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 verify-e2e-common-test: verify-tree-prereqs yq ## e2e-common shell helper tests after generation
 	python3 $(PROJECT_DIR)/hack/testing/kueueviz-e2e_test.py
 	$(_e2e_common_test_recipe)
+
+.PHONY: verify-helm-chart-package-test
+verify-helm-chart-package-test: verify-tree-prereqs helm yq ## Helm chart packaging regression test after generation
+	bash $(PROJECT_DIR)/hack/testing/helm-chart-package/verify.sh
 
 .PHONY: verify-release-utils-test
 verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit tests after generation
