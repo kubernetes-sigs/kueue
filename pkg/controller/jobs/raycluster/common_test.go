@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -992,6 +993,55 @@ func TestUpdatePodSets(t *testing.T) {
 					SubGroupCount(new(int32(4))).
 					Obj(), // 4 replicas * 2 hosts = 8
 			},
+		},
+		"worker group without replicas keeps the spec count": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-a", 3).Obj(),
+				*utiltestingapi.MakePodSet("workers-b", 1).Obj(),
+			},
+			object: testingrayutil.MakeCluster("raycluster", "ns").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "target-raycluster",
+			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{GroupName: "workers-a"},
+					rayv1.WorkerGroupSpec{GroupName: "workers-b", Replicas: new(int32(4))},
+				).Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-a", 3).Obj(),
+				*utiltestingapi.MakePodSet("workers-b", 4).
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(4))).
+					Obj(),
+			},
+		},
+		"invalid topology annotation on a scaled worker group": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).Obj(),
+			},
+			object: testingrayutil.MakeCluster("raycluster", "ns").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "target-raycluster",
+			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "workers",
+					Replicas:  new(int32(2)),
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "not-a-bool"},
+						},
+					},
+				}).Obj(),
+			wantErr: strconv.ErrSyntax,
 		},
 		"podset name mismatch": {
 			podSets: []kueue.PodSet{
