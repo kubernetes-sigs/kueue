@@ -13,6 +13,8 @@ approvers:
 see-also:
   - "/keps/77-dynamically-sized-jobs"
   - "/keps/420-partial-admission"
+  - "/keps/693-multikueue"
+  - "/keps/13243-multikueue-worker-cluster-autoscaling"
 
 stage: alpha
 latest-milestone: "v0.21"

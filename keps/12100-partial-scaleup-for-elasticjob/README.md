@@ -28,6 +28,13 @@
   - [Eviction and readmission behavior](#eviction-and-readmission-behavior)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
   - [Job integration](#job-integration)
+  - [MultiKueue](#multikueue)
+    - [Bounded worker request](#bounded-worker-request)
+    - [Reflecting a smaller worker grant](#reflecting-a-smaller-worker-grant)
+    - [Probe naming after a grant correction](#probe-naming-after-a-grant-correction)
+    - [Existing oversized worker admissions](#existing-oversized-worker-admissions)
+    - [Worker-side autoscaling](#worker-side-autoscaling)
+    - [Example: asymmetric grants](#example-asymmetric-grants)
   - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
     - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
       - [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)
@@ -280,6 +287,49 @@ quota is insufficient, and ungates the admitted Pods.
 With partial scale up enabled, the initial Workload's `minCount` is set to its `PodSet.Count`; `kueue.x-k8s.io/job-min-parallelism` is not consulted.
 For `Indexed` Jobs, the `ElasticJobUngater` ungates Pods in ascending `batch.kubernetes.io/job-completion-index` order when indexes are valid and unique, and in name order otherwise.
 
+### MultiKueue
+
+When an elastic job is dispatched through MultiKueue ([KEP-693](../693-multikueue/README.md), [KEP-77 Phase 3](../77-dynamically-sized-jobs/README.md#phase-3--enabling-workload-slicing-for-batchv1job-in-multi-cluster-configuration)), each slice is admitted twice: the manager's scheduler reserves quota on the manager Workload, and the worker's scheduler admits the copy MultiKueue creates on the selected worker cluster. The two reducers can grant different counts for the same slice:
+
+- the **manager grant** is `status.admission.podSetAssignments[i].count` on the manager Workload. It is the baseline of the next probe (see [Probe lifecycle](#probe-lifecycle)) and the usage charged to the manager ClusterQueue;
+- the **worker grant** is the same field on the worker Workload. It is what the worker's `ElasticJobUngater` releases, so it decides how many Pods run.
+
+#### Bounded worker request
+
+When MultiKueue creates or updates the worker copy of a slice with a manager quota reservation, each PodSet `i` with a `minCount` is bounded by the manager grant:
+
+```
+remote.count[i]    = min(target[i], managerGrant[i])
+remote.minCount[i] = min(minCount[i], remote.count[i])
+```
+
+PodSets without a `minCount` are copied unchanged. The worker reducer searches `[remote.minCount[i], remote.count[i]]`, so `workerGrant[i] <= managerGrant[i]`: a worker never runs Pods the manager has not reserved quota for.
+
+#### Reflecting a smaller worker grant
+
+Once both Workloads are admitted, for every PodSet `i` with a `minCount` where `workerGrant[i] < count[i]` on the manager Workload, Kueue applies the in-place scale-down from [Baseline and target semantics](#baseline-and-target-semantics) to the manager Workload: `count[i]` becomes `workerGrant[i]` and the stored `minCount[i]` is capped at it. The admission is immutable and keeps `managerGrant[i]`; the effective count `min(managerGrant[i], count[i])` now equals the worker grant, so manager usage and the next baseline reflect what runs.
+
+The job's desired counts are unchanged, so the job controller creates the next probe at the full target, as after a single-cluster partial admission. That probe is bounded on dispatch like any other slice.
+
+#### Probe naming after a grant correction
+
+A grant correction lowers the admitted slice's counts without a job resize, so the next probe belongs to the same revision and the ordinary revision name (see [WorkloadSlice Name](#workloadslice-name)) is taken. Each partial scale-up slice records its revision name in the `kueue.x-k8s.io/workload-slice-revision` annotation; when that name is already used in the slice chain, the new slice takes the `scale-up-probe` extra. A job resize starts a new revision and uses its ordinary name.
+
+#### Existing oversized worker admissions
+
+A worker grant above the manager reservation can only predate the bounded request rule. Shrinking it would release manager quota while the worker still runs those Pods, so Kueue preserves the worker admission until the slice finishes and the manager ClusterQueue under-counts by the difference meanwhile. Independent updates (priority, priority boost, additive tolerations) and manager-side eviction still propagate.
+
+#### Worker-side autoscaling
+
+With [KEP-13243](../13243-multikueue-worker-cluster-autoscaling/README.md), the Ray autoscaler on the worker raises the desired counts, MultiKueue reflects them onto the manager object, and the manager's job controller creates the probe. The rules above apply unchanged.
+
+#### Example: asymmetric grants
+
+A `RayCluster` with one worker group runs with 1 replica and its autoscaler requests 6. The job controller creates slice `wl-B` (`target = 6`, `minCount = 1`) replacing `wl-A`.
+
+- **Manager grants 6, worker grants 2.** `wl-B` is dispatched with `count = 6`; the worker admits 2. Kueue lowers `wl-B` on the manager to `count = 2`, `minCount = 1`, keeping its admission at 6. The job controller creates probe `wl-C` (`target = 6`, baseline 2) under a `scale-up-probe` name; when the worker has room, `wl-C` is admitted at 6 and replaces `wl-B`.
+- **Manager grants 2, worker grants 2.** `wl-B` is dispatched with `count = 2`, so the worker can admit at most 2 and no correction is needed. Probe `wl-C` (`target = 6`) stays pending on the manager until quota is available.
+
 ### Partial ScaleUp for multiple PodSets
 
 There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
@@ -414,6 +464,11 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - Verifying that a predecessor that holds quota but is not admitted (admission checks not `Ready`) neither imposes the progress check nor overrides the baseline, so the scale-up is not stalled.
 - Verifying ungater controller behavior when workloads are partially admitted.
 - Verifying the `ElasticJobUngater` selects `Indexed` `batch/v1 Job` Pods for ungating in numeric `batch.kubernetes.io/job-completion-index` order when indexes are valid and unique, falling back to name order otherwise.
+- Verifying MultiKueue bounds the worker copy of a slice by the manager grant and leaves PodSets without `minCount` and non-elastic Workloads unchanged.
+- Verifying a selected worker that scaled down in place is kept, while an unselected or otherwise drifted worker copy is still replaced.
+- Verifying a smaller worker grant lowers the manager slice's `count` and `minCount` while preserving its admission.
+- Verifying an existing oversized worker admission is preserved while independent updates and manager eviction still propagate.
+- Verifying the probe created after a grant correction gets a distinct name, and a job resize uses the new revision's ordinary name.
 
 #### Integration tests
 
@@ -423,6 +478,8 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - `test/integration/singlecluster/controller/jobs/rayjob/rayjob_controller_partial_scaleup_test.go`: the same flow for the RayJob integration, whose workload slice naming differs.
 - `test/integration/singlecluster/controller/jobs/job/job_controller_partial_scaleup_test.go`: the same flow for `NonIndexed` `batch/v1 Job`s (scaling `.spec.parallelism` alone).
 - `test/integration/singlecluster/controller/jobs/job/job_controller_partial_scaleup_test.go`: the same flow for `Indexed` `batch/v1 Job`s, additionally verifying ascending completion-index ungating order.
+- `test/integration/multikueue/elastic_partial_scaleup_test.go`: a worker-autoscaled `RayCluster` scaling from 1 to 6 workers in both grant directions, with the manager count following the worker grant and the probe queued until capacity appears.
+- `test/integration/multikueue/elasticjob_test.go`: resizing a dispatched `batch/v1 Job` and `RayCluster` with the `partial` strategy.
 
 #### E2E tests
 
@@ -451,9 +508,11 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 
 - v0.20: Alpha, with the `RayJob`, `RayCluster`, and `RayService` integrations.
 - v0.21: `batch/v1 Job` integration.
+- v0.22: MultiKueue support for asymmetric manager and worker grants (see [MultiKueue](#multikueue)).
 
 ## Limitations
-The feature was not evaluated on Multikueue.
+- MultiKueue: a worker with `ElasticJobsViaWorkloadSlices` disabled rejects the count reduction in [Reflecting a smaller worker grant](#reflecting-a-smaller-worker-grant), which also blocks independent updates to that worker Workload. Tracked in [#19110](https://github.com/kubernetes-sigs/kueue/issues/19110).
+- MultiKueue partial scale-up was verified with a single worker group and a single ResourceFlavor only.
 
 ## Drawbacks
 - The feature defines the kueue behavior and the user should make sure partial scale up is compatible with the job controller.
