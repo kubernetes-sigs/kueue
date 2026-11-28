@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -120,6 +121,16 @@ func init() {
 			}
 			return nil
 		}),
+	)
+
+	// controller-runtime reports only rest_client_requests_total by default.
+	ctrlmetrics.RegisterRESTClientMetrics(
+		ctrlmetrics.MetricRequestLatency,
+		ctrlmetrics.MetricDNSResolutionLatency,
+		ctrlmetrics.MetricRequestSize,
+		ctrlmetrics.MetricResponseSize,
+		ctrlmetrics.MetricRateLimiterLatency,
+		ctrlmetrics.MetricRequestRetry,
 	)
 }
 
