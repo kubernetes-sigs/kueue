@@ -361,6 +361,14 @@ func (c *ClusterQueue) AddFromLocalQueue(q *LocalQueue, roleTracker *roletracker
 		}
 		// A workload already tracked as inadmissible stays there; retrying it
 		// is owned by the requeue paths, which respect the backoff time.
+		// As in PushOrUpdate, park an untracked workload until backoffWaitingTimeExpired.
+		if !c.backoffWaitingTimeExpired(info) {
+			key := workload.Key(info.Obj)
+			if c.workloads.GetTracked(key) == nil {
+				c.workloads.InsertInadmissible(key, info)
+			}
+			continue
+		}
 		if c.workloads.PushActiveIfNotPresent(info) {
 			added = true
 		}
@@ -829,7 +837,7 @@ func (c *ClusterQueue) Info(key workload.Reference) *workload.Info {
 func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return c.workloads.Get(key)
+	return c.workloads.GetTracked(key)
 }
 
 // Active returns true if the queue is active
