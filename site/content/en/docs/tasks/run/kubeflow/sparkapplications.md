@@ -155,10 +155,13 @@ Kueue then admits the executors that the Spark driver adds or removes while the 
   as for other elastic jobs: the SparkApplication stays suspended, without holding quota, until all its
   initial executors fit.
 
-Dynamic allocation with Kueue has the following limitation:
+Dynamic allocation with Kueue has the following limitations:
 
 - The driver may delete and recreate executors that stay gated for longer than `spark.kubernetes.allocation.executor.timeout`.
   The new executors are gated too.
+- A managed SparkApplication that is not an elastic job cannot enable dynamic allocation, either in
+  `spec.dynamicAllocation` or through `spark.dynamicAllocation.enabled` in `spec.sparkConf`.
+  To use dynamic allocation, make it an elastic job as described above.
 
 ## Sample SparkApplication
 

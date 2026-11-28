@@ -60,6 +60,13 @@ func (j *SparkApplication) numInitialExecutors() int32 {
 	return ptr.Deref(cmp.Or(j.Spec.Executor.Instances, j.sparkConfInt32(sparkcommon.SparkExecutorInstances)), 0)
 }
 
+// sparkConfEnablesDynamicAllocation returns whether spec.sparkConf enables
+// dynamic allocation. As in Spark, the value ignores case and surrounding
+// whitespace.
+func (j *SparkApplication) sparkConfEnablesDynamicAllocation() bool {
+	return strings.EqualFold(strings.TrimSpace(j.Spec.SparkConf[sparkcommon.SparkDynamicAllocationEnabled]), "true")
+}
+
 // dynamicAllocation returns the dynamic allocation Spark runs the application
 // with. As for the Pod resources (see sparkapplication_resources.go), a typed
 // field wins when spark-operator passes it, and spec.sparkConf applies
@@ -67,7 +74,7 @@ func (j *SparkApplication) numInitialExecutors() int32 {
 // enabled.
 func (j *SparkApplication) dynamicAllocation() sparkv1beta2.DynamicAllocation {
 	da := sparkv1beta2.DynamicAllocation{
-		Enabled:          strings.EqualFold(strings.TrimSpace(j.Spec.SparkConf[sparkcommon.SparkDynamicAllocationEnabled]), "true"),
+		Enabled:          j.sparkConfEnablesDynamicAllocation(),
 		InitialExecutors: j.sparkConfInt32(sparkcommon.SparkDynamicAllocationInitialExecutors),
 		MinExecutors:     j.sparkConfInt32(sparkcommon.SparkDynamicAllocationMinExecutors),
 		MaxExecutors:     j.sparkConfInt32(sparkcommon.SparkDynamicAllocationMaxExecutors),

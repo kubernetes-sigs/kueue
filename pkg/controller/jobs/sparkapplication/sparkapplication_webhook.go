@@ -24,6 +24,7 @@ import (
 	"strconv"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -54,6 +55,7 @@ var (
 	elasticJobAnnotationPath                        = field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
 	partialPreemptionAnnotationPath                 = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionAnnotation)
 	partialPreemptionMinRetainedCountAnnotationPath = executorSpecPath.Child("annotations").Key(constants.PodSetPartialPreemptionMinRetainedCountAnnotation)
+	sparkConfDynamicAllocationPath                  = specPath.Child("sparkConf").Key(sparkcommon.SparkDynamicAllocationEnabled)
 )
 
 type SparkApplicationWebhook struct {
@@ -146,8 +148,9 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 	// required or preferred topology remain updatable (e.g. by Kueue) after an
 	// upgrade or after enabling ElasticJobsViaWorkloadSlicesWithTAS.
 	validationErrs = append(validationErrs, validateElasticJobTopologyRequest(fromObject(obj))...)
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(obj)) != "" {
+	if w.isManaged(obj) {
 		validationErrs = append(validationErrs, validatePartialPreemptionMinRetainedCount(fromObject(obj))...)
+		validationErrs = append(validationErrs, validateSparkConfDynamicAllocation(obj)...)
 	}
 	return nil, validationErrs.ToAggregate()
 }
@@ -173,6 +176,25 @@ func validateElasticJobTopologyRequest(sparkApp *SparkApplication) field.ErrorLi
 // ElasticJobsViaWorkloadSlicesForSparkApplication was on stays elastic.
 func isAnElasticJob(sparkApp metav1.Object) bool {
 	return workloadslicing.Enabled(sparkApp)
+}
+
+// isManaged returns whether Kueue manages the SparkApplication.
+func (w *SparkApplicationWebhook) isManaged(job *sparkv1beta2.SparkApplication) bool {
+	return w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(job)) != ""
+}
+
+// validateSparkConfDynamicAllocation rejects dynamic allocation enabled in
+// spec.sparkConf on a non-elastic job: Spark would start executors beyond the
+// quota reserved for the Workload. A job that also enables
+// spec.dynamicAllocation is left to the error on that field.
+func validateSparkConfDynamicAllocation(job *sparkv1beta2.SparkApplication) field.ErrorList {
+	if isAnElasticJob(job) || ptr.Deref(job.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled ||
+		!fromObject(job).sparkConfEnablesDynamicAllocation() {
+		return nil
+	}
+	return field.ErrorList{field.Invalid(sparkConfDynamicAllocationPath,
+		job.Spec.SparkConf[sparkcommon.SparkDynamicAllocationEnabled],
+		"a non-elastic kueue managed job cannot enable dynamic allocation in sparkConf")}
 }
 
 func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
@@ -294,6 +316,9 @@ func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkAp
 	}
 	allErrors = append(allErrors, validationErrs...)
 	oldApp, newApp := fromObject(oldSparkApp), fromObject(newSparkApp)
+	if w.isManaged(newSparkApp) && (!w.isManaged(oldSparkApp) || !oldApp.sparkConfEnablesDynamicAllocation()) {
+		allErrors = append(allErrors, validateSparkConfDynamicAllocation(newSparkApp)...)
+	}
 	if minRetainedCountAnnotation(newApp) != minRetainedCountAnnotation(oldApp) ||
 		(oldApp.IsSuspended() && newApp.IsSuspended() && maxExecutorCount(newApp) < maxExecutorCount(oldApp)) {
 		// Revalidate the floor when the annotation is created or changed, and when the
