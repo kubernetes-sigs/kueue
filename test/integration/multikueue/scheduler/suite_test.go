@@ -210,7 +210,8 @@ func managerAndMultiKueueSetup(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-var _ = ginkgo.BeforeSuite(func() {
+// setupClusters runs only on a process assigned the Ordered test group.
+func setupClusters() {
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
@@ -236,10 +237,12 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 	behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
-})
+}
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.stopAndTeardown()
-	worker1TestCluster.stopAndTeardown()
-	worker2TestCluster.stopAndTeardown()
+	for _, c := range []*cluster{&managerTestCluster, &worker1TestCluster, &worker2TestCluster} {
+		if c.fwk != nil {
+			c.stopAndTeardown()
+		}
+	}
 })
