@@ -221,7 +221,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 						Ready().Obj()
 				}
 				makeAdmitted := func(name, flavor, node string) *kueue.Workload {
-					return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").Label("flavor", flavor).Priority(1).
+					return utiltestingapi.MakeWorkload(name, "ns").Queue("lq").Label("flavor", flavor).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
