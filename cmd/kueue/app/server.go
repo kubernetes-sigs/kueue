@@ -144,6 +144,9 @@ func Run(ctx context.Context, args []string) error {
 }
 
 func runWithOptions(ctx context.Context, args []string, out io.Writer, metricsCertPath string) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	configFile, featureGates, err := parseFlagsAndInitLogger(args, out)
 	if err != nil {
 		return err
@@ -355,8 +358,6 @@ func runWithOptions(ctx context.Context, args []string, out io.Writer, metricsCe
 	go queues.CleanUpOnContext(ctx)
 	go cCache.CleanUpOnContext(ctx)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	visibilityErrCh := make(chan error, 1)
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
