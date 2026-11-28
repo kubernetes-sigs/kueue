@@ -541,6 +541,15 @@ func TestClearLocalQueueGaugeMetricsOnlyClearsLocalQueueScopedGauges(t *testing.
 	ClearLocalQueueMetrics(lq)
 }
 
+func TestReportAndCleanupExcessPodsDeleted(t *testing.T) {
+	ReportExcessPodDeleted("cluster_queue1", nil, nil)
+
+	expectFilteredMetricsCount(t, ExcessPodsDeletedTotal, 1, "cluster_queue", "cluster_queue1")
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, ExcessPodsDeletedTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
 	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil, nil)
