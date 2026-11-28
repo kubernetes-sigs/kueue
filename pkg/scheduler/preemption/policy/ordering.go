@@ -41,6 +41,12 @@ import (
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
+	return CandidatesOrderingWithTieBreaker(log, afsEnabled, a, b, cq, now, nil)
+}
+
+// CandidatesOrderingWithTieBreaker applies tieBreaker after policy preferences
+// (including priority), but before admission time and UID.
+func CandidatesOrderingWithTieBreaker(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time, tieBreaker func() int) int {
 	return cmputil.LazyOr(
 		func() int {
 			return cmputil.CompareBool(
@@ -70,6 +76,12 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 				priority.EffectivePriority(log, a.Obj),
 				priority.EffectivePriority(log, b.Obj),
 			)
+		},
+		func() int {
+			if tieBreaker != nil {
+				return tieBreaker()
+			}
+			return 0
 		},
 		func() int {
 			return quotaReservationTime(b.Obj, now).Compare(quotaReservationTime(a.Obj, now))
