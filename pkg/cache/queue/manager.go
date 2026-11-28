@@ -464,15 +464,29 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 	return nil
 }
 
-func (m *Manager) RebuildClusterQueue(log logr.Logger, cq *kueue.ClusterQueue, lqName string) error {
+// UpdateLocalQueueAfsUsage commits a sample and restores heap order for a
+// registered LocalQueue before scheduling can pop another Workload.
+// update must only compute the new ledger entry.
+func (m *Manager) UpdateLocalQueueAfsUsage(
+	log logr.Logger,
+	lqKey queue.LocalQueueReference,
+	update func(queueafs.UsageLedgerEntry, bool) queueafs.UsageLedgerEntry,
+) (queueafs.UsageLedgerEntry, error) {
 	m.Lock()
 	defer m.Unlock()
-	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
-	if cqImpl == nil {
-		return ErrClusterQueueDoesNotExist
+
+	entry := m.AfsUsageLedger.Update(lqKey, update)
+	lq := m.localQueues[lqKey]
+	if lq == nil {
+		return entry, nil
 	}
-	cqImpl.RebuildHeap(log, lqName)
-	return nil
+
+	cq := m.hm.ClusterQueue(lq.ClusterQueue)
+	if cq == nil {
+		return entry, ErrClusterQueueDoesNotExist
+	}
+	cq.RebuildHeap(log, string(lqKey))
+	return entry, nil
 }
 
 func (m *Manager) DeleteClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) {
