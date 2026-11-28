@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 930 370" width="930" height="370" role="img" aria-label="The Kueue repository source goes to the staging build, which runs as kueue-sa, signs provenance through Sigstore, and pushes the image with its provenance to the staging registry. kpromo copies both to registry.k8s.io and adds a promotion signature. The consumer checks the image on registry.k8s.io: signed by kueue-sa, and built from the right commit.">
+  <style>
+    .bg { fill: #ffffff; stroke: #c6cdd8; }
+    .box { fill: #ffffff; stroke: #c6cdd8; stroke-width: 1.5; }
+    .t { fill: #1b2230; font: 600 15px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .s { fill: #5b6576; font: 12.5px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .m { fill: #5b6576; font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .lbl { fill: #5b6576; font: 500 12.5px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .edge { stroke: #5b6576; stroke-width: 1.6; fill: none; }
+    .head { fill: #5b6576; }
+    .chip-p { fill: #e1f3ef; stroke: #0f7b6c; stroke-width: 1.2; }
+    .chip-a { fill: #fbeedb; stroke: #a15c00; stroke-width: 1.2; }
+    .ct-p { fill: #0f7b6c; font: 600 11.5px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .ct-a { fill: #a15c00; font: 600 11.5px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    @media (prefers-color-scheme: dark) {
+      .bg, .box { fill: #1a2029; stroke: #3a4453; }
+      .t { fill: #e6eaf0; }
+      .s, .m, .lbl { fill: #98a2b3; }
+      .edge { stroke: #98a2b3; }
+      .head { fill: #98a2b3; }
+      .chip-p { fill: #123630; stroke: #3fc7b1; }
+      .chip-a { fill: #3a2a12; stroke: #e3a64c; }
+      .ct-p { fill: #3fc7b1; }
+      .ct-a { fill: #e3a64c; }
+    }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0.5" y="0.5" width="929" height="369" rx="12"/>
+
+  <rect class="box" x="20" y="60" width="170" height="110" rx="10"/>
+  <text class="t" x="105" y="100" text-anchor="middle">Kueue repo</text>
+  <text class="m" x="105" y="124" text-anchor="middle">commit abc123</text>
+
+  <rect class="box" x="260" y="60" width="170" height="110" rx="10"/>
+  <text class="t" x="345" y="100" text-anchor="middle">Staging build</text>
+  <text class="s" x="345" y="122" text-anchor="middle">runs as kueue-sa</text>
+  <rect class="chip-p" x="285" y="134" width="120" height="22" rx="11"/>
+  <text class="ct-p" x="345" y="149" text-anchor="middle">writes provenance</text>
+
+  <rect class="box" x="500" y="60" width="170" height="110" rx="10"/>
+  <text class="t" x="585" y="100" text-anchor="middle">Staging registry</text>
+  <text class="s" x="585" y="122" text-anchor="middle">image</text>
+  <rect class="chip-p" x="540" y="134" width="90" height="22" rx="11"/>
+  <text class="ct-p" x="585" y="149" text-anchor="middle">provenance</text>
+
+  <rect class="box" x="740" y="60" width="170" height="110" rx="10"/>
+  <text class="t" x="825" y="100" text-anchor="middle">registry.k8s.io</text>
+  <text class="s" x="825" y="122" text-anchor="middle">image</text>
+  <rect class="chip-p" x="748" y="134" width="78" height="22" rx="11"/>
+  <text class="ct-p" x="787" y="149" text-anchor="middle">provenance</text>
+  <rect class="chip-a" x="832" y="134" width="70" height="22" rx="11"/>
+  <text class="ct-a" x="867" y="149" text-anchor="middle">promo sig</text>
+
+  <line class="edge" x1="192" y1="115" x2="256" y2="115" marker-end="url(#ah)"/>
+  <text class="lbl" x="224" y="104" text-anchor="middle">code</text>
+  <line class="edge" x1="432" y1="115" x2="496" y2="115" marker-end="url(#ah)"/>
+  <text class="lbl" x="464" y="104" text-anchor="middle">pushes</text>
+  <line class="edge" x1="672" y1="115" x2="736" y2="115" marker-end="url(#ah)"/>
+  <text class="lbl" x="704" y="104" text-anchor="middle">kpromo</text>
+  <text class="lbl" x="704" y="134" text-anchor="middle">copies</text>
+
+  <rect class="box" x="260" y="250" width="170" height="100" rx="10"/>
+  <text class="t" x="345" y="292" text-anchor="middle">Sigstore</text>
+  <text class="s" x="345" y="314" text-anchor="middle">cert + public log</text>
+
+  <rect class="box" x="740" y="250" width="170" height="100" rx="10"/>
+  <text class="t" x="825" y="292" text-anchor="middle">Consumer</text>
+  <text class="m" x="825" y="314" text-anchor="middle">cosign verify</text>
+
+  <line class="edge" x1="345" y1="172" x2="345" y2="246" marker-end="url(#ah)"/>
+  <text class="lbl" x="355" y="214">signs</text>
+
+  <line class="edge" x1="825" y1="248" x2="825" y2="174" marker-end="url(#ah)"/>
+  <text class="lbl" x="815" y="206" text-anchor="end">signed by kueue-sa?</text>
+  <text class="lbl" x="815" y="224" text-anchor="end">right commit?</text>
+</svg>
