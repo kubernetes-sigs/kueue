@@ -249,7 +249,7 @@ func TestRequeueAfterRetryAtTiming(t *testing.T) {
 					).Obj()
 				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
 				blockerA, blockerB := makeAdmitted("blocker-a", "flavor-a", "node-a"), makeAdmitted("blocker-b", "flavor-b", "node-b")
-				incoming := utiltestingapi.MakeWorkload("incoming", "ns").Queue("lq").Priority(5).
+				incoming := utiltestingapi.MakeWorkload("incoming", "ns").Queue("lq").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).Obj()
 
 				cl := utiltesting.NewClientBuilder().
