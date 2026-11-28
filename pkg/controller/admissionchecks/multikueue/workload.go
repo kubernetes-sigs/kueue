@@ -1642,8 +1642,8 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 	return ac.Spec.Parameters.Name
 }
 
-// localJobHandler enqueues the workload(s) owned by a manager-side job when the
-// job's spec changes.
+// localJobHandler enqueues one workload per worker cluster among those owned by a
+// manager-side job when the job's spec changes.
 //
 // Normally a job spec edit makes the job controller update the workload, which in
 // turn reconciles this admission-check controller. But a spec change that does not
@@ -1688,8 +1688,22 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 		ctrl.LoggerFrom(ctx).Error(err, "Failed to list Workloads for manager job", "job", klog.KObj(obj))
 		return
 	}
+	// SyncJob syncs the whole job to the worker that the workload runs on, so one
+	// workload per worker is enough. A job with many workloads, such as a
+	// LeaderWorkerSet with one per group, would otherwise read the worker once
+	// for each of them. Workloads that are not on a worker yet have no remote
+	// job to sync. Evicted and deleted workloads do not reach SyncJob, so they
+	// must not stand in for the other workloads on their worker.
+	clusters := sets.New[string]()
 	for i := range wls.Items {
-		q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wls.Items[i])}, h.eventsBatchPeriod)
+		wl := &wls.Items[i]
+		cluster := ptr.Deref(wl.Status.ClusterName, "")
+		if cluster == "" || clusters.Has(cluster) || workloadfinish.IsFinished(wl) ||
+			workloadevict.IsEvicted(wl) || !wl.DeletionTimestamp.IsZero() {
+			continue
+		}
+		clusters.Insert(cluster)
+		q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}, h.eventsBatchPeriod)
 	}
 }
 

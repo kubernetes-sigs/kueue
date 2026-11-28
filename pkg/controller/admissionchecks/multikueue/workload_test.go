@@ -6263,6 +6263,109 @@ func TestConfigHandlerDelete(t *testing.T) {
 	}
 }
 
+func TestLocalJobHandlerUpdate(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lwsGVK := leaderworkersetv1.SchemeGroupVersion.WithKind("LeaderWorkerSet")
+	baseWl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+		OwnerReference(lwsGVK, "lws1", "lws1-uid")
+
+	cases := map[string]struct {
+		workloads         []kueue.Workload
+		oldGeneration     int64
+		expectedQueuedWLs []string
+	}{
+		"spec unchanged - no workloads queued": {
+			workloads: []kueue.Workload{
+				*baseWl.Clone().Name("wl1").ClusterName("worker1").Obj(),
+			},
+			oldGeneration: 2,
+		},
+		"spec changed - one workload queued per worker": {
+			workloads: []kueue.Workload{
+				*baseWl.Clone().Name("wl1").ClusterName("worker1").Obj(),
+				*baseWl.Clone().Name("wl2").ClusterName("worker1").Obj(),
+				*baseWl.Clone().Name("wl3").ClusterName("worker2").Obj(),
+			},
+			oldGeneration:     1,
+			expectedQueuedWLs: []string{"wl1", "wl3"},
+		},
+		"spec changed - workloads not on a worker are not queued": {
+			workloads: []kueue.Workload{
+				*baseWl.Clone().Name("wl1").Obj(),
+			},
+			oldGeneration: 1,
+		},
+		"spec changed - finished workloads are not queued": {
+			workloads: []kueue.Workload{
+				*baseWl.Clone().Name("wl1").ClusterName("worker1").Finished().Obj(),
+				*baseWl.Clone().Name("wl2").ClusterName("worker1").Obj(),
+			},
+			oldGeneration:     1,
+			expectedQueuedWLs: []string{"wl2"},
+		},
+		"spec changed - evicted workloads are not queued": {
+			workloads: []kueue.Workload{
+				*baseWl.Clone().Name("wl1").ClusterName("worker1").EvictedAt(now).Obj(),
+				*baseWl.Clone().Name("wl2").ClusterName("worker1").Obj(),
+			},
+			oldGeneration:     1,
+			expectedQueuedWLs: []string{"wl2"},
+		},
+		"spec changed - deleted workloads are not queued": {
+			workloads: []kueue.Workload{
+				*baseWl.Clone().Name("wl1").ClusterName("worker1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					DeletionTimestamp(now).
+					Obj(),
+				*baseWl.Clone().Name("wl2").ClusterName("worker1").Obj(),
+			},
+			oldGeneration:     1,
+			expectedQueuedWLs: []string{"wl2"},
+		},
+		"spec changed - workloads of other jobs are not queued": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					OwnerReference(lwsGVK, "lws2", "lws2-uid").
+					ClusterName("worker1").
+					Obj(),
+			},
+			oldGeneration: 1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := getClientBuilder(ctx)
+			if err := jobframework.SetupWorkloadOwnerIndex(ctx, utiltesting.AsIndexer(clientBuilder), lwsGVK); err != nil {
+				t.Fatalf("Setting up the workload owner index: %v", err)
+			}
+			for i := range tc.workloads {
+				clientBuilder = clientBuilder.WithObjects(&tc.workloads[i])
+			}
+
+			handler := &localJobHandler{client: clientBuilder.Build(), gvk: lwsGVK, eventsBatchPeriod: time.Second}
+			mockQ := &utiltesting.MockTypedRateLimitingInterface{}
+
+			oldLWS := testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).Obj()
+			oldLWS.Generation = tc.oldGeneration
+			newLWS := oldLWS.DeepCopy()
+			newLWS.Generation = 2
+
+			handler.Update(ctx, event.UpdateEvent{ObjectOld: oldLWS, ObjectNew: newLWS}, mockQ)
+
+			var actualQueuedWLs []string
+			for _, req := range mockQ.Items {
+				actualQueuedWLs = append(actualQueuedWLs, req.Name)
+			}
+
+			if diff := cmp.Diff(tc.expectedQueuedWLs, actualQueuedWLs, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected queued workloads (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 type deferredSyncStubAdapter struct {
 	deferred bool
 	syncErr  error
