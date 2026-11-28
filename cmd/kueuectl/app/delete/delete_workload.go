@@ -201,6 +201,11 @@ func (g GroupVersionResourceRef) String() string {
 	return strings.Join([]string{g.GroupResource().String(), g.Name}, "/")
 }
 
+type workloadResources struct {
+	workload  *kueue.Workload
+	resources []GroupVersionResourceRef
+}
+
 // Run delete a resource
 func (o *WorkloadOptions) Run(ctx context.Context) error {
 	var (
@@ -222,7 +227,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		return nil
 	}
 
-	workloadResources, err := o.getWorkloadResources(workloads)
+	wlResources, err := o.getWorkloadResources(workloads)
 	if err != nil {
 		return err
 	}
@@ -232,7 +237,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		if o.DeleteAll {
 			confirmationMessage = "This operation will also delete the jobs associated with these workloads.\n"
 		} else {
-			confirmationMessage = o.generateConfirmationMessage(workloadResources)
+			confirmationMessage = o.generateConfirmationMessage(wlResources)
 		}
 
 		if !o.confirmation(confirmationMessage) {
@@ -241,7 +246,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		}
 	}
 
-	return o.deleteWorkloads(ctx, workloadResources)
+	return o.deleteWorkloads(ctx, wlResources)
 }
 
 func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workload, bool, error) {
@@ -301,11 +306,14 @@ func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*kueue.Workload, 
 	return workloads, haveAssociatedWorkloads, nil
 }
 
-func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) (map[*kueue.Workload][]GroupVersionResourceRef, error) {
-	workloadResources := make(map[*kueue.Workload][]GroupVersionResourceRef, len(workloads))
+func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) ([]workloadResources, error) {
+	res := make([]workloadResources, 0, len(workloads))
 
 	for _, wl := range workloads {
-		workloadResources[wl] = make([]GroupVersionResourceRef, 0, len(wl.OwnerReferences))
+		wlRes := workloadResources{
+			workload:  wl,
+			resources: make([]GroupVersionResourceRef, 0, len(wl.OwnerReferences)),
+		}
 
 		for _, or := range wl.OwnerReferences {
 			gv, err := schema.ParseGroupVersion(or.APIVersion)
@@ -318,37 +326,41 @@ func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) (map
 				return nil, err
 			}
 
-			workloadResources[wl] = append(workloadResources[wl], GroupVersionResourceRef{
+			wlRes.resources = append(wlRes.resources, GroupVersionResourceRef{
 				GroupVersionResource: mapping.Resource,
 				Name:                 or.Name,
 				UID:                  or.UID,
 			})
 		}
+
+		res = append(res, wlRes)
 	}
 
-	return workloadResources, nil
+	return res, nil
 }
 
-func (o *WorkloadOptions) generateConfirmationMessage(workloadResources map[*kueue.Workload][]GroupVersionResourceRef) string {
-	associatedResources := make([]string, 0, len(workloadResources))
+func (o *WorkloadOptions) generateConfirmationMessage(wlResources []workloadResources) string {
+	associatedResources := make([]string, 0, len(wlResources))
 
-	for wl, resources := range workloadResources {
-		names := make([]string, 0, len(resources))
-		for _, resource := range resources {
+	for _, wr := range wlResources {
+		if len(wr.resources) == 0 {
+			continue
+		}
+
+		names := make([]string, 0, len(wr.resources))
+		for _, resource := range wr.resources {
 			names = append(names, resource.String())
 		}
 
-		if len(names) > 0 {
-			associatedResource := fmt.Sprintf("  - %s associated with the %s/%s workload\n", strings.Join(names, ", "), wl.Namespace, wl.Name)
-			associatedResources = append(associatedResources, associatedResource)
-		}
+		associatedResource := fmt.Sprintf("  - %s associated with the %s/%s workload", strings.Join(names, ", "), wr.workload.Namespace, wr.workload.Name)
+		associatedResources = append(associatedResources, associatedResource)
 	}
 
 	if len(associatedResources) == 0 {
 		return ""
 	}
 
-	return fmt.Sprintf("This operation will also delete:\n%s", strings.Join(associatedResources, "\n"))
+	return fmt.Sprintf("This operation will also delete:\n%s\n", strings.Join(associatedResources, "\n"))
 }
 
 func (o *WorkloadOptions) confirmation(message string) bool {
@@ -364,8 +376,8 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 	return strings.EqualFold(input, "y")
 }
 
-func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*kueue.Workload][]GroupVersionResourceRef) error {
-	for wl, nrs := range workloadNameResources {
+func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, wlResources []workloadResources) error {
+	for _, wr := range wlResources {
 		// Like kubectl delete; otherwise deleting a batch/v1 Job orphans its Pods.
 		deleteOptions := metav1.DeleteOptions{
 			PropagationPolicy: new(metav1.DeletePropagationBackground),
@@ -375,11 +387,11 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 			deleteOptions.DryRun = []string{metav1.DryRunAll}
 		}
 
-		for _, nr := range nrs {
+		for _, nr := range wr.resources {
 			resourceDeleteOptions := deleteOptions
 			resourceDeleteOptions.Preconditions = &metav1.Preconditions{UID: &nr.UID}
 			if o.DryRunStrategy != dryrun.Client {
-				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wl.Namespace).
+				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wr.workload.Namespace).
 					Delete(ctx, nr.Name, resourceDeleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
 				}
@@ -388,13 +400,13 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 		}
 
 		// Remove workload only if we don't have corresponding Job(s).
-		if len(nrs) == 0 {
+		if len(wr.resources) == 0 {
 			if o.DryRunStrategy != dryrun.Client {
-				if err := o.Client.Workloads(wl.Namespace).Delete(ctx, wl.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
+				if err := o.Client.Workloads(wr.workload.Namespace).Delete(ctx, wr.workload.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
 				}
 			}
-			if err := o.PrintObj(wl, o.Out); err != nil {
+			if err := o.PrintObj(wr.workload, o.Out); err != nil {
 				return err
 			}
 		}

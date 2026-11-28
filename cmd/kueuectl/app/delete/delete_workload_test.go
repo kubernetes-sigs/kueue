@@ -163,6 +163,34 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 `,
 			wantDeleteUID: map[string]types.UID{"j1": "j1-uid"},
 		},
+		"should delete multiple workloads in input order with confirmation message and no blank lines": {
+			args:  []string{"wl2", "wl1"},
+			input: "y\n",
+			workloads: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "j1-uid").Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).OwnerReference(jobGVK, "j2", "j2-uid").Obj(),
+			},
+			jobs: []runtime.Object{
+				&bactchv1.Job{Name: "j1", Namespace: metav1.NamespaceDefault, UID: "j1-uid"},
+				&bactchv1.Job{Name: "j2", Namespace: metav1.NamespaceDefault, UID: "j2-uid"},
+			},
+			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "j1-uid").Obj(),
+				*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).OwnerReference(jobGVK, "j2", "j2-uid").Obj(),
+			},
+			wantJobList: &bactchv1.JobList{
+				Kind: "JobList", APIVersion: "batch/v1",
+				Items: []bactchv1.Job{},
+			},
+			wantOut: `This operation will also delete:
+  - jobs.batch/j2 associated with the default/wl2 workload
+  - jobs.batch/j1 associated with the default/wl1 workload
+Do you want to proceed (y/n)? jobs.batch/j2 deleted
+jobs.batch/j1 deleted
+`,
+			wantDeleteUID: map[string]types.UID{"j1": "j1-uid", "j2": "j2-uid"},
+		},
 		"should delete jobs corresponding to the workload with yes flag": {
 			args: []string{"wl1", "--yes"},
 			workloads: []runtime.Object{
