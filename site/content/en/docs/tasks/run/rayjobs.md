@@ -127,6 +127,8 @@ spec:
     enableInTreeAutoscaling: true
 ```
 
+See [Recommended autoscaler settings](/docs/tasks/run/rayclusters/#e-recommended-autoscaler-settings) to avoid partly admitted scale-ups and gated workers that wait for quota after the demand is gone.
+
 ### Example RayJob with Autoscaling
 
 In this example, the code is provided to the Ray framework via a ConfigMap.
