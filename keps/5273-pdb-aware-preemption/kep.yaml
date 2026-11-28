@@ -1,0 +1,36 @@
+title: Prefer preemption victims whose PodDisruptionBudgets allow the disruption
+kep-number: 5273
+authors:
+  - "@kckang1103"
+status: provisional
+creation-date: 2026-11-02
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/83-workload-preemption"
+  - "/keps/976-plain-pods"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done.
+latest-milestone: "v0.22"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.22"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: PreemptionRespectsPodDisruptionBudgets
+disable-supported: true
+
+# The following PRR answers are required at beta release
+metrics:
+  - kueue_preemption_pdb_exceeded_total
+  - kueue_preemption_pdb_lookup_errors_total
