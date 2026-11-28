@@ -283,80 +283,96 @@ func ExpectedPodSetsCount(rayClusterSpec *rayv1.RayClusterSpec) int {
 }
 
 func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string) ([]kueue.PodSet, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Only update podSets from RayCluster if:
-	// 1. The service is workload slicing enabled
-	// 2. AND the service has enableInTreeAutoscaling
-	if workloadslicing.Enabled(object) && ptr.Deref(enableInTreeAutoscaling, false) {
-		// If rayClusterName is set, try to fetch the RayCluster and update PodSets from it
-		if rayClusterName != "" {
-			var rayClusterObj rayv1.RayCluster
-			err := c.Get(ctx, types.NamespacedName{
-				Namespace: object.GetNamespace(),
-				Name:      rayClusterName,
-			}, &rayClusterObj)
-			if err != nil {
-				// Check if the error is a NotFound error
-				if apierrors.IsNotFound(err) {
-					log.V(3).Info("RayCluster not found, skipping PodSet count update from RayCluster",
-						"rayCluster", klog.KRef(object.GetNamespace(), rayClusterName))
-					// On a MultiKueue manager the child RayCluster only exists on
-					// the worker cluster; its per-group counts are reflected here
-					// as an annotation by the MultiKueue workload controller.
-					// Anywhere else NotFound is transient (the child is not
-					// created yet) and the spec-derived counts stand.
-					if isManagedByMultiKueue(object) {
-						return applyRuntimeCountsAnnotation(log, podSets, object), nil
-					}
-					return podSets, nil
-				}
-				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
-			} else {
-				// Create a map of podSets from Ray object spec for quick lookup by name
-				podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
-				for i := range podSets {
-					podSetMap[podSets[i].Name] = &podSets[i]
-				}
-
-				// Iterate through RayCluster's worker groups and update the count in matching podSets
-				for i := range rayClusterObj.Spec.WorkerGroupSpecs {
-					wgs := &rayClusterObj.Spec.WorkerGroupSpecs[i]
-					podSetName := kueue.NewPodSetReference(wgs.GroupName)
-
-					podSet, exists := podSetMap[podSetName]
-					if !exists {
-						return nil, fmt.Errorf("%w: RayCluster %s has worker group %s which is not found in Ray object %s spec", errPodSetNameMismatch, rayClusterName, wgs.GroupName, object.GetName())
-					}
-
-					if wgs.Replicas == nil {
-						continue
-					}
-
-					count := effectiveWorkerCount(wgs)
-
-					// Update the count in the PodSet only if it's different
-					if podSet.Count != count {
-						log.V(4).Info("Updated PodSet worker count from RayCluster",
-							"rayCluster", klog.KRef(object.GetNamespace(), rayClusterName),
-							"workerGroup", wgs.GroupName,
-							"previousCount", podSet.Count,
-							"count", count)
-						podSet.Count = count
-						if features.Enabled(features.TopologyAwareScheduling) {
-							topologyRequest, err := buildWorkerTopologyRequest(wgs)
-							if err != nil {
-								return nil, err
-							}
-							podSet.TopologyRequest = topologyRequest
-						}
-					}
-				}
-			}
-		}
+	// Only update podSets from RayCluster if the object is workload slicing
+	// enabled, has enableInTreeAutoscaling, and its RayCluster name is known.
+	if !workloadslicing.Enabled(object) || !ptr.Deref(enableInTreeAutoscaling, false) || rayClusterName == "" {
+		return podSets, nil
 	}
 
+	log := ctrl.LoggerFrom(ctx)
+	rayCluster, found, err := getRayCluster(ctx, c, object.GetNamespace(), rayClusterName)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		log.V(3).Info("RayCluster not found, skipping PodSet count update from RayCluster",
+			"rayCluster", klog.KRef(object.GetNamespace(), rayClusterName))
+		// On a MultiKueue manager the child RayCluster only exists on
+		// the worker cluster; its per-group counts are reflected here
+		// as an annotation by the MultiKueue workload controller.
+		// Anywhere else NotFound is transient (the child is not
+		// created yet) and the spec-derived counts stand.
+		if isManagedByMultiKueue(object) {
+			return applyRuntimeCountsAnnotation(log, podSets, object), nil
+		}
+		return podSets, nil
+	}
+
+	if err := applyWorkerGroupCounts(log, podSets, rayCluster, object); err != nil {
+		return nil, err
+	}
 	return podSets, nil
+}
+
+// getRayCluster fetches the RayCluster, reporting found=false when it does not exist.
+func getRayCluster(ctx context.Context, c client.Client, namespace, name string) (*rayv1.RayCluster, bool, error) {
+	var rayCluster rayv1.RayCluster
+	if err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &rayCluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed to get RayCluster %s: %w", name, err)
+	}
+	return &rayCluster, true, nil
+}
+
+// applyWorkerGroupCounts updates, in place, the count of each PodSet that
+// matches a RayCluster worker group with replicas set.
+func applyWorkerGroupCounts(log logr.Logger, podSets []kueue.PodSet, rayCluster *rayv1.RayCluster, object client.Object) error {
+	podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet, len(podSets))
+	for i := range podSets {
+		podSetMap[podSets[i].Name] = &podSets[i]
+	}
+
+	for i := range rayCluster.Spec.WorkerGroupSpecs {
+		wgs := &rayCluster.Spec.WorkerGroupSpecs[i]
+		podSet, exists := podSetMap[kueue.NewPodSetReference(wgs.GroupName)]
+		if !exists {
+			return fmt.Errorf("%w: RayCluster %s has worker group %s which is not found in Ray object %s spec", errPodSetNameMismatch, rayCluster.Name, wgs.GroupName, object.GetName())
+		}
+		if err := syncPodSetWithWorkerGroup(log, podSet, wgs, rayCluster); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// syncPodSetWithWorkerGroup sets the PodSet count from the worker group, and
+// rebuilds its topology request when the count changes.
+func syncPodSetWithWorkerGroup(log logr.Logger, podSet *kueue.PodSet, wgs *rayv1.WorkerGroupSpec, rayCluster *rayv1.RayCluster) error {
+	if wgs.Replicas == nil {
+		return nil
+	}
+	count := effectiveWorkerCount(wgs)
+	if podSet.Count == count {
+		return nil
+	}
+
+	log.V(4).Info("Updated PodSet worker count from RayCluster",
+		"rayCluster", klog.KObj(rayCluster),
+		"workerGroup", wgs.GroupName,
+		"previousCount", podSet.Count,
+		"count", count)
+	podSet.Count = count
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return nil
+	}
+	topologyRequest, err := buildWorkerTopologyRequest(wgs)
+	if err != nil {
+		return err
+	}
+	podSet.TopologyRequest = topologyRequest
+	return nil
 }
 
 func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
