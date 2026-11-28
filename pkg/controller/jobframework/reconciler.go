@@ -1403,10 +1403,13 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 		}
 
-		// Workload slices allow modifications only to PodSet.Count.
-		// Any other changes will result in the slice being marked as incompatible,
-		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := r.workloadSlices.EnsureWorkloadSlices(ctx, podSets, object, job.GVK())
+		// Only replica counts may change on an existing slice. A pod set template
+		// change is incompatible, so the fallback below stops a running job and
+		// replaces the Workload instead of ungating pods the admitted slice does
+		// not account.
+		wl, compatible, err := r.workloadSlices.EnsureWorkloadSlices(ctx, podSets, object, job.GVK(), func(wl *kueue.Workload) (bool, error) {
+			return r.workloadSliceTemplateMatches(ctx, job, podSets, wl)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -1990,23 +1993,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, err
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
-
-	opts := make([]equality.ComparePodSetsOption, 0, 4)
-	if workload.IsAdmitted(wl) {
-		opts = append(opts, equality.WithIgnoreTolerations())
-	}
-	// A running Job may have been admitted before RuntimeClassName became part
-	// of this comparison. Keep its reservation while Pods may still be running;
-	// otherwise an upgrade could finish the Workload and release its quota first.
-	if workload.HasQuotaReservation(wl) && (!job.IsSuspended() || job.IsActive()) {
-		opts = append(opts, equality.WithIgnoreRuntimeClassName())
-	}
-	if !features.Enabled(features.TopologyAwareScheduling) || admittedWithoutTAS(wl) {
-		opts = append(opts, equality.WithIgnoreTopologyRequest())
-	}
-	if optJob, ok := job.(JobWithCustomEquivalenceOptions); ok {
-		opts = append(opts, optJob.CustomEquivalenceOptions(ctx, c, wl)...)
-	}
+	opts := podSetEquivalenceOptions(ctx, c, job, wl)
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
 		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, opts...) {
@@ -2027,6 +2014,56 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 // did not affect where its Pods run, so a mismatch must not stop the job.
 func admittedWithoutTAS(wl *kueue.Workload) bool {
 	return workload.IsAdmitted(wl) && !workload.IsAdmittedByTAS(wl)
+}
+
+// podSetEquivalenceOptions returns the PodSet comparison options shared by
+// EquivalentToWorkload and the elastic slice template check.
+func podSetEquivalenceOptions(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) []equality.ComparePodSetsOption {
+	opts := make([]equality.ComparePodSetsOption, 0, 4)
+	if workload.IsAdmitted(wl) {
+		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+	// A running Job may have been admitted before RuntimeClassName became part
+	// of this comparison. Keep its reservation while Pods may still be running;
+	// otherwise an upgrade could finish the Workload and release its quota first.
+	if workload.HasQuotaReservation(wl) && (!job.IsSuspended() || job.IsActive()) {
+		opts = append(opts, equality.WithIgnoreRuntimeClassName())
+	}
+	if !features.Enabled(features.TopologyAwareScheduling) || admittedWithoutTAS(wl) {
+		opts = append(opts, equality.WithIgnoreTopologyRequest())
+	}
+	if optJob, ok := job.(JobWithCustomEquivalenceOptions); ok {
+		opts = append(opts, optJob.CustomEquivalenceOptions(ctx, c, wl)...)
+	}
+	return opts
+}
+
+// workloadSliceTemplateMatches reports whether wl's pod sets still describe the
+// job aside from replica counts. A template change is not a scale.
+func (r *JobReconciler) workloadSliceTemplateMatches(ctx context.Context, job GenericJob, jobPodSets []kueue.PodSet, wl *kueue.Workload) (bool, error) {
+	if podSetsMatchIgnoringScale(ctx, r.client, job, wl, jobPodSets) {
+		return true, nil
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Pod set template changed on an elastic job; the workload slice is incompatible", "workload", klog.KObj(wl))
+	return false, nil
+}
+
+// podSetsMatchIgnoringScale compares the job's pod sets to the workload's,
+// ignoring Count and MinCount. An admitted workload is compared to the pod
+// sets it is running, which include the admission, and a suspended job falls
+// back to the stored spec the same way EquivalentToWorkload does.
+func podSetsMatchIgnoringScale(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, jobPodSets []kueue.PodSet) bool {
+	opts := podSetEquivalenceOptions(ctx, c, job, wl)
+	if running := expectedRunningPodSets(ctx, c, wl); running != nil {
+		if equality.ComparePodSetsIgnoringScale(jobPodSets, running, opts...) {
+			return true
+		}
+		if job.IsSuspended() {
+			return equality.ComparePodSetsIgnoringScale(jobPodSets, wl.Spec.PodSets, opts...)
+		}
+		return false
+	}
+	return equality.ComparePodSetsIgnoringScale(jobPodSets, wl.Spec.PodSets, opts...)
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {

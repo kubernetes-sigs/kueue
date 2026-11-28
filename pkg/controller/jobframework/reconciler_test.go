@@ -213,6 +213,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		workloadCreateErr error
 		wantErr           error
 		wantErrIs         error
+		expectStop        bool
 	}{
 		"job whose workload the cache has not seen yet is not an error": {
 			req:               baseReq,
@@ -616,6 +617,59 @@ func TestReconcileGenericJob(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*baseWl.Clone().Name("job-test-job-1").Obj(),
 			},
+		},
+		"running admitted elastic job is stopped when the pod set template changes": {
+			req: baseReq,
+			job: baseJob.Clone().
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			objs: []client.Object{
+				runningAdmittedElasticWorkload.DeepCopy(),
+			},
+			expectStop:    true,
+			wantErrIs:     ErrNoMatchingWorkloads,
+			wantWorkloads: []kueue.Workload{},
+		},
+		"running admitted elastic job keeps its slice when only tolerations differ": {
+			req: baseReq,
+			job: baseJob.Clone().
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 1).Toleration(corev1.Toleration{
+					Key:      "dedicated",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "spark",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).Obj(),
+			},
+			objs: []client.Object{
+				runningAdmittedElasticWorkload.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*wantRunningAdmittedElasticWorkload,
+			},
+		},
+		"running admitted elastic job is stopped when a scale-up also changes the pod set template": {
+			req: baseReq,
+			job: baseJob.Clone().
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			objs: []client.Object{
+				runningAdmittedElasticWorkload.DeepCopy(),
+			},
+			expectStop:    true,
+			wantErrIs:     ErrNoMatchingWorkloads,
+			wantWorkloads: []kueue.Workload{},
 		},
 		"running admitted elastic job does not refresh PodSets or emit another admission event": {
 			req: baseReq,
@@ -1288,6 +1342,10 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any(), gomock.Any()).Return(false).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
+			if tc.expectStop {
+				mgj.EXPECT().Suspend()
+				mgj.EXPECT().RestorePodSetsInfo(gomock.Any(), gomock.Any()).Return(false)
+			}
 
 			var genericJob GenericJob = mgj
 			if tc.nameExtraPart != nil {

@@ -534,3 +534,56 @@ func TestComparePodSetSlices(t *testing.T) {
 		})
 	}
 }
+
+func TestComparePodSetsIgnoringScale(t *testing.T) {
+	cases := map[string]struct {
+		a    []kueue.PodSet
+		b    []kueue.PodSet
+		want bool
+	}{
+		"same template, different count": {
+			a:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "500m").Obj()},
+			b:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "500m").Obj()},
+			want: true,
+		},
+		"same template, different minCount": {
+			a:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "500m").SetMinimumCount(1).Obj()},
+			b:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "500m").SetMinimumCount(3).Obj()},
+			want: true,
+		},
+		"different cpu request, same count": {
+			a:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "500m").Obj()},
+			b:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "1").Obj()},
+			want: false,
+		},
+		"different cpu request and count": {
+			a:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "500m").Obj()},
+			b:    []kueue.PodSet{*utiltestingapi.MakePodSet("main", 3).Request(corev1.ResourceCPU, "1").Obj()},
+			want: false,
+		},
+		"matched by name when the order differs": {
+			a: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("executor", 3).Request(corev1.ResourceCPU, "500m").Obj(),
+				*utiltestingapi.MakePodSet("driver", 1).Request(corev1.ResourceCPU, "500m").Obj(),
+			},
+			b: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("driver", 1).Request(corev1.ResourceCPU, "500m").Obj(),
+				*utiltestingapi.MakePodSet("executor", 2).Request(corev1.ResourceCPU, "500m").Obj(),
+			},
+			want: true,
+		},
+		"different pod set name": {
+			a:    []kueue.PodSet{*utiltestingapi.MakePodSet("executor", 1).Request(corev1.ResourceCPU, "500m").Obj()},
+			b:    []kueue.PodSet{*utiltestingapi.MakePodSet("driver", 1).Request(corev1.ResourceCPU, "500m").Obj()},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := ComparePodSetsIgnoringScale(tc.a, tc.b)
+			if got != tc.want {
+				t.Errorf("ComparePodSetsIgnoringScale() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}

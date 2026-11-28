@@ -43,7 +43,15 @@ type Manager struct {
 	RoleTracker  *roletracker.RoleTracker
 }
 
+// PodSetTemplateMatches reports whether wl's pod sets match the job's aside from
+// replica counts. False means the slice is incompatible. Nil skips the check.
+type PodSetTemplateMatches func(wl *kueue.Workload) (bool, error)
+
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
+//
+// templatesMatch reports a pod set template change. Only replica counts may
+// change on an existing slice; a template change is incompatible and no slice
+// is updated or created. Nil skips that check.
 //
 // Returns:
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
@@ -54,6 +62,7 @@ func (r *Manager) EnsureWorkloadSlices(
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
 	jobObjectGVK schema.GroupVersionKind,
+	templatesMatch PodSetTemplateMatches,
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
@@ -64,7 +73,9 @@ func (r *Manager) EnsureWorkloadSlices(
 
 	// An evicted slice can still own running Pods. Return it to the job
 	// reconciler until its reservation is released, unless an admitted
-	// replacement has already taken ownership of those Pods.
+	// replacement has already taken ownership of those Pods. A pod set
+	// template change is compared once that reservation is gone, so the
+	// quota stays with the pods that are still running.
 	for i := range workloads {
 		wl := &workloads[i]
 		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
@@ -89,8 +100,14 @@ func (r *Manager) EnsureWorkloadSlices(
 		wl := &workloads[0]
 		wlPodSetsCounts := workload.ExtractPodSetCountsFromWorkload(wl)
 
-		// Check if pod sets are structurally compatible (same number and names).
+		// Pod set names must match. A template change is not a scale: leave the
+		// slice unchanged so the caller can replace the Workload.
 		if !jobPodSetsCounts.HasSamePodSetKeys(wlPodSetsCounts) {
+			return nil, false, nil
+		}
+		if ok, err := podSetTemplateMatches(wl, templatesMatch); err != nil {
+			return nil, true, fmt.Errorf("comparing pod set template: %w", err)
+		} else if !ok {
 			return nil, false, nil
 		}
 
@@ -134,6 +151,24 @@ func (r *Manager) EnsureWorkloadSlices(
 		return nil, true, nil
 
 	default:
+		// Reject a template change before normalizeActiveSlices finishes the
+		// other slices. An evicted slice that still reserves quota is handled
+		// above and is left in place.
+		for i := range workloads {
+			wl := &workloads[i]
+			if workloadevict.IsEvicted(wl) && workload.HasQuotaReservation(wl) {
+				continue
+			}
+			if !jobPodSetsCounts.HasSamePodSetKeys(workload.ExtractPodSetCountsFromWorkload(wl)) {
+				continue
+			}
+			if ok, err := podSetTemplateMatches(wl, templatesMatch); err != nil {
+				return nil, true, fmt.Errorf("comparing pod set template: %w", err)
+			} else if !ok {
+				return nil, false, nil
+			}
+		}
+
 		selectedWorkload, err := normalizeActiveSlices(ctx, r.Client, r.Clock, workloads)
 		if err != nil {
 			return nil, true, err
@@ -171,4 +206,13 @@ func (r *Manager) EnsureWorkloadSlices(
 		// Scale-up on admitted selected workload — create a new slice.
 		return nil, true, nil
 	}
+}
+
+// podSetTemplateMatches reports whether the slice's pod set template still
+// matches the job. A nil check skips the comparison.
+func podSetTemplateMatches(wl *kueue.Workload, match PodSetTemplateMatches) (bool, error) {
+	if match == nil {
+		return true, nil
+	}
+	return match(wl)
 }
