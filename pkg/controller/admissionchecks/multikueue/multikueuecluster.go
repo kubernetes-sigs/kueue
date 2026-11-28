@@ -98,6 +98,8 @@ const (
 	// not exercise that path today; the cap is a guard. See #11206.
 	initialEstablishTimeout = 1 * time.Minute
 	maxEstablishTimeout     = 10 * time.Minute
+
+	watchTimeoutJitterFactor = 0.5
 )
 
 var (
@@ -195,6 +197,8 @@ type remoteClient struct {
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
+	// watchTimeout is the timeout requested for each watch. If 0, the API server picks it.
+	watchTimeout time.Duration
 
 	watchEstablishing atomic.Bool
 
@@ -489,8 +493,9 @@ func (cw *cancelOnStopWatcher) Stop() {
 	cw.cancel()
 }
 
-// establishWatch opens a MultiKueue remote watch, bounded by the given
-// timeout. On timeout the in-flight Watch is canceled and
+// establishWatch opens a MultiKueue remote watch that the API server ends after
+// watchTimeout plus up to 50% jitter, or after its own default if watchTimeout is 0. Opening it is
+// bounded by the given timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
 func establishWatch(
@@ -498,6 +503,7 @@ func establishWatch(
 	c client.WithWatch,
 	obj client.ObjectList,
 	origin string,
+	watchTimeout time.Duration,
 	timeout time.Duration,
 	establishing *atomic.Bool,
 	shouldWatchHonorsCancellation bool,
@@ -515,7 +521,7 @@ func establishWatch(
 	go func() {
 		w, err := c.Watch(establishCtx, obj,
 			client.MatchingLabels{kueue.MultiKueueOriginLabel: origin},
-			&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true}},
+			&client.ListOptions{Raw: &metav1.ListOptions{AllowWatchBookmarks: true, TimeoutSeconds: watchTimeoutSeconds(watchTimeout)}},
 		)
 		resultCh <- result{w: w, err: err}
 	}()
@@ -545,10 +551,29 @@ func establishWatch(
 	}
 }
 
+// watchTimeoutSeconds adds up to 50% jitter, like the API server's own default,
+// so that watches opened at the same time, e.g. after a manager restart, do not
+// all expire and reconnect at the same time.
+func watchTimeoutSeconds(d time.Duration) *int64 {
+	if d <= 0 {
+		return nil
+	}
+	return new(int64(apiwait.Jitter(d, watchTimeoutJitterFactor).Seconds()))
+}
+
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
 	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing, shouldWatchHonorsCancellation)
+	newWatcher, err := establishWatch(
+		ctx,
+		rc.client,
+		w.GetEmptyList(),
+		rc.origin,
+		rc.watchTimeout,
+		establishBackoff.WaitTime(int(rc.failedConnAttempts)+1),
+		&rc.watchEstablishing,
+		shouldWatchHonorsCancellation,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -919,6 +944,10 @@ type clustersReconciler struct {
 	// the multikueue-origin value used
 	origin string
 
+	// watchTimeout - the timeout requested for each watch on a worker cluster.
+	// If 0, the worker's API server picks it.
+	watchTimeout time.Duration
+
 	// rootContext - holds the context passed by the controller-runtime on Start.
 	// It's used to create child contexts for MultiKueueClusters client watch routines
 	// that will gracefully end when the controller-manager stops.
@@ -1008,6 +1037,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	client, found := c.remoteClients[clusterName]
 	if !found {
 		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
+		client.watchTimeout = c.watchTimeout
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -1431,6 +1461,7 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 type clustersReconcilerOptions struct {
 	gcInterval                   time.Duration
 	origin                       string
+	watchTimeout                 time.Duration
 	fsWatcher                    *KubeConfigFSWatcher
 	adapters                     map[string]jobframework.MultiKueueAdapter
 	clusterProfileAccessProvider clusterProfileAccessProvider
@@ -1451,6 +1482,12 @@ func withGCInterval(gcInterval time.Duration) clustersReconcilerOption {
 func withOrigin(origin string) clustersReconcilerOption {
 	return func(o *clustersReconcilerOptions) {
 		o.origin = origin
+	}
+}
+
+func withWorkerWatchTimeout(d time.Duration) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.watchTimeout = d
 	}
 }
 
@@ -1521,6 +1558,7 @@ func newClustersReconciler(
 		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
 		gcInterval:                   options.gcInterval,
 		origin:                       options.origin,
+		watchTimeout:                 options.watchTimeout,
 		fsWatcher:                    options.fsWatcher,
 		adapters:                     options.adapters,
 		clusterProfileAccessProvider: options.clusterProfileAccessProvider,
