@@ -341,10 +341,16 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	log := ctrl.LoggerFrom(ctx)
 	cqNames := c.hm.ClusterQueues()
+	// An inactive ClusterQueue cannot admit, but its admitted Workloads still count in the Cohort's usage.
+	// It stays in the tree, so that the quota it borrows can be reclaimed by preempting them.
+	keepInTree := sets.New[kueue.ClusterQueueReference]()
 	for _, cq := range cqNames {
 		if reason := skipInactiveCQReason(cq); reason != "" {
 			log.V(3).Info("Skipping ClusterQueue", "clusterQueue", klog.KRef("", string(cq.Name)), "reason", reason)
 			snap.InactiveClusterQueueSets.Insert(cq.Name)
+			if reason == inactiveCQReasonNotActive {
+				keepInTree.Insert(cq.Name)
+			}
 			continue
 		}
 	}
@@ -405,7 +411,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		}
 	}
 	for _, cq := range cqNames {
-		if snap.InactiveClusterQueueSets.Has(cq.Name) {
+		if snap.InactiveClusterQueueSets.Has(cq.Name) && !keepInTree.Has(cq.Name) {
 			continue
 		}
 		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsUsageLedger)
@@ -510,15 +516,16 @@ func (c *Cache) snapshotTopologyDomainUsages(
 // admitting workloads in this scheduler snapshot. If the CQ can be considered,
 // an empty reason is returned.
 func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
-	if !cq.Active() {
-		return inactiveCQReasonNotActive
-	}
+	// NotActive is checked last: it is the only reason that keeps the ClusterQueue in the snapshot tree, and a ClusterQueue in a cycle is also not active.
 	if cq.HasParent() && hierarchy.HasCycle(cq.Parent()) {
 		return inactiveCQReasonHasCycle
 	}
 	if features.Enabled(features.TopologyAwareScheduling) && len(cq.tasFlavors) > 0 && !cq.isTASSynced {
 		// The CQ uses a TAS flavor, but TAS usage is not synced yet.
 		return inactiveCQReasonTASUsageNotSynced
+	}
+	if !cq.Active() {
+		return inactiveCQReasonNotActive
 	}
 	return ""
 }

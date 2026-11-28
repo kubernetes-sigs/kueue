@@ -1174,6 +1174,289 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
+// TestSnapshotTreeMembershipOfInactiveClusterQueues checks which ClusterQueues the snapshot keeps in the Cohort tree.
+// TestSnapshot ignores the unexported fields of the hierarchy, so it does not check the edges.
+func TestSnapshotTreeMembershipOfInactiveClusterQueues(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	testCases := map[string]struct {
+		cqs     []*kueue.ClusterQueue
+		cohorts []*kueue.Cohort
+		rfs     []*kueue.ResourceFlavor
+		wls     []*kueue.Workload
+		// deletedRFs are deleted from the cache after the ClusterQueues and Workloads are added.
+		deletedRFs []kueue.ResourceFlavorReference
+		// terminatingCQs are marked as terminating, as the ClusterQueue controller does when the ClusterQueue is being deleted.
+		terminatingCQs []kueue.ClusterQueueReference
+		// wantCohortCycle means the Cohorts close a cycle, which the cache reports as ErrCohortHasCycle.
+		wantCohortCycle bool
+		featureGates    map[featuregate.Feature]bool
+		// wantChildCQs lists the ClusterQueues of each Cohort in the snapshot tree.
+		wantChildCQs map[kueue.CohortReference][]kueue.ClusterQueueReference
+		wantInactive sets.Set[kueue.ClusterQueueReference]
+		// wantCohortUsage is the usage of each Cohort, and also the sum of the usage of its ClusterQueues in the snapshot tree.
+		// The cases set no lending limits, so all of a ClusterQueue's usage counts in its Cohort.
+		wantCohortUsage map[kueue.CohortReference]resources.FlavorResourceQuantities
+	}{
+		"active clusterQueue in a cohort": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("borrowing", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "6").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			wantChildCQs: map[kueue.CohortReference][]kueue.ClusterQueueReference{
+				"cohort": {"cq", "lender"},
+			},
+			wantCohortUsage: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"cohort": {{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000)},
+			},
+		},
+		"clusterQueue with stopPolicy Hold in a cohort": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("held").
+					Cohort("cohort").
+					StopPolicy(kueue.Hold).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("borrowing", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "6").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("held").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			wantChildCQs: map[kueue.CohortReference][]kueue.ClusterQueueReference{
+				"cohort": {"held", "lender"},
+			},
+			wantInactive: sets.New[kueue.ClusterQueueReference]("held"),
+			wantCohortUsage: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"cohort": {{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000)},
+			},
+		},
+		"terminating clusterQueue in a cohort": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("terminating").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("borrowing", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "6").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("terminating").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			terminatingCQs: []kueue.ClusterQueueReference{"terminating"},
+			wantChildCQs: map[kueue.CohortReference][]kueue.ClusterQueueReference{
+				"cohort": {"lender", "terminating"},
+			},
+			wantInactive: sets.New[kueue.ClusterQueueReference]("terminating"),
+			wantCohortUsage: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"cohort": {{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000)},
+			},
+		},
+		"clusterQueue with a deleted resourceFlavor in a cohort": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("missing-flavor").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("deleted").Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("lender").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("default").Obj(),
+				utiltestingapi.MakeResourceFlavor("deleted").Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("borrowing", "").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "6").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("missing-flavor").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "6").Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			deletedRFs: []kueue.ResourceFlavorReference{"deleted"},
+			wantChildCQs: map[kueue.CohortReference][]kueue.ClusterQueueReference{
+				"cohort": {"lender", "missing-flavor"},
+			},
+			wantInactive: sets.New[kueue.ClusterQueueReference]("missing-flavor"),
+			wantCohortUsage: map[kueue.CohortReference]resources.FlavorResourceQuantities{
+				"cohort": {{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000)},
+			},
+		},
+		"clusterQueue in a cohort cycle": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").Cohort("cycle-a").Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+				utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+			},
+			wantCohortCycle: true,
+			wantInactive:    sets.New[kueue.ClusterQueueReference]("cq"),
+		},
+		"clusterQueue with unsynced TAS usage in a cohort": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj(),
+			},
+			// The Topology does not exist, so the TAS cache of the flavor is not initialized.
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName("missing-topology").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			wantChildCQs: map[kueue.CohortReference][]kueue.ClusterQueueReference{
+				"cohort": nil,
+			},
+			wantInactive: sets.New[kueue.ClusterQueueReference]("cq"),
+		},
+		"clusterQueue with stopPolicy Hold in a cohort cycle": {
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("held").Cohort("cycle-a").StopPolicy(kueue.Hold).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+				utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+			},
+			wantCohortCycle: true,
+			wantInactive:    sets.New[kueue.ClusterQueueReference]("held"),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			for _, rf := range tc.rfs {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			cycleErrs := 0
+			for _, cohort := range tc.cohorts {
+				if err := cache.AddOrUpdateCohort(cohort); err != nil {
+					if !tc.wantCohortCycle || !errors.Is(err, ErrCohortHasCycle) {
+						t.Fatalf("Failed adding Cohort %q: %v", cohort.Name, err)
+					}
+					cycleErrs++
+				}
+			}
+			if tc.wantCohortCycle && cycleErrs == 0 {
+				t.Fatal("Expected the Cohorts to form a cycle, but no Cohort reported ErrCohortHasCycle")
+			}
+			for _, cq := range tc.cqs {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding ClusterQueue: %v", err)
+				}
+			}
+			for _, wl := range tc.wls {
+				cache.AddOrUpdateWorkload(ctx, log, wl)
+			}
+			for _, rfName := range tc.deletedRFs {
+				cache.DeleteResourceFlavor(log, utiltestingapi.MakeResourceFlavor(string(rfName)).Obj())
+			}
+			for _, cqName := range tc.terminatingCQs {
+				cache.TerminateClusterQueue(cqName)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			gotChildCQs := make(map[kueue.CohortReference][]kueue.ClusterQueueReference)
+			gotCohortUsage := make(map[kueue.CohortReference]resources.FlavorResourceQuantities)
+			gotChildCQsUsage := make(map[kueue.CohortReference]resources.FlavorResourceQuantities)
+			for cohortName, cohort := range snapshot.Cohorts() {
+				gotChildCQs[cohortName] = nil
+				gotCohortUsage[cohortName] = cohort.ResourceNode.Usage
+				childCQsUsage := make(resources.FlavorResourceQuantities)
+				for _, cq := range cohort.ChildCQs() {
+					gotChildCQs[cohortName] = append(gotChildCQs[cohortName], cq.Name)
+					for fr, amount := range cq.ResourceNode.Usage {
+						childCQsUsage[fr] = childCQsUsage[fr].Add(amount)
+					}
+				}
+				slices.Sort(gotChildCQs[cohortName])
+				gotChildCQsUsage[cohortName] = childCQsUsage
+			}
+			if diff := cmp.Diff(tc.wantChildCQs, gotChildCQs, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected ClusterQueues of Cohorts in the snapshot tree (-want,+got):\n%s", diff)
+			}
+
+			for _, cq := range tc.cqs {
+				cqName := kueue.ClusterQueueReference(cq.Name)
+				var wantParent kueue.CohortReference
+				for cohortName, childCQs := range tc.wantChildCQs {
+					if slices.Contains(childCQs, cqName) {
+						wantParent = cohortName
+					}
+				}
+				cqSnapshot := snapshot.ClusterQueue(cqName)
+				switch {
+				case wantParent == "" && cqSnapshot != nil:
+					t.Errorf("ClusterQueue %q is in the snapshot, want it left out", cqName)
+				case wantParent != "" && cqSnapshot == nil:
+					t.Errorf("ClusterQueue %q is missing from the snapshot, want it in Cohort %q", cqName, wantParent)
+				case wantParent != "" && (!cqSnapshot.HasParent() || cqSnapshot.Parent().GetName() != wantParent):
+					t.Errorf("ClusterQueue %q is not a child of Cohort %q in the snapshot", cqName, wantParent)
+				}
+			}
+
+			if diff := cmp.Diff(tc.wantInactive, snapshot.InactiveClusterQueueSets, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected InactiveClusterQueueSets (-want,+got):\n%s", diff)
+			}
+
+			if tc.wantCohortUsage != nil {
+				if diff := cmp.Diff(tc.wantCohortUsage, gotCohortUsage, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected usage of Cohorts in the snapshot (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantCohortUsage, gotChildCQsUsage, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected usage of the ClusterQueues of Cohorts in the snapshot tree (-want,+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
 func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	testCases := map[string]struct {
