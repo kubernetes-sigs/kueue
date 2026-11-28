@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // mintPod simulates a completion index; draining removes the highest indexes first.
@@ -371,7 +372,7 @@ var _ = ginkgo.Describe("Job partial preemption", ginkgo.Ordered, ginkgo.Continu
 
 		ginkgo.By("requesting reclaim when the preemptor arrives", func() {
 			behavioral.MustCreate(ctx, k8sClient, preemptor)
-			// Wait for the preemptor to be admitted; band-wise correctness is checked below.
+			integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "low-02"})
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 		})
 
