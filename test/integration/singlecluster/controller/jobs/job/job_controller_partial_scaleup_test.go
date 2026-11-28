@@ -320,6 +320,7 @@ var _ = ginkgo.Describe("Job with partial replica scale-up for elastic jobs", gi
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, preemptor)
 		behavioral.ExpectWorkloadsToBePreempted(ctx, k8sClient, partialSlice)
+		integration.AcknowledgeJobSuspension(ctx, k8sClient, client.ObjectKeyFromObject(testJob))
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 
 		ginkgo.By("the job is suspended on the eviction of its slice")
