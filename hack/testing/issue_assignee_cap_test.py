@@ -18,6 +18,7 @@
 
 import os
 import sys
+import tempfile
 import unittest
 import urllib.parse
 
@@ -58,6 +59,7 @@ class TestIssueAssigneeCap(unittest.TestCase):
             token="test-token",
             max_cap=8,
             request_fn=fake_request,
+            exempt_users=set(),
         )
 
         self.assertEqual(len(calls), 1)
@@ -85,6 +87,7 @@ class TestIssueAssigneeCap(unittest.TestCase):
             token="test-token",
             max_cap=8,
             request_fn=fake_request,
+            exempt_users=set(),
         )
 
         self.assertEqual(len(calls), 3)
@@ -125,6 +128,7 @@ class TestIssueAssigneeCap(unittest.TestCase):
             token="test-token",
             max_cap=8,
             request_fn=fake_request,
+            exempt_users=set(),
         )
 
         self.assertEqual(len(calls), 1)
@@ -149,6 +153,7 @@ class TestIssueAssigneeCap(unittest.TestCase):
             token="test-token",
             max_cap=8,
             request_fn=fake_request,
+            exempt_users=set(),
         )
 
         # 2 GET pages + 1 DELETE + 1 POST
@@ -162,6 +167,80 @@ class TestIssueAssigneeCap(unittest.TestCase):
         self.assertEqual(calls[2][0], "DELETE")
         self.assertEqual(calls[3][0], "POST")
 
+    def test_load_top_level_approvers_resolves_aliases_and_excludes_reviewers_and_emeritus(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with open(os.path.join(tmpdir, "OWNERS_ALIASES"), "w", encoding="utf-8") as f:
+                f.write(
+                    "aliases:\n"
+                    "  kueue-approvers:\n"
+                    "- mimowo\n"
+                    "- sohankunkerkar\n"
+                    "- tenzen-y # lead\n"
+                    "  kueue-reviewers:\n"
+                    "- mbobrovskyi\n"
+                    "  test-approvers:\n"
+                    "- olekzabl\n"
+                )
+            with open(os.path.join(tmpdir, "OWNERS"), "w", encoding="utf-8") as f:
+                f.write(
+                    "filters:\n"
+                    '  ".*":\n'
+                    "    approvers:\n"
+                    "- kueue-approvers\n"
+                    "    reviewers:\n"
+                    "- kueue-reviewers\n"
+                    "    emeritus_approvers:\n"
+                    "- ahg-g\n"
+                    '  "_test\\\\.go$":\n'
+                    "    approvers:\n"
+                    "- test-approvers\n"
+                )
+
+            approvers = issue_assignee_cap.load_top_level_approvers(repo_root=tmpdir)
+            self.assertEqual(approvers, {"mimowo", "sohankunkerkar", "tenzen-y"})
+            self.assertNotIn("mbobrovskyi", approvers)
+            self.assertNotIn("ahg-g", approvers)
+            self.assertNotIn("olekzabl", approvers)
+
+    def test_exempt_top_level_approver_is_not_unassigned_when_over_cap(self):
+        calls = []
+
+        def fake_request(method, url, token, payload=None):
+            calls.append((method, url, payload))
+            return [{"number": i} for i in range(1, 12)]
+
+        issue_assignee_cap.enforce_cap(
+            repo="kubernetes-sigs/kueue",
+            assignee="SohanKunkerkar",
+            issue_number=19547,
+            token="test-token",
+            max_cap=8,
+            request_fn=fake_request,
+            exempt_users={"mimowo", "sohankunkerkar", "tenzen-y"},
+        )
+        self.assertEqual(calls, [])
+
+    def test_non_exempt_contributor_is_unassigned_when_over_cap(self):
+        calls = []
+
+        def fake_request(method, url, token, payload=None):
+            calls.append((method, url, payload))
+            if method == "GET":
+                return [{"number": i} for i in range(1, 10)]
+            return {}
+
+        issue_assignee_cap.enforce_cap(
+            repo="kubernetes-sigs/kueue",
+            assignee="contributor-user",
+            issue_number=19547,
+            token="test-token",
+            max_cap=8,
+            request_fn=fake_request,
+            exempt_users={"mimowo", "sohankunkerkar", "tenzen-y"},
+        )
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[1][0], "DELETE")
+        self.assertEqual(calls[2][0], "POST")
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@
 
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -25,7 +26,109 @@ import urllib.request
 DEFAULT_MAX_CAP = 8
 API_BASE = "https://api.github.com"
 REQUEST_TIMEOUT_SECONDS = 30
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+def _strip_comment(line):
+    return line.split("#", 1)[0].rstrip()
+
+
+def _parse_owners_aliases(aliases_path):
+    """Parses OWNERS_ALIASES into a lowercase {alias: set(users)} mapping."""
+    aliases = {}
+    if not os.path.isfile(aliases_path):
+        return aliases
+
+    in_aliases = False
+    current_alias = None
+    with open(aliases_path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = _strip_comment(raw_line)
+            if not line.strip():
+                continue
+
+            if re.match(r"^aliases:\s*$", line):
+                in_aliases = True
+                current_alias = None
+                continue
+
+            if not line[0].isspace() and not line.startswith("-"):
+                in_aliases = False
+                current_alias = None
+                continue
+
+            if not in_aliases:
+                continue
+
+            alias_match = re.match(r"^\s+([A-Za-z0-9_-]+):\s*$", line)
+            if alias_match:
+                current_alias = alias_match.group(1).lower()
+                aliases.setdefault(current_alias, set())
+                continue
+
+            item_match = re.match(r"^\s*-\s+([A-Za-z0-9_-]+)\s*$", line)
+            if item_match and current_alias:
+                aliases[current_alias].add(item_match.group(1).lower())
+
+    return aliases
+
+
+def load_top_level_approvers(repo_root=REPO_ROOT):
+    """Returns lowercase usernames of active top-level approvers from root OWNERS."""
+    owners_path = os.path.join(repo_root, "OWNERS")
+    aliases_path = os.path.join(repo_root, "OWNERS_ALIASES")
+
+    if not os.path.isfile(owners_path):
+        return set()
+
+    aliases = _parse_owners_aliases(aliases_path)
+    approvers = set()
+    in_filters = False
+    filter_indent = None
+    in_catchall = False
+    in_approvers = False
+
+    with open(owners_path, encoding="utf-8") as f:
+        for raw_line in f:
+            line = _strip_comment(raw_line)
+            if not line.strip():
+                continue
+
+            item_match = re.match(r"^\s*-\s+([A-Za-z0-9_-]+)\s*$", line)
+            if item_match:
+                if in_approvers:
+                    entry = item_match.group(1).lower()
+                    if entry in aliases:
+                        approvers.update(aliases[entry])
+                    else:
+                        approvers.add(entry)
+                continue
+
+            indent = len(line) - len(line.lstrip(" "))
+            stripped = line.strip()
+
+            if indent == 0:
+                in_approvers = False
+                in_catchall = False
+                filter_indent = None
+                if stripped == "filters:":
+                    in_filters = True
+                elif stripped == "approvers:":
+                    in_filters = False
+                    in_approvers = True
+                else:
+                    in_filters = False
+                continue
+
+            if in_filters:
+                if filter_indent is None or indent <= filter_indent:
+                    filter_indent = indent
+                    in_approvers = False
+                    key = stripped[:-1].strip().strip("\"'") if stripped.endswith(":") else ""
+                    in_catchall = key == ".*"
+                elif in_catchall:
+                    in_approvers = stripped == "approvers:"
+
+    return approvers
 
 def github_request(method, url, token, payload=None):
     """Performs an authenticated GitHub REST API request."""
@@ -81,10 +184,20 @@ def enforce_cap(
     token,
     max_cap=DEFAULT_MAX_CAP,
     request_fn=github_request,
+    exempt_users=None,
 ):
     """Unassigns the user and posts a comment if they exceed max_cap open issues."""
     if not assignee:
         print("No assignee found in event payload.")
+        return
+
+    if exempt_users is None:
+        exempt_users = load_top_level_approvers()
+    else:
+        exempt_users = {u.lower() for u in exempt_users}
+
+    if assignee.lower() in exempt_users:
+        print(f"User @{assignee} is a top-level approver in OWNERS. Exempt from issue cap.")
         return
 
     open_issues = list_open_assigned_issues(repo, assignee, token, request_fn=request_fn)

@@ -88,6 +88,6 @@ CI enforces that the YAML and documentation stay in sync. Or simply rely on `mak
 
 ## Issue Assignment Policy
 
-To avoid bottlenecks and ensure issues remain available for active work, we enforce a limit of **8 open assigned issues** per user at a time.
+To avoid bottlenecks and ensure issues remain available for active work, we enforce a limit of **8 open assigned issues** per contributor at a time. Repository top-level approvers (active `approvers` in the root `OWNERS` file) are exempt from this limit.
 
 If you assign yourself to an issue while already having 8 open issues assigned, our automation will automatically unassign you from the new issue. Please finish or `/unassign` one of your existing issues (for example, if it is blocked or deprioritized) before assigning a new one.
