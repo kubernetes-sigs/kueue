@@ -9343,7 +9343,7 @@ spec:
                   items:
                     maxLength: 256
                     type: string
-                  maxItems: 20
+                  maxItems: 50
                   type: array
                   x-kubernetes-list-type: atomic
                 preemptionGates:

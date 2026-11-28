@@ -639,7 +639,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"valid AdmissionGatedBy annotation with single gate": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller",
@@ -649,7 +648,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"valid AdmissionGatedBy annotation with multiple gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/a,not.example.com/b",
@@ -659,7 +657,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - leading space": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: " example.com/gate",
@@ -669,7 +666,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - space before comma": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate ,example.com/gate2",
@@ -679,7 +675,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - space after comma": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate, example.com/gate2",
@@ -689,7 +684,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"AdmissionGatedBy annotation - trailing space": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate ",
@@ -699,7 +693,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"invalid AdmissionGatedBy annotation - not in subdomain/path format": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "this is an invalid value",
@@ -711,7 +704,6 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - duplicate gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "duplicates.are/invalid,duplicates.are/invalid",
@@ -723,7 +715,6 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - space in path component": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/gate name",
@@ -735,7 +726,6 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - space in domain component": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example .com/gate",
@@ -747,7 +737,6 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid AdmissionGatedBy annotation - multiple gates with one containing space": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "valid.com/gate,invalid gate.com/controller",
@@ -1603,7 +1592,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 		},
 		"reject adding AdmissionGatedBy annotation after workload creation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
@@ -1618,7 +1606,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"allow removing AdmissionGatedBy annotation with single gate": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller1",
@@ -1631,7 +1618,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"allow removing AdmissionGatedBy annotation with multiple gates": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller1,example.com/controller2",
@@ -1644,7 +1630,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"allow removing one gate from AdmissionGatedBy annotation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller1,example.com/controller2",
@@ -1660,7 +1645,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"reject injecting new gate in AdmissionGatedBy annotation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller1,example.com/controller2",
@@ -1678,7 +1662,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"allow reordering gates in AdmissionGatedBy annotation": {
-			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Annotations(map[string]string{
 					constants.AdmissionGatedByAnnotation: "example.com/controller1,example.com/controller2",

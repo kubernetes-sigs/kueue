@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -235,6 +236,87 @@ var _ = ginkgo.Describe("SparkApplication with partial replica scale-up for elas
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		behavioral.ConsistentlyActiveWorkloadNames(ctx, k8sClient, ns.Name, wl.Name)
+	})
+
+	// https://github.com/kubernetes-sigs/kueue/issues/19524
+	// After an eviction a SparkApplication asks for its initial executors again, while the minCount stays lowered.
+	// The slice is then admitted partially and a scale-up probe is created for the suspended app.
+	ginkgo.It("Should start the app on the partially readmitted slice after a scale-down below its initial executors and an eviction", func() {
+		ginkgo.By("the cluster queue lets a higher-priority workload preempt a lower-priority one")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			clusterQueue.Spec.Preemption = &kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		// The suite installs no webhook configurations, so the app is suspended and its executor template gated here.
+		testSparkApp := testingsparkapplication.MakeSparkApplication("foo", ns.Name).
+			Suspend(true).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+			Queue(localQueue.Name).
+			ExecutorInstances(1).
+			DynamicAllocation(&sparkv1beta2.DynamicAllocation{
+				Enabled:          true,
+				InitialExecutors: new(int32(3)),
+				MinExecutors:     new(int32(1)),
+				MaxExecutors:     new(int32(3)),
+			}).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, testSparkApp)
+
+		ginkgo.By("the first slice is admitted with the 3 initial executors: 1 driver + 3 executors = the whole quota")
+		wl := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, executorPodSetName, 3)
+		expectSparkAppSuspended(ctx, k8sClient, testSparkApp, false)
+		setAppStatus(ctx, k8sClient, testSparkApp, sparkv1beta2.ApplicationStateRunning, slices.Repeat([]sparkv1beta2.ExecutorState{sparkv1beta2.ExecutorStateRunning}, 3)...)
+
+		ginkgo.By("the driver keeps 1 of its 3 executors, so the slice is lowered to 1 executor with minCount 1")
+		setAppStatus(ctx, k8sClient, testSparkApp, sparkv1beta2.ApplicationStateRunning,
+			sparkv1beta2.ExecutorStateRunning, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
+		behavioral.ExpectWorkloadPodSet(ctx, k8sClient, client.ObjectKeyFromObject(wl), executorPodSetName, 1, new(int32(1)))
+		behavioral.ExpectClusterQueueResourceUsage(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, 2)
+
+		ginkgo.By("a higher-priority workload needing 3 of the 4 pods evicts the app as a whole")
+		preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
+			Priority(1).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 3).Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, preemptor)
+		expectSparkAppSuspended(ctx, k8sClient, testSparkApp, true)
+
+		// The Spark Operator stops the driver and its executors when the app is suspended.
+		// The quota of the evicted slice is released once they are gone.
+		setAppStatus(ctx, k8sClient, testSparkApp, sparkv1beta2.ApplicationStateSuspended,
+			sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted, sparkv1beta2.ExecutorStateCompleted)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
+
+		ginkgo.By("the requeued slice asks for the 3 initial executors again, while its minCount stays 1")
+		behavioral.ExpectWorkloadPodSet(ctx, k8sClient, client.ObjectKeyFromObject(wl), executorPodSetName, 3, new(int32(1)))
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+
+		ginkgo.By("one more pod of quota leaves room for the driver + 1 executor")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
+			resources := clusterQueue.Spec.ResourceGroups[0].Flavors[0].Resources
+			idx := slices.IndexFunc(resources, func(r kueue.ResourceQuota) bool { return r.Name == corev1.ResourcePods })
+			resources[idx].NominalQuota = resource.MustParse("5")
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the slice is admitted partially, and a scale-up probe for the 3 executors stays pending")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, wl, executorPodSetName, 1)
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, wl)
+		gomega.Expect(probe.Spec.PodSets[executorsPodSet].Count).Should(gomega.Equal(int32(3)))
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		ginkgo.By("the app starts on the partially admitted slice")
+		expectSparkAppSuspended(ctx, k8sClient, testSparkApp, false)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 	})
 
 	// The executor count follows the executor pods, so it drops to minExecutors when they exit.

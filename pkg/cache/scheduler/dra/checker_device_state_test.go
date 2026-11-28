@@ -48,7 +48,6 @@ import (
 )
 
 func TestCheckerDeviceState(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = resourceapi.AddToScheme(scheme)
@@ -930,7 +929,6 @@ func TestCheckerSkipsWorkloadsWithoutDevices(t *testing.T) {
 		"an extended resource that a DeviceClass backs": {
 			requests:           corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
 			draBackedResources: gpuBacked,
-			featureGates:       map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
 			wantListed:         true,
 		},
 		"an extended resource that a DeviceClass backs, with the extended resource gate off": {

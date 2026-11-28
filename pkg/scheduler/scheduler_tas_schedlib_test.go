@@ -1643,7 +1643,6 @@ func TestScheduleForTASFairSharingSchedulerLibrary(t *testing.T) {
 				kubefeatures.GenericWorkload:             true,
 				features.SchedulerLibraryIntegration:     true,
 				features.SchedulerLibraryDeepIntegration: true,
-				features.FairSharingVerifyFinalTargets:   true,
 			},
 			enableFairSharing: true,
 			nodes:             singleNode,

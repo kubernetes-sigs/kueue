@@ -31,9 +31,17 @@ import (
 )
 
 const (
-	multiKueueConfigClustersMaxItems = 20
+	multiKueueConfigClustersMaxItems = 50
 	multiKueueConfigClusterMaxLength = 256
 )
+
+func makeClusterNames(count int) []string {
+	names := make([]string, count)
+	for i := range names {
+		names[i] = fmt.Sprintf("worker%d", i)
+	}
+	return names
+}
 
 var _ = ginkgo.Describe("MultiKueueConfig Webhook", func() {
 	ginkgo.BeforeEach(func() {
@@ -55,6 +63,9 @@ var _ = ginkgo.Describe("MultiKueueConfig Webhook", func() {
 			ginkgo.Entry("Should allow multiple clusters",
 				utiltestingapi.MakeMultiKueueConfig("multikueue-config").Clusters("worker1", "worker2").Obj(),
 				gomega.Succeed()),
+			ginkgo.Entry("Should allow the maximum number of clusters",
+				utiltestingapi.MakeMultiKueueConfig("multikueue-config").Clusters(makeClusterNames(multiKueueConfigClustersMaxItems)...).Obj(),
+				gomega.Succeed()),
 			ginkgo.Entry("Should reject missing clusters",
 				utiltestingapi.MakeMultiKueueConfig("multikueue-config").Obj(),
 				utiltesting.BeInvalidError()),
@@ -62,13 +73,7 @@ var _ = ginkgo.Describe("MultiKueueConfig Webhook", func() {
 				utiltestingapi.MakeMultiKueueConfig("multikueue-config").Clusters("worker1", "worker1").Obj(),
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject too many clusters",
-				func() *kueue.MultiKueueConfig {
-					clusters := make([]string, multiKueueConfigClustersMaxItems+1)
-					for i := range clusters {
-						clusters[i] = fmt.Sprintf("worker%d", i)
-					}
-					return utiltestingapi.MakeMultiKueueConfig("multikueue-config").Clusters(clusters...).Obj()
-				}(),
+				utiltestingapi.MakeMultiKueueConfig("multikueue-config").Clusters(makeClusterNames(multiKueueConfigClustersMaxItems+1)...).Obj(),
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject too long cluster name",
 				utiltestingapi.MakeMultiKueueConfig("multikueue-config").Clusters(strings.Repeat("a", multiKueueConfigClusterMaxLength+1)).Obj(),

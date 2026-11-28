@@ -103,7 +103,7 @@ func newSubcommand(command passThroughCommand, ptType passThroughType) *cobra.Co
 
 			kubectlPath, err := exec.LookPath("kubectl")
 			if err != nil {
-				return fmt.Errorf("pass-through command are not available: %w, PATH=%q", err, os.Getenv("PATH"))
+				return fmt.Errorf("pass-through commands are not available: %w, PATH=%q", err, os.Getenv("PATH"))
 			}
 
 			// prepare the args

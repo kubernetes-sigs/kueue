@@ -35,7 +35,6 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
@@ -579,8 +578,6 @@ func (f *fakeFieldIndexer) IndexField(_ context.Context, obj client.Object, _ st
 }
 
 func TestSetupToleratesNoMatchErrorForDeviceClass(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
-
 	noMatchErr := &apimeta.NoKindMatchError{
 		GroupKind:        schema.GroupKind{Group: "resource.k8s.io", Kind: "DeviceClass"},
 		SearchedVersions: []string{"v1"},
