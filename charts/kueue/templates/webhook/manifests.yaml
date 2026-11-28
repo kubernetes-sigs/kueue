@@ -396,10 +396,6 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    {{- with .Values.integrationWebhooks.objectSelector }}
-    objectSelector:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
     rules:
       - apiGroups:
           - ""
@@ -1167,10 +1163,6 @@ webhooks:
             - kube-system
             - '{{ .Release.Namespace }}'
       {{- end }}
-    {{- with .Values.integrationWebhooks.objectSelector }}
-    objectSelector:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
     rules:
       - apiGroups:
           - ""

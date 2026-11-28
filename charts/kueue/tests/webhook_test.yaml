@@ -35,7 +35,7 @@ tests:
               - key: kueue.x-k8s.io/queue-name
                 operator: Exists
       - equal:
-          path: webhooks[?(@.name == "mpod.kb.io")].objectSelector
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].objectSelector
           value:
             matchExpressions:
               - key: kueue.x-k8s.io/queue-name
@@ -94,4 +94,25 @@ tests:
         documentIndex: 1
       - notExists:
           path: webhooks[?(@.name == "vworkload.kb.io")].objectSelector
+        documentIndex: 1
+
+  - it: should not set the objectSelector on the Pod webhooks
+    set:
+      integrationWebhooks:
+        objectSelector:
+          matchExpressions:
+            - key: kueue.x-k8s.io/queue-name
+              operator: Exists
+    asserts:
+      - notExists:
+          path: webhooks[?(@.name == "mpod.kb.io")].objectSelector
+        documentIndex: 0
+      - exists:
+          path: webhooks[?(@.name == "mpod.kb.io")].namespaceSelector
+        documentIndex: 0
+      - notExists:
+          path: webhooks[?(@.name == "vpod.kb.io")].objectSelector
+        documentIndex: 1
+      - exists:
+          path: webhooks[?(@.name == "vpod.kb.io")].namespaceSelector
         documentIndex: 1
