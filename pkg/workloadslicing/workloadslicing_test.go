@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -1982,6 +1983,71 @@ func TestNormalizeActiveSlices(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestNormalizeActiveSlicesKeepsReplacementAdmittedBeforeDeletion covers a withdrawn scale-up replacement that the scheduler admits right before its deletion.
+// The admission lands after the replacement was read and before the delete request reaches the API server.
+// The deletion is conditioned on the copy that was read, so it fails and the admitted replacement keeps its finalizer.
+// Removing the finalizer before the delete request would leave nothing to protect the reservation.
+func TestNormalizeActiveSlicesKeepsReplacementAdmittedBeforeDeletion(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	admission := utiltestingapi.MakeAdmission("cq").PodSets(
+		utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj(),
+	).Obj()
+	admission.PodSetAssignments[0].PartialPreemption = &kueue.PodSetPartialPreemptionStatus{RetainedCount: new(int32(1))}
+	predecessor := utiltestingapi.MakeWorkload("wl-a", "ns").
+		Creation(now.Add(-time.Minute)).
+		Annotation(constants.PartialPreemptionAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(admission, now).
+		Obj()
+	replacement := utiltestingapi.MakeWorkload("wl-b", "ns").
+		Creation(now).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	testSchema := runtime.NewScheme()
+	_ = kueue.AddToScheme(testSchema)
+	admitted := false
+	clnt := fake.NewClientBuilder().
+		WithScheme(testSchema).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithObjects(predecessor, replacement).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if !admitted && obj.GetName() == replacement.Name {
+					admitted = true
+					wl := &kueue.Workload{}
+					if err := c.Get(ctx, client.ObjectKeyFromObject(obj), wl); err != nil {
+						return err
+					}
+					wl.Status.Admission = utiltestingapi.MakeAdmission("cq").Obj()
+					if err := c.Status().Update(ctx, wl); err != nil {
+						return err
+					}
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).
+		Build()
+	var read kueue.WorkloadList
+	if err := clnt.List(ctx, &read); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+
+	if _, err := normalizeActiveSlices(ctx, clnt, testingclock.NewFakeClock(now), sortAndFilterNotFinishedWorkloads(read.Items)); !apierrors.IsConflict(err) {
+		t.Errorf("normalizeActiveSlices() error = %v, want a Conflict", err)
+	}
+	got := &kueue.Workload{}
+	if err := clnt.Get(ctx, client.ObjectKeyFromObject(replacement), got); err != nil {
+		t.Fatalf("Getting the replacement: %v", err)
+	}
+	if got.Status.Admission == nil || !got.DeletionTimestamp.IsZero() || !controllerutil.ContainsFinalizer(got, kueue.ResourceInUseFinalizerName) {
+		t.Errorf("The admitted replacement lost its protection: admission %v, deletionTimestamp %v, finalizers %v", got.Status.Admission, got.DeletionTimestamp, got.Finalizers)
 	}
 }
 
