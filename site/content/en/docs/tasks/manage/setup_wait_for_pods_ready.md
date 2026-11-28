@@ -129,13 +129,16 @@ When a Workload is evicted because its Pods stayed unscheduled, Kueue appends th
 text kube-scheduler reported for the pending Pods to the `Evicted` condition message
 and to the eviction event, for example:
 
-```
+```text
 Exceeded the PodsReady timeout ns/wl. kube-scheduler reported: 0/3 nodes are available: 3 Insufficient cpu.
 ```
 
 The text is read from the `PodScheduled=False` condition of the Pods when the
-Workload is evicted. It is omitted if the Pods report no such condition, and it is
-truncated, like any other event or condition message, if it is long. The Workload's `PodsScheduled` condition does not carry it.
+Workload is evicted. It covers Pods that no node can fit and Pods that are gated.
+When the Workload has more than one PodSet, each reason is prefixed with the PodSet
+name. It is omitted if the Pods report no such condition.
+Like any condition or event message, it is truncated if it is too long.
+The Workload's `PodsScheduled` condition does not carry it.
 
 A repeated `Insufficient cpu` (or `Insufficient memory`, and similar) while the
 ClusterQueue still has quota usually means that the free capacity is spread over
@@ -231,12 +234,6 @@ backoff time by setting the `backoffMaxSeconds` (defaulting to 3600). Using the 
 evicted workload is re-queued after approximately `60, 120, 240, ..., 3600, ..., 3600` seconds.
 Even if the backoff time reaches the `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload with the `backoffMaxSeconds`
 until the number of re-queue reaches the `backoffLimitCount`.
-
-{{% alert title="Note" color="primary" %}}
-A very small `backoffBaseSeconds` and `backoffMaxSeconds` (for example 5 seconds), together
-with no `backoffLimitCount`, makes a Workload that cannot be placed on any node
-repeatedly admitted and evicted for as long as the cluster layout stays unchanged.
-{{% /alert %}}
 
 ## Example
 
