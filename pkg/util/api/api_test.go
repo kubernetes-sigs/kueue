@@ -55,22 +55,27 @@ func TestTruncateMessage(t *testing.T) {
 			limit:   10,
 			want:    strings.Repeat("a", 4) + "é" + " ...",
 		},
-		"limit smaller than the suffix returns only the suffix": {
+		"limit smaller than the suffix omits the suffix": {
 			message: "ééé",
-			limit:   2,
-			want:    " ...",
+			limit:   3,
+			want:    "é",
+		},
+		"zero limit returns an empty message": {
+			message: "abc",
+			limit:   0,
+			want:    "",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := TruncateMessage(tc.message, tc.limit)
+			got := truncateMessage(tc.message, tc.limit)
 			if got != tc.want {
-				t.Errorf("TruncateMessage(%q, %d) = %q, want %q", tc.message, tc.limit, got, tc.want)
+				t.Errorf("truncateMessage(%q, %d) = %q, want %q", tc.message, tc.limit, got, tc.want)
 			}
 			if !utf8.ValidString(got) {
 				t.Errorf("result %q is not valid UTF-8", got)
 			}
-			if len(tc.message) > tc.limit && tc.limit >= len(" ...") && len(got) > tc.limit {
+			if len(got) > tc.limit {
 				t.Errorf("result has %d bytes, want at most %d", len(got), tc.limit)
 			}
 		})

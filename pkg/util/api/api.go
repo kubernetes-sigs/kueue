@@ -30,21 +30,25 @@ const (
 
 // TruncateEventMessage truncates a message if it hits the maxEventMessage.
 func TruncateEventMessage(message string) string {
-	return TruncateMessage(message, maxEventMsgSize)
+	return truncateMessage(message, maxEventMsgSize)
 }
 
 func TruncateConditionMessage(message string) string {
-	return TruncateMessage(message, maxConditionMsgSize)
+	return truncateMessage(message, maxConditionMsgSize)
 }
 
-// TruncateMessage truncates a message to at most limit bytes, including the
+// truncateMessage truncates a message to at most limit bytes, including the
 // " ..." suffix, if it is longer than limit. The message is cut at a UTF-8
 // character boundary, so the result is valid UTF-8 for valid UTF-8 input.
-func TruncateMessage(message string, limit int) string {
+// The suffix is omitted when limit is too small to fit it.
+func truncateMessage(message string, limit int) string {
 	if len(message) <= limit {
 		return message
 	}
 	suffix := " ..."
+	if limit < len(suffix) {
+		suffix = ""
+	}
 	cut := max(limit-len(suffix), 0)
 	for cut > 0 && !utf8.RuneStart(message[cut]) {
 		cut--

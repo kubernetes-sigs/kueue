@@ -1366,7 +1366,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	// Increments a re-queueing count and update a time to be re-queued.
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
 	if underlyingCause == kueue.WorkloadWaitForScheduling {
-		message += r.unschedulablePodsMessage(ctx, wl)
+		if reasons := r.unschedulablePodReasons(ctx, wl); reasons != "" {
+			message += ". kube-scheduler reported: " + reasons
+		}
 	}
 	err = workloadevict.Evict(
 		ctx,
@@ -1388,18 +1390,14 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	return 0, err
 }
 
-// maxUnschedulableReasonLength bounds, in bytes, the kube-scheduler text appended
-// to the eviction message, as the scheduler can report one clause per node.
-const maxUnschedulableReasonLength = 512
-
-// unschedulablePodsMessage returns a suffix for the eviction message with the
-// reason kube-scheduler reported for the workload's unschedulable Pods
-// (for example "Insufficient cpu"), or an empty string when none is available.
-// Failing to list the Pods must not block the eviction, so errors are only logged.
-func (r *WorkloadReconciler) unschedulablePodsMessage(ctx context.Context, wl *kueue.Workload) string {
+// unschedulablePodReasons returns the reasons kube-scheduler reported for the
+// workload's unschedulable Pods (for example "Insufficient cpu"), deduplicated,
+// sorted and joined with "; ". It returns an empty string when none is available.
+// Failing to list the Pods must not block the eviction, so the error is only logged.
+func (r *WorkloadReconciler) unschedulablePodReasons(ctx context.Context, wl *kueue.Workload) string {
 	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("Unable to list Pods to describe why they are unschedulable", "error", err)
+		ctrl.LoggerFrom(ctx).Error(err, "Unable to list Pods to describe why they are unschedulable")
 		return ""
 	}
 	reasons := sets.New[string]()
@@ -1413,11 +1411,7 @@ func (r *WorkloadReconciler) unschedulablePodsMessage(ctx context.Context, wl *k
 			}
 		}
 	}
-	if reasons.Len() == 0 {
-		return ""
-	}
-	reason := api.TruncateMessage(strings.Join(sets.List(reasons), "; "), maxUnschedulableReasonLength)
-	return ". Unschedulable Pods: " + reason
+	return strings.Join(sets.List(reasons), "; ")
 }
 
 // triggerDeactivation trigger deactivation of workload

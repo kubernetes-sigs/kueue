@@ -468,7 +468,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Type:               kueue.WorkloadEvicted,
 					Status:             metav1.ConditionTrue,
 					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message:            "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.; 0/3 nodes are available: 3 Insufficient memory.",
+					Message:            "Exceeded the PodsReady timeout ns/wl. kube-scheduler reported: 0/3 nodes are available: 3 Insufficient cpu.; 0/3 nodes are available: 3 Insufficient memory.",
 					ObservedGeneration: 1,
 				}).
 				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
@@ -485,7 +485,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
-					Message:   "Exceeded the PodsReady timeout ns/wl. Unschedulable Pods: 0/3 nodes are available: 3 Insufficient cpu.; 0/3 nodes are available: 3 Insufficient memory.",
+					Message:   "Exceeded the PodsReady timeout ns/wl. kube-scheduler reported: 0/3 nodes are available: 3 Insufficient cpu.; 0/3 nodes are available: 3 Insufficient memory.",
 				},
 			},
 		},
