@@ -1525,6 +1525,95 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"priority boost is updated in place on a partially granted remote": {
+			// The manager reserved 2 of the 6 requested Pods, so the worker copy
+			// legitimately asks for 2. A boost-only change must still be applied in
+			// place rather than treating the smaller remote as out of sync.
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+				features.PriorityBoost:                                         true,
+				features.WorkloadIdentifierAnnotations:                         false,
+			},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).SetMinimumCount(1).Obj()).
+					Priority(100).
+					PriorityBoost(200).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).SetMinimumCount(1).Obj()).
+					Priority(100).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).SetMinimumCount(1).Obj()).
+					Priority(100).
+					PriorityBoost(200).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).SetMinimumCount(1).Obj()).
+					Priority(100).
+					PriorityBoost(200).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Obj()).
+						Obj(), now).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
 		"remote with a different priority boost is deleted when it is out of sync in another field": {
 			featureGates: map[featuregate.Feature]bool{features.AllowAddingPodTemplateTolerations: false, features.PriorityBoost: true},
 			reconcileFor: "wl1",
