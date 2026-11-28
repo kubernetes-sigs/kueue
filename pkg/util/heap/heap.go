@@ -158,6 +158,14 @@ func (h *Heap[T, K]) Pop() *T {
 	return heap.Pop(&h.data).(*T)
 }
 
+// Peek returns the head without removing it, or nil if the heap is empty.
+func (h *Heap[T, K]) Peek() *T {
+	if h.Len() == 0 {
+		return nil
+	}
+	return h.data.items[h.data.keys[0]].obj
+}
+
 // GetByKey returns the requested item, or sets exists=false.
 func (h *Heap[T, K]) GetByKey(key K) *T {
 	item, exists := h.data.items[key]

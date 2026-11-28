@@ -120,7 +120,7 @@ func requeueWorkloadsCQWithRetry(ctx context.Context, m *Manager, clusterQueueNa
 		return 0, false
 	}
 	moved, retry := queueInadmissibleWorkloadsWithRetry(ctx, cq, m.client)
-	if moved > 0 {
+	if moved > 0 || cq.hasQueuedWorkloads() {
 		log := ctrl.LoggerFrom(ctx)
 		log.V(3).Info("Moved workloads", "clusterQueue", klog.KRef("", string(cq.name)), "count", moved)
 		reportPendingWorkloads(m, cq.name)
@@ -155,8 +155,9 @@ func requeueWorkloadsCohortWithRetry(ctx context.Context, m *Manager, rootCohort
 	moved, retry := requeueWorkloadsCohortSubtreeWithRetry(ctx, m, cohort)
 	if moved > 0 {
 		log.V(3).Info("Moved inadmissible workloads in tree", "rootCohort", klog.KRef("", string(cohort.Name)), "count", moved)
-		m.Broadcast()
 	}
+	// Notifications also release StrictFIFO heads retained in the active heap.
+	m.Broadcast()
 	return moved, retry
 }
 
@@ -194,6 +195,7 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 	defer c.rwm.Unlock()
 	log := ctrl.LoggerFrom(ctx)
 	c.queueInadmissibleCycle = c.popCycle
+	c.noFitRetry = nil
 	// Clear bulk-move scheduling hashes so re-queued workloads are re-evaluated fresh.
 	c.hashToBulkMoveReason = make(map[workload.EquivalenceHash]QuotaReservedReason)
 	if c.workloads.inadmissible.empty() {
@@ -229,6 +231,25 @@ func queueInadmissibleWorkloadsWithRetry(ctx context.Context, c *ClusterQueue, k
 		"workloadsMoved", moved,
 		"workloadsNotMoved", c.workloads.inadmissible.len())
 	return moved, retry
+}
+
+// invalidateNoFitRetries releases active heads in the affected borrowing tree.
+// The caller holds the Manager lock, which also protects the hierarchy edges.
+func invalidateNoFitRetries(cq *ClusterQueue) {
+	if !cq.HasParent() || hierarchy.HasCycle(cq.Parent()) {
+		cq.invalidateNoFitRetry()
+		return
+	}
+	invalidateNoFitRetriesInSubtree(cq.Parent().getRootUnsafe())
+}
+
+func invalidateNoFitRetriesInSubtree(cohort *cohort) {
+	for _, cq := range cohort.ChildCQs() {
+		cq.invalidateNoFitRetry()
+	}
+	for _, child := range cohort.ChildCohorts() {
+		invalidateNoFitRetriesInSubtree(child)
+	}
 }
 
 // NotifyRetryInadmissible requests that inadmissible workloads
