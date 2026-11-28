@@ -387,6 +387,159 @@ func TestLocalQueueReconcile(t *testing.T) {
 			// sinceLastUpdate instead.
 			wantRequeueAfter: new(5 * time.Minute),
 		},
+		"local queue keeps the sampling interval for a pending penalty while its cluster queue is held": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-hold-penalty").
+				StopPolicy(kueue.Hold).
+				Active(metav1.ConditionFalse).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-hold-penalty", "default").
+				ClusterQueue("cq-hold-penalty").
+				Generation(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-time.Minute),
+				StatusAccounted: true,
+			},
+			pendingEntryPenalty: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-hold-penalty", "default").
+				ClusterQueue("cq-hold-penalty").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					clusterQueueIsInactiveReason,
+					clusterQueueIsInactiveMsg,
+					1,
+				).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			// No sample is taken, so the ledger entry stays as it was.
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-time.Minute),
+				StatusAccounted: true,
+			},
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+			// 5m interval - 1m elapsed = 4m remaining.
+			wantRequeueAfter: new(4 * time.Minute),
+		},
+		// A ClusterQueue can be inactive without a StopPolicy, for example while
+		// a ResourceFlavor is missing; it admits nothing either, so the pending
+		// penalty can't settle and must not bypass the interval.
+		"local queue keeps the sampling interval for a pending penalty while its cluster queue is inactive without a stop policy": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-inactive-penalty").
+				Active(metav1.ConditionFalse).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-inactive-penalty", "default").
+				ClusterQueue("cq-inactive-penalty").
+				Generation(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-time.Minute),
+				StatusAccounted: true,
+			},
+			pendingEntryPenalty: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-inactive-penalty", "default").
+				ClusterQueue("cq-inactive-penalty").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					clusterQueueIsInactiveReason,
+					clusterQueueIsInactiveMsg,
+					1,
+				).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-time.Minute),
+				StatusAccounted: true,
+			},
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+			wantRequeueAfter: new(4 * time.Minute),
+		},
+		"local queue samples a pending penalty before the sampling interval while its cluster queue is active": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-active-penalty").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-active-penalty", "default").
+				ClusterQueue("cq-active-penalty").
+				Generation(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      clock.Now().Add(-time.Minute),
+				StatusAccounted: true,
+			},
+			pendingEntryPenalty: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-active-penalty", "default").
+				ClusterQueue("cq-active-penalty").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionTrue,
+					"Ready",
+					"Can submit new workloads to localQueue",
+					1,
+				).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("4"),
+							},
+						},
+					}).
+				Obj(),
+			// One half-life elapsed, so the sampled usage halves.
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("4"),
+				},
+				LastUpdate:      clock.Now(),
+				StatusAccounted: true,
+			},
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+			wantRequeueAfter: new(5 * time.Minute),
+		},
 		"local queue decaying usage sums the previous state and running workloads": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				Active(metav1.ConditionTrue).

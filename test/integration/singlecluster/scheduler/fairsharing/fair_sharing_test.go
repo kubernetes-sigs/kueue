@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/component-base/metrics/testutil"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1911,6 +1912,92 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 					"re-reserving quota for the same workload must not accumulate entry penalties")
 			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("should honor the usage sampling interval while an entry penalty is pending on a held ClusterQueue", framework.SlowSpec, func() {
+			const usageSamplingInterval = 5 * time.Second
+			const window = 3 * usageSamplingInterval
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharingAnchorAtQuotaReservation, false)
+			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
+
+			ginkgo.By("Restarting the manager with a long usage sampling interval and a half-life that keeps the usage decaying through the window")
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(
+				afsConfig(metav1.Duration{Duration: usageSamplingInterval}, metav1.Duration{Duration: usageSamplingInterval}),
+			))
+
+			ginkgo.By("Admitting a workload so the LocalQueue has consumed usage that keeps decaying")
+			admittedWl := createWorkload("lq-a", "4")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, admittedWl)
+			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, admittedWl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				entry, found := qManager.AfsUsageLedger.Get(lqKey)
+				g.Expect(found).To(gomega.BeTrue(), "lq-a should have a ledger entry")
+				g.Expect(entry.Resources.Cpu().MilliValue()).To(gomega.BeNumerically(">", 0), "lq-a should have consumed usage in the AFS ledger")
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Reserving quota for a workload that waits for the admission check, so its entry penalty stays pending")
+			waitingWl := createWorkload("lq-a", "2")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, waitingWl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Holding the ClusterQueue, which releases the quota of the waiting workload but keeps its entry penalty")
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.Hold)
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedLq := &kueue.LocalQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), updatedLq)).To(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionFalse(updatedLq.Status.Conditions, kueue.LocalQueueActive)).To(gomega.BeTrue())
+				updatedWl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(waitingWl), updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(updatedWl)).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl)
+
+			ginkgo.By("Counting the LocalQueue status writes while the entry penalty stays pending")
+			watchedLq := &kueue.LocalQueue{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), watchedLq)).To(gomega.Succeed())
+			watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			stream, err := watchClient.Watch(ctx, &kueue.LocalQueueList{},
+				client.InNamespace(ns.Name), client.MatchingFields{"metadata.name": lq.Name},
+				&client.ListOptions{Raw: &metav1.ListOptions{ResourceVersion: watchedLq.ResourceVersion}})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			defer stream.Stop()
+
+			maxStatusWrites := 2 * int(window/usageSamplingInterval)
+			statusWrites, afsSamples := 0, 0
+			lastAfsUpdate := afsStatusLastUpdate(watchedLq)
+			windowEnd := time.After(window)
+			for counting := true; counting; {
+				select {
+				case event, open := <-stream.ResultChan():
+					gomega.Expect(open).To(gomega.BeTrue(), "LocalQueue watch closed")
+					if event.Type != watch.Modified {
+						continue
+					}
+					statusWrites++
+					// Every AFS usage sample stamps a new LastUpdate, which tells
+					// samples apart from other LocalQueue status writes.
+					updated, ok := event.Object.(*kueue.LocalQueue)
+					gomega.Expect(ok).To(gomega.BeTrue(), "unexpected watch object %T", event.Object)
+					if got := afsStatusLastUpdate(updated); !got.Equal(&lastAfsUpdate) {
+						afsSamples++
+						lastAfsUpdate = got
+					}
+				case <-windowEnd:
+					counting = false
+				}
+			}
+			gomega.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should stay pending for lq-a")
+			gomega.Expect(statusWrites).To(gomega.BeNumerically("<=", maxStatusWrites),
+				"LocalQueue status writes in %v with a %v usage sampling interval", window, usageSamplingInterval)
+			// The admitted workload keeps running during the hold, so its usage
+			// must still be sampled.
+			gomega.Expect(afsSamples).To(gomega.BeNumerically(">=", 1),
+				"AFS usage samples of the LocalQueue in %v while its ClusterQueue is held", window)
+		})
 	})
 
 	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {
@@ -2752,3 +2839,12 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		})
 	})
 })
+
+// afsStatusLastUpdate returns when the AFS usage of the LocalQueue was last
+// sampled into its status, or the zero time if it has not been sampled.
+func afsStatusLastUpdate(lq *kueue.LocalQueue) metav1.Time {
+	if lq.Status.FairSharing == nil || lq.Status.FairSharing.AdmissionFairSharingStatus == nil {
+		return metav1.Time{}
+	}
+	return lq.Status.FairSharing.AdmissionFairSharingStatus.LastUpdate
+}
