@@ -123,21 +123,25 @@ func TestValidatePodSpec(t *testing.T) {
 		Containers: []corev1.Container{
 			*testingutil.MakeContainer().
 				WithResourceReq(corev1.ResourceCPU, "1").
+				WithResourceLimit(corev1.ResourceCPU, "1").
 				WithResourceReq(corev1.ResourceMemory, "2Gi").
 				WithResourceReq("example.com/mainContainerGpu", "2").
 				Obj(),
 			*testingutil.MakeContainer().
 				WithResourceReq(corev1.ResourceCPU, "1.5").
+				WithResourceLimit(corev1.ResourceCPU, "1.5").
 				WithResourceReq("example.com/gpu", "2").
 				Obj(),
 		},
 		InitContainers: []corev1.Container{
 			*testingutil.MakeContainer().
 				WithResourceReq(corev1.ResourceCPU, "4").
+				WithResourceLimit(corev1.ResourceCPU, "4").
 				WithResourceReq(corev1.ResourceMemory, "2Gi").
 				Obj(),
 			*testingutil.MakeContainer().
 				WithResourceReq(corev1.ResourceCPU, "1.5").
+				WithResourceLimit(corev1.ResourceCPU, "1.5").
 				WithResourceReq("example.com/gpu", "2").
 				WithResourceReq("example.com/initContainerGpu", "2").
 				Obj(),
@@ -566,6 +570,147 @@ func TestValidatePodSpec(t *testing.T) {
 				WithType(corev1.LimitTypeContainer).
 				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
 				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath.Child("containers").Index(0), []corev1.ResourceName{corev1.ResourceCPU}, RequestsAndLimitsMustBeSetForMaxRatioMessage),
+			},
+		},
+		"container limit to request ratio without request and limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath.Child("containers").Index(0), []corev1.ResourceName{corev1.ResourceCPU}, RequestsAndLimitsMustBeSetForMaxRatioMessage),
+			},
+		},
+		"container limit to request ratio with zero request and limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "0").
+						WithResourceLimit(corev1.ResourceCPU, "0").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath.Child("containers").Index(0), []corev1.ResourceName{corev1.ResourceCPU}, RequestsAndLimitsMustBeSetForMaxRatioMessage),
+			},
+		},
+		"init container limit to request ratio without limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath.Child("initContainers").Index(0), []corev1.ResourceName{corev1.ResourceCPU}, RequestsAndLimitsMustBeSetForMaxRatioMessage),
+			},
+		},
+		"container max and min without request and limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("Max", corev1.ResourceCPU, "2").
+				WithValue("Min", corev1.ResourceCPU, "1").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				},
+			},
+		},
+		"pod limit to request ratio without limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("MaxLimitRequestRatio", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsAndLimitsMustBeSetForMaxRatioMessage),
+			},
+		},
+		"pod max without limit": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "1").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, LimitsMustBeSetForLimitRangeMaxMessage),
+			},
+		},
+		"pod max with limit in one container": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "2").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						WithResourceLimit(corev1.ResourceCPU, "1").
+						Obj(),
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "500m").
+						Obj(),
+				},
+			},
+		},
+		"pod min without request exclude overhead": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "1").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				},
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("2"),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustBeSetForLimitRangeMinMessage),
+			},
 		},
 		"pod limit to request ratio over": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
