@@ -54,12 +54,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -288,9 +290,9 @@ func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet)
 func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet, wl *kueue.Workload) (time.Duration, error) {
 	replicas := ptr.Deref(sts.Spec.Replicas, 1)
 	queueName := jobframework.QueueNameForObject(sts)
+	_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
 
 	if wl == nil {
-		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
 		if replicas > 0 && (queueName != "" || r.manageJobsWithoutQueueName) && !isMultiKueueRemote {
 			return 0, r.createPrebuiltWorkload(ctx, sts)
 		}
@@ -309,6 +311,21 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	isActiveUnfinished := !workloadfinish.IsFinished(wl) && workload.IsActive(wl)
 	shouldPutOnHold := replicas == 0 && isActiveUnfinished && !workload.IsOnHold(wl)
 	shouldClearOnHold := replicas > 0 && workload.IsOnHold(wl)
+
+	if replicas > 0 && hasOwnerReference && isActiveUnfinished && !isMultiKueueRemote &&
+		sts.DeletionTimestamp.IsZero() && wl.DeletionTimestamp.IsZero() && needsReservedTopologyCheck(wl) {
+		topologyRequest, err := podSetTopologyRequest(sts)
+		if err != nil {
+			return 0, err
+		}
+		if !equality.TopologyRequestsEqual(wl.Spec.PodSets[0].TopologyRequest, topologyRequest) {
+			hasActivePods, recheckAfter, err := r.hasActiveOwnedPods(ctx, sts, time.Now())
+			if err != nil || hasActivePods {
+				return recheckAfter, err
+			}
+			return 0, r.deleteWorkloadWithStaleTopology(ctx, sts, wl)
+		}
+	}
 
 	switch {
 	case hasOwnerReference && replicas == 0:
@@ -401,6 +418,29 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	}
 
 	return 0, nil
+}
+
+func needsReservedTopologyCheck(wl *kueue.Workload) bool {
+	return features.Enabled(features.TopologyAwareScheduling) &&
+		wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue &&
+		len(wl.Spec.PodSets) == 1 && wl.Spec.PodSets[0].Name == kueue.DefaultPodSetName &&
+		workload.HasQuotaReservation(wl) && !workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) &&
+		len(wl.Status.AdmissionChecks) > 0 && !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)
+}
+
+func (r *Reconciler) deleteWorkloadWithStaleTopology(ctx context.Context, sts *appsv1.StatefulSet, wl *kueue.Workload) error {
+	// Reserved PodSets are immutable. Let the PodGroup controller finalize the
+	// old Workload so its admission checks are not carried over to the new one.
+	// The preconditions prevent deleting a Workload that has since been admitted
+	// or replaced.
+	if err := r.client.Delete(ctx, wl, client.Preconditions{
+		UID: &wl.UID, ResourceVersion: &wl.ResourceVersion,
+	}); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	r.record.Eventf(sts, nil, corev1.EventTypeNormal, jobframework.ReasonDeletedWorkload, "DeletedWorkload",
+		"Deleted Workload %s because its reserved topology request no longer matches the StatefulSet template", workload.Key(wl))
+	return nil
 }
 
 func (r *Reconciler) hasActiveOwnedPods(ctx context.Context, sts *appsv1.StatefulSet, now time.Time) (bool, time.Duration, error) {
