@@ -2480,6 +2480,7 @@ func TestProcessOptions(t *testing.T) {
 					constants.WorkloadAllowedResourceFlavorAnnotation,
 					kueue.WorkloadSliceNameAnnotation,
 					workloadslicing.WorkloadSliceReplacementFor,
+					kueueconstants.WorkloadSliceRevisionAnnotation,
 					podconstants.IsGroupWorkloadAnnotationKey,
 				)),
 			},
@@ -3551,6 +3552,29 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		ControllerReference(gvk, "job-multi", "job-uid-multi").
 		Obj()
 
+	revisionName := GetWorkloadNameForOwnerWithGVKAndGeneration(job.Name, job.UID, gvk, job.Generation)
+	multiWl := utiltestingapi.MakeWorkload(revisionName, "ns").
+		PodSets(kueue.PodSet{Name: "head", Count: 1}, kueue.PodSet{Name: "workers", Count: 2, MinCount: new(int32(1))}).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Count(1).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers").Count(6).Obj(),
+		).Obj(), now).AdmittedAt(true, now).ClusterName("worker").
+		ControllerReference(gvk, "job-multi", "job-uid-multi").Obj()
+	multiWlNext := multiWl.DeepCopy()
+	multiWlNext.Name = GenerateWorkloadNameWithExtra(job.Name, job.UID, gvk, "0-scale-up-probe-3")
+	multiWlNext.Annotations = map[string]string{workloadslicing.WorkloadSliceReplacementFor: "ns/" + revisionName}
+	multiWlNext.Spec.PodSets[1].Count = 3
+	finishedProbe := multiWlNext.DeepCopy()
+	finishedProbe.Status.Conditions = append(finishedProbe.Status.Conditions, metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue})
+	laterProbe := multiWlNext.DeepCopy()
+	laterProbe.Name = GenerateWorkloadNameWithExtra(job.Name, job.UID, gvk, "0-scale-up-probe-4")
+	laterProbe.Annotations[workloadslicing.WorkloadSliceReplacementFor] = "ns/" + finishedProbe.Name
+	laterProbe.Spec.PodSets[1].Count = 4
+	survivingProbe := laterProbe.DeepCopy()
+	survivingProbe.Annotations[kueueconstants.WorkloadSliceRevisionAnnotation] = revisionName
+	resized := job.DeepCopy()
+	resized.Generation++
+
 	cases := map[string]struct {
 		job             client.Object
 		podSets         []kueue.PodSet
@@ -3562,6 +3586,46 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		// for a continued chain).
 		wantExtra *string
 	}{
+		"MultiKueue count correction retains a distinct probe name": {
+			job:             job,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 6}},
+			existingObjects: []client.Object{job, multiWl},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 6},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("0-scale-up-probe-3"),
+		},
+		"successive MultiKueue partial grants have distinct probe names": {
+			job:             job,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 6}},
+			existingObjects: []client.Object{job, multiWlNext},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 6},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("0-scale-up-probe-4"),
+		},
+		"finished probe retains the revision after the original slice was deleted": {
+			job:             job,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 6}},
+			existingObjects: []client.Object{job, finishedProbe, laterProbe},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 6},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("0-scale-up-probe-5"),
+		},
+		"probe retains its revision after all earlier slices were deleted": {
+			job:             job,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 6}},
+			existingObjects: []client.Object{job, survivingProbe},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 6},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("0-scale-up-probe-5"),
+		},
+		"resize after a dispatched probe starts the new revision": {
+			job:             resized,
+			podSets:         []kueue.PodSet{{Name: "head", Count: 1}, {Name: "workers", Count: 7}},
+			existingObjects: []client.Object{resized, survivingProbe},
+			wantCounts:      map[kueue.PodSetReference]int32{"head": 1, "workers": 7},
+			wantMinCounts:   map[kueue.PodSetReference]*int32{"head": nil, "workers": new(int32(1))},
+			wantExtra:       new("1"),
+		},
 		"initial creation without previous admitted workload": {
 			job: job,
 			podSets: []kueue.PodSet{
@@ -3732,6 +3796,10 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 			}
 			if wl == nil {
 				t.Fatal("expected non-nil workload")
+			}
+			wantRevision := GetWorkloadNameForOwnerWithGVKAndGeneration(tc.job.GetName(), tc.job.GetUID(), gvk, tc.job.GetGeneration())
+			if got := wl.Annotations[kueueconstants.WorkloadSliceRevisionAnnotation]; got != wantRevision {
+				t.Errorf("recorded revision = %q, want %q", got, wantRevision)
 			}
 			if len(wl.Spec.PodSets) != len(tc.wantCounts) {
 				t.Fatalf("expected %d podsets, got %d", len(tc.wantCounts), len(wl.Spec.PodSets))
