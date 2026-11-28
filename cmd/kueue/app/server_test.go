@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/component-base/featuregate"
 	ctrl "sigs.k8s.io/controller-runtime"
+	clientconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -138,6 +139,9 @@ internalCertManagement:
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("KUBERNETES_SERVICE_HOST", "")
 			t.Setenv("KUBERNETES_SERVICE_PORT", "")
+			t.Cleanup(func() {
+				clientconfig.RegisterFlags(flag.NewFlagSet("reset", flag.ContinueOnError))
+			})
 			if tc.kubeconfig != "" {
 				kcPath := filepath.Join(t.TempDir(), "kubeconfig")
 				if err := os.WriteFile(kcPath, []byte(tc.kubeconfig), 0o600); err != nil {
@@ -253,17 +257,22 @@ internalCertManagement:
 	})
 
 	t.Run("kubeconfig rate limiter", func(t *testing.T) {
+		type limiterResult struct {
+			HasLimiter bool
+			QPS        float32
+		}
+
 		kcTests := map[string]struct {
-			qps             float32
-			wantRateLimiter bool
+			qps  float32
+			want limiterResult
 		}{
 			"positive QPS enables rate limiter": {
-				qps:             20,
-				wantRateLimiter: true,
+				qps:  20,
+				want: limiterResult{HasLimiter: true, QPS: 20},
 			},
 			"negative QPS disables rate limiter": {
-				qps:             -1,
-				wantRateLimiter: false,
+				qps:  -1,
+				want: limiterResult{HasLimiter: false},
 			},
 		}
 
@@ -285,8 +294,12 @@ internalCertManagement:
 				if err != nil {
 					t.Fatalf("buildKubeConfig() unexpected error: %v", err)
 				}
-				if (kubeConfig.RateLimiter != nil) != tc.wantRateLimiter {
-					t.Errorf("RateLimiter != nil is %v, want %v", kubeConfig.RateLimiter != nil, tc.wantRateLimiter)
+				var got limiterResult
+				if kubeConfig.RateLimiter != nil {
+					got = limiterResult{HasLimiter: true, QPS: kubeConfig.RateLimiter.QPS()}
+				}
+				if diff := cmp.Diff(tc.want, got); diff != "" {
+					t.Errorf("unexpected rate limiter configuration (-want/+got):\n%s", diff)
 				}
 			})
 		}
