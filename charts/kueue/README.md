@@ -64,6 +64,30 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.20.8" \
   --set "controllerManager.featureGates[0].enabled=true"
 ```
 
+##### Offline manifest generation
+
+When generating manifests offline, set the target Kubernetes version explicitly so the chart can render version-dependent resources. For example, with Helm:
+
+```bash
+helm template kueue oci://registry.k8s.io/kueue/charts/kueue --version="<FIXED_CHART_VERSION>" \
+  --kube-version v1.36.0 --set enableMutatingAdmissionPolicy=true
+```
+
+For Kustomize's Helm integration with Helm v4, use Kustomize v5.8.1 or later and this `kustomization.yaml`:
+
+```yaml
+helmCharts:
+  - name: kueue
+    repo: oci://registry.k8s.io/kueue/charts
+    version: <FIXED_CHART_VERSION>
+    kubeVersion: v1.36.0
+    releaseName: kueue
+    valuesInline:
+      enableMutatingAdmissionPolicy: true
+```
+
+Replace `<FIXED_CHART_VERSION>` with a chart release containing this fix, set the target version to the Kubernetes version of the destination cluster, and run `kustomize build --enable-helm .`. Helm or Kustomize must first be able to retrieve the chart; for offline Kustomize builds, prefetch it under `charts/kueue-<FIXED_CHART_VERSION>/kueue`.
+
 ##### Verify that controller pods are running properly.
 
 ```bash
@@ -320,7 +344,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableAlphaAPIs | bool | `false` | Enable Alpha APIs (e.g. DynamicQuotaOrchestrator, CapacityProvider) |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
-| enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+) |
+| enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+ or the admissionregistration.k8s.io/v1 MutatingAdmissionPolicy API) |
 | enablePrometheus | bool | `false` | Enable Prometheus |
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
 | enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |
