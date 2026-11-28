@@ -1502,3 +1502,206 @@ func expectParentAdmissionCheck(parent *kueue.Workload, check kueue.AdmissionChe
 		}}, ignoreVolatileCheckFields))
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
+
+var _ = ginkgo.Describe("Concurrent Admission with Workload custom metric labels", func() {
+	var (
+		ns                *corev1.Namespace
+		flavorReservation *kueue.ResourceFlavor
+		flavorSpot        *kueue.ResourceFlavor
+		cq                *kueue.ClusterQueue
+		lq                *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+		configuration := &configapi.Configuration{}
+		configuration.Metrics.CustomLabels = []configapi.ControllerMetricsCustomLabel{
+			utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(configapi.SourceKindWorkload).Obj(),
+		}
+		ginkgo.DeferCleanup(func() { kueuemetrics.InitMetricVectors(nil) })
+		fwk.StartManagerForSpec(ctx, cfg, managerAndSchedulerSetup(configuration))
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-labels-")
+
+		flavorReservation = utiltestingapi.MakeResourceFlavor("reservation").Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavorReservation)
+		flavorSpot = utiltestingapi.MakeResourceFlavor("spot").Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavorSpot)
+
+		// The preferred reservation flavor has no quota.
+		// So a Parent that fits is admitted on spot, while its reservation Variant stays pending.
+		cq = utiltestingapi.MakeClusterQueue("cq-custom-labels").
+			ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+			).Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.It("Should count the parent workload once in the pending workloads metrics for its label", func() {
+		parentWl := utiltestingapi.MakeWorkload("parent-wl-custom-labels", ns.Name).
+			Request(corev1.ResourceCPU, "100").
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Label("team", "a").
+			ParentVariant().
+			Obj()
+
+		ginkgo.By("Creating the parent workload requiring more quota than available", func() {
+			behavioral.MustCreate(ctx, k8sClient, parentWl)
+		})
+
+		var variantKeys []client.ObjectKey
+		ginkgo.By("Verifying variants are created with the label of the parent", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				keys := make([]client.ObjectKey, 0, 2)
+				for _, flavor := range []string{flavorReservation.Name, flavorSpot.Name} {
+					variant := getVariantByFlavor(list, parentWl.Name, flavor)
+					g.Expect(variant).ToNot(gomega.BeNil(), "Variant for %s not found", flavor)
+					g.Expect(variant.Labels).To(gomega.HaveKeyWithValue("team", "a"))
+					keys = append(keys, client.ObjectKeyFromObject(variant))
+				}
+				variantKeys = keys
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// Before the scheduler has tried both Variants, counting each Variant can still read 1.
+		ginkgo.By("Waiting for the scheduler to evaluate both variants", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, key := range variantKeys {
+					variant := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, key, variant)).To(gomega.Succeed())
+					cond := apimeta.FindStatusCondition(variant.Status.Conditions, kueue.WorkloadQuotaReserved)
+					g.Expect(cond).ToNot(gomega.BeNil(), "Variant %s has no QuotaReserved condition", key)
+					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+					g.Expect(cond.Reason).ToNot(gomega.Equal(kueue.WorkloadQuotaReservedReasonPendingEvaluation))
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the pending workloads metrics count the parent once for its label", func() {
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "a")
+			behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "a")
+			// The helpers above pass on the first matching value.
+			// Counting each Variant reads 1 for a moment before it reads 2, so check that the counts stay put.
+			gomega.Consistently(func(g gomega.Gomega) {
+				for status, want := range map[string]float64{kueuemetrics.PendingStatusActive: 0, kueuemetrics.PendingStatusInadmissible: 1} {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.PendingWorkloads.WithLabelValues(cq.Name, status, roletracker.RoleStandalone, "a"))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "pending_workloads with status=%s", status)
+					v, err = testutil.GetGaugeMetricValue(kueuemetrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, status, roletracker.RoleStandalone, "a"))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "local_queue_pending_workloads with status=%s", status)
+				}
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Changing the label of one variant", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				variant := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, variantKeys[1], variant)).To(gomega.Succeed())
+				variant.Labels["team"] = "b"
+				g.Expect(k8sClient.Update(ctx, variant)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Changing the label of the parent", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				parent := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parent)).To(gomega.Succeed())
+				parent.Labels["team"] = "c"
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the parent counts once under its own label only", func() {
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "c")
+			behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "c")
+			// The variant label update was handled before the parent one, so the counts no longer change.
+			gomega.Consistently(func(g gomega.Gomega) {
+				for team, want := range map[string]float64{"a": 0, "b": 0, "c": 1} {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.PendingWorkloads.WithLabelValues(cq.Name, kueuemetrics.PendingStatusInadmissible, roletracker.RoleStandalone, team))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "pending_workloads with team=%s", team)
+					v, err = testutil.GetGaugeMetricValue(
+						kueuemetrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, kueuemetrics.PendingStatusInadmissible, roletracker.RoleStandalone, team),
+					)
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "local_queue_pending_workloads with team=%s", team)
+				}
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should count the parent under its new label when the label changes after a variant is admitted", func() {
+		parentWl := utiltestingapi.MakeWorkload("parent-wl-admitted-relabel", ns.Name).
+			Request(corev1.ResourceCPU, "1").
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Label("team", "a").
+			ParentVariant().
+			Obj()
+
+		ginkgo.By("Creating the parent workload", func() {
+			behavioral.MustCreate(ctx, k8sClient, parentWl)
+		})
+
+		ginkgo.By("Verifying the parent is admitted on spot while the reservation variant is still pending", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
+				g.Expect(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(gomega.Equal(kueue.ResourceFlavorReference(flavorSpot.Name)))
+
+				list := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				variant := getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+				g.Expect(variant).ToNot(gomega.BeNil(), "Variant for %s not found", flavorReservation.Name)
+				g.Expect(workload.IsActive(variant)).To(gomega.BeTrue())
+				g.Expect(workload.HasQuotaReservation(variant)).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "a")
+			behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "a")
+		})
+
+		// The admitted Parent no longer takes the pending branch of the update handler.
+		ginkgo.By("Changing the label of the admitted parent", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				parent := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parent)).To(gomega.Succeed())
+				parent.Labels["team"] = "c"
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the pending variant counts its parent under the new label only", func() {
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "c")
+			behavioral.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "c")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for team, want := range map[string]float64{"a": 0, "c": 1} {
+					v, err := testutil.GetGaugeMetricValue(kueuemetrics.PendingWorkloads.WithLabelValues(cq.Name, kueuemetrics.PendingStatusInadmissible, roletracker.RoleStandalone, team))
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "pending_workloads with team=%s", team)
+					v, err = testutil.GetGaugeMetricValue(
+						kueuemetrics.LocalQueuePendingWorkloads.WithLabelValues(lq.Name, lq.Namespace, kueuemetrics.PendingStatusInadmissible, roletracker.RoleStandalone, team),
+					)
+					g.Expect(err).ToNot(gomega.HaveOccurred())
+					g.Expect(v).To(gomega.Equal(want), "local_queue_pending_workloads with team=%s", team)
+				}
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+})

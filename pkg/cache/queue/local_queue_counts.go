@@ -19,6 +19,7 @@ package queue
 import (
 	"sync"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -47,6 +48,10 @@ type localQueueCounts struct {
 	// inadmissible.
 	activeVariants       map[utilqueue.LocalQueueReference]map[workload.Reference]int
 	inadmissibleVariants map[utilqueue.LocalQueueReference]map[workload.Reference]int
+	// activeVariantLabels and inadmissibleVariantLabels count the same Variants per LocalQueue, Parent and Workload custom label values.
+	// They stay empty unless Workload custom labels are configured.
+	activeVariantLabels       map[utilqueue.LocalQueueReference]variantLabelCounts
+	inadmissibleVariantLabels map[utilqueue.LocalQueueReference]variantLabelCounts
 }
 
 func newLocalQueueCounts(cl *metrics.CustomLabels) *localQueueCounts {
@@ -57,10 +62,18 @@ func newLocalQueueCounts(cl *metrics.CustomLabels) *localQueueCounts {
 
 		activeVariants:       make(map[utilqueue.LocalQueueReference]map[workload.Reference]int),
 		inadmissibleVariants: make(map[utilqueue.LocalQueueReference]map[workload.Reference]int),
+
+		activeVariantLabels:       make(map[utilqueue.LocalQueueReference]variantLabelCounts),
+		inadmissibleVariantLabels: make(map[utilqueue.LocalQueueReference]variantLabelCounts),
 	}
 }
 
-func (c *localQueueCounts) track(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, variants map[utilqueue.LocalQueueReference]map[workload.Reference]int, wInfo *workload.Info) {
+func (c *localQueueCounts) track(
+	trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker,
+	variants map[utilqueue.LocalQueueReference]map[workload.Reference]int,
+	variantLabels map[utilqueue.LocalQueueReference]variantLabelCounts,
+	wInfo *workload.Info,
+) {
 	lqRef := utilqueue.KeyFromWorkload(wInfo.Obj)
 	tracker, ok := trackers[lqRef]
 	if !ok {
@@ -73,10 +86,21 @@ func (c *localQueueCounts) track(trackers map[utilqueue.LocalQueueReference]*met
 			variants[lqRef] = make(map[workload.Reference]int)
 		}
 		variants[lqRef][key]++
+		if c.customLabels.KindConfigured(config.SourceKindWorkload) {
+			if variantLabels[lqRef] == nil {
+				variantLabels[lqRef] = make(variantLabelCounts)
+			}
+			variantLabels[lqRef].add(c.customLabels, wInfo)
+		}
 	}
 }
 
-func (c *localQueueCounts) untrack(trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker, variants map[utilqueue.LocalQueueReference]map[workload.Reference]int, wInfo *workload.Info) {
+func (c *localQueueCounts) untrack(
+	trackers map[utilqueue.LocalQueueReference]*metrics.LabelValsTracker,
+	variants map[utilqueue.LocalQueueReference]map[workload.Reference]int,
+	variantLabels map[utilqueue.LocalQueueReference]variantLabelCounts,
+	wInfo *workload.Info,
+) {
 	lqRef := utilqueue.KeyFromWorkload(wInfo.Obj)
 	tracker, ok := trackers[lqRef]
 	if !ok {
@@ -92,30 +116,36 @@ func (c *localQueueCounts) untrack(trackers map[utilqueue.LocalQueueReference]*m
 			delete(variants, lqRef)
 		}
 	}
+	if lqVariantLabels, ok := variantLabels[lqRef]; ok {
+		lqVariantLabels.remove(c.customLabels, wInfo)
+		if len(lqVariantLabels) == 0 {
+			delete(variantLabels, lqRef)
+		}
+	}
 }
 
 func (c *localQueueCounts) addActive(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.track(c.active, c.activeVariants, wInfo)
+	c.track(c.active, c.activeVariants, c.activeVariantLabels, wInfo)
 }
 
 func (c *localQueueCounts) removeActive(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.untrack(c.active, c.activeVariants, wInfo)
+	c.untrack(c.active, c.activeVariants, c.activeVariantLabels, wInfo)
 }
 
 func (c *localQueueCounts) addInadmissible(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.track(c.inadmissible, c.inadmissibleVariants, wInfo)
+	c.track(c.inadmissible, c.inadmissibleVariants, c.inadmissibleVariantLabels, wInfo)
 }
 
 func (c *localQueueCounts) removeInadmissible(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.untrack(c.inadmissible, c.inadmissibleVariants, wInfo)
+	c.untrack(c.inadmissible, c.inadmissibleVariants, c.inadmissibleVariantLabels, wInfo)
 }
 
 // updateActive replaces oldInfo with newInfo in the active counts; oldInfo may
@@ -125,31 +155,31 @@ func (c *localQueueCounts) updateActive(oldInfo, newInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	if oldInfo != nil {
-		c.untrack(c.active, c.activeVariants, oldInfo)
+		c.untrack(c.active, c.activeVariants, c.activeVariantLabels, oldInfo)
 	}
-	c.track(c.active, c.activeVariants, newInfo)
+	c.track(c.active, c.activeVariants, c.activeVariantLabels, newInfo)
 }
 
 // updateInadmissible replaces oldInfo with newInfo in the inadmissible counts.
 func (c *localQueueCounts) updateInadmissible(oldInfo, newInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.untrack(c.inadmissible, c.inadmissibleVariants, oldInfo)
-	c.track(c.inadmissible, c.inadmissibleVariants, newInfo)
+	c.untrack(c.inadmissible, c.inadmissibleVariants, c.inadmissibleVariantLabels, oldInfo)
+	c.track(c.inadmissible, c.inadmissibleVariants, c.inadmissibleVariantLabels, newInfo)
 }
 
 func (c *localQueueCounts) moveToActive(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.untrack(c.inadmissible, c.inadmissibleVariants, wInfo)
-	c.track(c.active, c.activeVariants, wInfo)
+	c.untrack(c.inadmissible, c.inadmissibleVariants, c.inadmissibleVariantLabels, wInfo)
+	c.track(c.active, c.activeVariants, c.activeVariantLabels, wInfo)
 }
 
 func (c *localQueueCounts) moveToInadmissible(wInfo *workload.Info) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
-	c.untrack(c.active, c.activeVariants, wInfo)
-	c.track(c.inadmissible, c.inadmissibleVariants, wInfo)
+	c.untrack(c.active, c.activeVariants, c.activeVariantLabels, wInfo)
+	c.track(c.inadmissible, c.inadmissibleVariants, c.inadmissibleVariantLabels, wInfo)
 }
 
 // pendingInLocalQueue returns the number of active and inadmissible pending
@@ -171,11 +201,21 @@ func (c *localQueueCounts) pendingInLocalQueue(lqRef utilqueue.LocalQueueReferen
 }
 
 // pendingBreakdownInLocalQueue returns copies of the active and inadmissible
-// trackers of the LocalQueue. Active includes inflight workloads.
-func (c *localQueueCounts) pendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+// trackers of the LocalQueue, counting each Parent once.
+// Active includes inflight workloads.
+func (c *localQueueCounts) pendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference, parents *parentLabels) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
-	return copyNonZero(c.active[lqRef]), copyNonZero(c.inadmissible[lqRef])
+	activeVariants, inadmissibleVariants := c.activeVariantLabels[lqRef], c.inadmissibleVariantLabels[lqRef]
+	if len(activeVariants) == 0 && len(inadmissibleVariants) == 0 {
+		// Without Variants there is nothing to subtract, so one copy is enough.
+		return copyNonZero(c.active[lqRef]), copyNonZero(c.inadmissible[lqRef])
+	}
+	active, inadmissible := metrics.Copy(c.active[lqRef]), metrics.Copy(c.inadmissible[lqRef])
+	// The active counts already include the inflight Variants.
+	// The LocalQueue metric clears all its series before reporting, so it needs no zero counts for removed label sets.
+	subtractVariantExcess(active, inadmissible, activeVariants, inadmissibleVariants, nil, parents, nil)
+	return copyNonZero(active), copyNonZero(inadmissible)
 }
 
 // copyNonZero copies the tracker without the label values whose count dropped

@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -76,9 +77,13 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		customLabels := metrics.NewCustomLabels(configuration.Metrics.CustomLabels)
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
 		preemptionExpectations := preemptexpectations.New()
-		queuesOpts := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		queuesOpts := []qcache.Option{
+			qcache.WithPreemptionExpectations(preemptionExpectations),
+			qcache.WithCustomLabels(customLabels),
+		}
 		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queuesOpts...)
 
 		failedCtrl, err := core.SetupControllers(
@@ -86,7 +91,7 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 			queues,
 			cCache,
 			configuration,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, CustomLabels: customLabels},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
@@ -100,7 +105,10 @@ func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.
 		err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		schedOpts := []scheduler.Option{scheduler.WithPreemptionExpectations(preemptionExpectations)}
+		schedOpts := []scheduler.Option{
+			scheduler.WithPreemptionExpectations(preemptionExpectations),
+			scheduler.WithCustomLabels(customLabels),
+		}
 		sched := scheduler.New(
 			queues,
 			cCache,

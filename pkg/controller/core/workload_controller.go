@@ -1465,6 +1465,7 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 		r.queues.AddFinishedWorkload(e.Object)
 		return true
 	}
+	r.queues.UpdateConcurrentAdmissionParentLabels(e.Object)
 
 	ctx = ctrl.LoggerInto(ctx, log)
 	wl := e.Object
@@ -1564,6 +1565,8 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 
 	wl := e.ObjectNew
 	wlKey := workload.Key(e.ObjectNew)
+	// A Parent keeps counting its pending Variants under its labels also after one of them is admitted.
+	r.queues.UpdateConcurrentAdmissionParentLabels(wl)
 
 	onHold := workload.IsOnHold(wl)
 

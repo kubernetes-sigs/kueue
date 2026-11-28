@@ -64,7 +64,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
 	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
-		active, inadmissible := cq.PendingBreakdown()
+		active, inadmissible := cq.PendingBreakdown(m.parentLabels)
 		// The trackers keep label sets whose count dropped to zero, so the label sets of
 		// both trackers cover every series reported for this ClusterQueue, including
 		// series of a status the workloads moved out of when the ClusterQueue was
@@ -129,12 +129,15 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
 		var active, inadmissible *metrics.LabelValsTracker
 		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
-			active, inadmissible = cq.PendingBreakdownInLocalQueue(lq.Key)
+			active, inadmissible = cq.PendingBreakdownInLocalQueue(lq.Key, m.parentLabels)
 		} else {
 			active, inadmissible = metrics.NewLabelValsTracker(), metrics.NewLabelValsTracker()
+			variants := make(variantLabelCounts)
 			for _, wInfo := range lq.items {
 				metrics.TrackWorkload(m.customLabels, inadmissible, wInfo.Obj)
+				variants.add(m.customLabels, wInfo)
 			}
+			subtractVariantExcess(active, inadmissible, nil, variants, nil, m.parentLabels, nil)
 		}
 		if !cqActive {
 			inadmissible = metrics.MergedTracker(inadmissible, active)
@@ -150,7 +153,7 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
 			active, inadmissible = cq.PendingInLocalQueue(lq.Key)
 		} else {
-			inadmissible = len(lq.items)
+			inadmissible = lq.pendingCount()
 		}
 		if !cqActive {
 			inadmissible += active

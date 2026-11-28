@@ -198,6 +198,9 @@ type Manager struct {
 	// Once the Evicted condition is observed by scheduler the expectation
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
+
+	// parentLabels keeps the Workload custom label values of the ConcurrentAdmission Parents, for the pending metrics.
+	parentLabels *parentLabels
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -222,6 +225,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsUsageLedger:         queueafs.NewAfsUsageLedger(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
+		parentLabels:           newParentLabels(),
 	}
 	for _, option := range options {
 		option(m)
@@ -797,6 +801,36 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	return nil
 }
 
+// UpdateConcurrentAdmissionParentLabels records the Workload custom label values of the Parent wl, under which the pending metrics count its Variants.
+// When they change, it reports the pending workloads of every queue that holds a Variant of wl.
+func (m *Manager) UpdateConcurrentAdmissionParentLabels(wl *kueue.Workload) {
+	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(wl) || !m.customLabels.KindConfigured(config.SourceKindWorkload) {
+		return
+	}
+	m.Lock()
+	defer m.Unlock()
+	if m.parentLabels.store(m.customLabels, wl) {
+		m.reportParentQueues(workload.Key(wl))
+	}
+}
+
+// reportParentQueues reports the pending workloads of every queue that counts a pending Variant of the Parent key.
+// The ClusterQueues are selected by their own Variant counts, because a checked out Variant leaves its LocalQueue while it still counts as pending.
+// Must be called with the lock held.
+func (m *Manager) reportParentQueues(key workload.Reference) {
+	for cqRef, cq := range m.hm.ClusterQueues() {
+		if cq.hasPendingVariantsOf(key) {
+			reportPendingWorkloads(m, cqRef)
+		}
+	}
+	// A LocalQueue whose ClusterQueue does not exist yet reports from its own items.
+	for _, q := range m.localQueues {
+		if q.variantsPerParent[key] != 0 && m.hm.ClusterQueue(q.ClusterQueue) == nil {
+			reportLQPendingWorkloads(m, q)
+		}
+	}
+}
+
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
@@ -946,6 +980,10 @@ func (m *Manager) DeleteAndForgetWorkload(log logr.Logger, wlKey workload.Refere
 // Deletes the workload from local/cluster queue and purges queue assignment caching.
 func (m *Manager) deleteAndForgetWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) {
 	m.deleteWorkloadWithoutLock(log, wlKey)
+	// A Parent is not queued, so the deletion above does not report the queues that count its Variants.
+	if m.parentLabels.delete(wlKey) {
+		m.reportParentQueues(wlKey)
+	}
 	delete(m.workloadAssignedQueues, wlKey)
 	m.deleteFinishedWorkloadWithoutLock(wlKey)
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
