@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"slices"
 	"syscall"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
+	"sigs.k8s.io/kueue/test/performance/multikueue/report"
 )
 
 var (
@@ -56,7 +58,10 @@ var (
 	creationWorkersOverride = flag.Int("creationWorkers", 0, "override the configured creation worker count")
 )
 
-const runnerLogName = "runner.log"
+const (
+	runnerLogName     = "runner.log"
+	queueTimelineName = "queue-depth.csv"
+)
 
 // Controller logs go to runnerLogName rather than being discarded, so that a run failing after
 // several minutes leaves something to diagnose, and rather than to stderr, so that expected
@@ -122,7 +127,7 @@ func run() error {
 	for i := range cfg.WorkerClusters {
 		name := workerName(i)
 		fmt.Printf("Starting %s control plane\n", name)
-		worker, err := startBenchmarkCluster(clusterCtx, name, *crdsPath, cfg, setupCoreControllers, failClusters)
+		worker, err := startBenchmarkCluster(clusterCtx, name, *crdsPath, cfg, workerMinRequestTimeout(cfg), setupCoreControllers, failClusters)
 		if err != nil {
 			return preferUnexpectedManagerError(err, workers...)
 		}
@@ -142,6 +147,7 @@ func run() error {
 		"manager",
 		*crdsPath,
 		cfg,
+		0,
 		setupManagerControllers(configNamespaceName, cfg),
 		failClusters,
 	)
@@ -174,7 +180,7 @@ func run() error {
 	benchmarkCtx, benchmarkCancel := context.WithTimeout(clusterCtx, cfg.Timeout.Duration)
 	defer benchmarkCancel()
 	fmt.Println("Creating", cfg.WorkloadCount, "workloads")
-	summary, err := runBenchmark(benchmarkCtx, managerCluster, cfg)
+	summary, timeline, err := runBenchmark(benchmarkCtx, managerCluster, cfg)
 	if managerErr := unexpectedManagerError(ctx, clusterCtx, clusters...); managerErr != nil {
 		return managerErr
 	}
@@ -198,9 +204,49 @@ func run() error {
 		summary.Latencies.AdmissionMs.P95Ms,
 	)
 	fmt.Println("Summary:", summaryPath)
+	if summary.Reconnect != nil {
+		if err := writeReconnectResults(*outputDirectory, summary.Reconnect, timeline); err != nil {
+			return err
+		}
+	}
 	if err := unexpectedManagerError(ctx, clusterCtx, clusters...); err != nil {
 		return err
 	}
+	return nil
+}
+
+// workerMinRequestTimeout shortens the worker API servers' watch timeout only for the reconnect
+// scenario. The manager API server keeps its default so the runner's own Workload watch is not
+// affected.
+func workerMinRequestTimeout(cfg configuration.Config) time.Duration {
+	if cfg.Reconnect == nil {
+		return 0
+	}
+	return cfg.Reconnect.WorkerMinRequestTimeout.Duration
+}
+
+func writeReconnectResults(outputDirectory string, reconnects *report.ReconnectSummary, timeline *queueTimeline) error {
+	timelinePath := filepath.Join(outputDirectory, queueTimelineName)
+	timelineFile, err := os.Create(timelinePath)
+	if err != nil {
+		return fmt.Errorf("create queue timeline: %w", err)
+	}
+	if err := writeQueueTimeline(timelineFile, timeline); err != nil {
+		timelineFile.Close()
+		return fmt.Errorf("write queue timeline: %w", err)
+	}
+	if err := timelineFile.Close(); err != nil {
+		return fmt.Errorf("write queue timeline: %w", err)
+	}
+	probes := reconnects.ProbeAdmissionMs
+	fmt.Printf(
+		"Probe admission P90 before/during/after reconnects: %dms/%dms/%dms over %d reconnects\n",
+		probes.BeforeReconnect.P90Ms,
+		probes.DuringReconnect.P90Ms,
+		probes.AfterReconnect.P90Ms,
+		len(reconnects.Windows),
+	)
+	fmt.Println("Queue timeline:", timelinePath)
 	return nil
 }
 

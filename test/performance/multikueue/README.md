@@ -128,6 +128,107 @@ disabled while the baseline's longer-term variance is assessed.
 For this target, the summary is written to
 `artifacts/test-performance-multikueue/run-performance-multikueue/summary.yaml`.
 
+## Worker reconnect scenario
+
+A worker reconnect is routine on a production manager. The API server ends
+each watch that requests no timeout after `--min-request-timeout` to twice that
+value, 30 to 60 minutes by default. MultiKueue reconnects to the whole worker
+when any one of its watches ends, requeues every Workload of that worker, and
+the new watches replay an `ADDED` event for every remote object. New Workloads
+must not wait behind this burst. The scenario guards that: it fails when the
+reconnect resync or the replayed events delay new Workloads again, for example
+because they are enqueued at the default priority instead of the low priority.
+
+```bash
+make run-performance-multikueue-reconnect
+make test-performance-multikueue-reconnect
+```
+
+The first target only runs the scenario. The second also checks the result
+against
+[`configs/reconnect/expectations.yaml`](configs/reconnect/expectations.yaml)
+and retries once, like the baseline target. Both use
+[`configs/reconnect/configuration.yaml`](configs/reconnect/configuration.yaml),
+and write the same artifacts as the baseline, plus `queue-depth.csv`.
+
+The scenario runs in three steps:
+
+1. Preload: create `workloadCount` Workloads and wait until all are admitted.
+   They stay admitted because the benchmark runs no Jobs or Pods. The runner
+   then waits until the MultiKueue workload queue has been empty for the events
+   batch period plus one second.
+2. Reconnects: the `reconnect.workerMinRequestTimeout` setting sets
+   `--min-request-timeout` on the worker API servers only. Their watches end
+   as they do on a production worker, but within minutes, so the manager
+   reconnects to each worker through the production code path. The manager API
+   server keeps its default, so the runner's own Workload watch is not affected.
+3. Probes: create one probe Workload every `reconnect.probeInterval`, until
+   `reconnect.reconnects` reconnects have drained and
+   `reconnect.probesAfterReconnects` has passed. Then wait until every probe is
+   admitted.
+
+The runner samples the in-process controller-runtime metrics every 100 ms.
+Once the MultiKueueClusters are connected, the MultiKueueCluster controller
+reconciles only when the manager reconnects to a worker, so each new
+`controller_runtime_reconcile_total{controller="multikueue_cluster"}` opens a
+reconnect window. The window closes when
+`workqueue_depth{name="multikueue_workload"}` is zero again, at least the events
+batch period plus one second after the last reconnect in it, because the
+resync enqueues its Workloads only after the events batch period. Windows of
+overlapping reconnects are merged.
+
+The `reconnect` section of the summary contains:
+
+- `probeAdmissionMs`: the creation to manager admission latency of the probes
+  (min/avg/P50/P90/P95/P99/max). A probe pending at any time in a reconnect
+  window is `duringReconnect`. The other probes are `beforeReconnect` when
+  created before the first window and `afterReconnect` otherwise.
+- `windows`: the start of each window relative to the start of probing, its
+  drain time, the peak queue depth, and the number of MultiKueue workload
+  reconciles in it.
+- `peakQueueDepth`: the highest sampled depth by the `priority` label. Without
+  the low priority, the reconnect backlog appears under priority `0` instead
+  of `-100`.
+
+`queue-depth.csv` has one row per sample: the time relative to the start of
+probing, the MultiKueueCluster and MultiKueue workload reconcile counts, and
+the queue depth by priority.
+
+The scenario uses `workloadConcurrency: 1`, the production default. With more
+concurrent reconciles, the burst drains before it delays new Workloads, and the
+scenario no longer detects the regression. The preload also reports the usual
+throughput and latency fields, but at this concurrency they are not comparable
+with the baseline.
+
+The checker requires at least `reconnect.reconnects` windows and
+`minDuringReconnectProbes` probes during reconnects, and fails when the P90
+latency of those probes exceeds `maxDuringReconnectProbeAdmissionP90Ms`.
+
+The committed bounds come from local runs on macOS (Apple Silicon) only. CI
+calibration is pending; recalibrate from at least five runs on the dedicated CI
+worker before relying on them there.
+
+| Run | Probes during reconnects | P90 | Max | Peak backlog |
+|---|---|---|---|---|
+| main, 3 runs | 41–75 | 37–42 ms | 43–52 ms | 1,735–2,550 at priority `-100`, at most 1 at `0` |
+| low priority reverted, 1 run | 41 | 3,387 ms | 4,347 ms | 1,730 at priority `0` |
+
+The regression run reverted the low priority of the reconnect resync, of the
+replayed `ADDED` events, and of the periodic requeue of admitted Workloads. The
+probes before and after reconnects stayed at about 40 ms P90 in all runs. The
+1,500 ms bound sits well between the two.
+
+Follow-up work:
+
+- A manager restart with the same Workloads in place, which replays the
+  initial list of every worker
+  ([issue 18938](https://github.com/kubernetes-sigs/kueue/issues/18938)).
+- Once the manager can request a watch timeout
+  ([PR 18236](https://github.com/kubernetes-sigs/kueue/pull/18236)), the
+  scenario can trigger the reconnects from the manager configuration instead
+  of the worker API server flag. Managed control planes do not allow changing
+  that flag.
+
 ## Worker-client configuration
 
 The runner uses the existing `clientConnection` support for worker clusters and
@@ -191,7 +292,8 @@ scenario settings and on stable CI capacity.
 The baseline pins the production garbage collection, worker-loss, and event-batch
 values used for calibration. Garbage collection can add traffic during sufficiently long runs.
 Worker-loss detection is not exercised: its 15-minute timeout exceeds the
-baseline's 10-minute safety bound. Failure and recovery scenarios are deferred.
+baseline's 10-minute safety bound. The reconnect scenario covers routine worker
+reconnects; worker failure and recovery scenarios are deferred.
 
 ## Reconcile concurrency
 
@@ -263,8 +365,8 @@ The raw runner remains observational. The dedicated periodic job in
 invokes `make test-performance-multikueue` every 12 hours and publishes
 `ARTIFACTS`. It applies the broad guardrails above with notifications disabled.
 Enable TestGrid alerting only after longer-term variance is shown to be stable.
-Worker disconnect/reconnect and dispatcher-specific scenarios remain follow-up
-work.
+The worker reconnect scenario is not part of a periodic job yet.
+Dispatcher-specific scenarios remain follow-up work.
 
 CPU and memory profiles are also deferred, and the current structure is what
 defers them: all four controller managers run in one process, so a process

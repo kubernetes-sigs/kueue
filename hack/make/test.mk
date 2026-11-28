@@ -897,6 +897,8 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 
 MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/configuration.yaml
 MULTIKUEUE_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/expectations.yaml
+MULTIKUEUE_RECONNECT_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/reconnect/configuration.yaml
+MULTIKUEUE_RECONNECT_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueue/configs/reconnect/expectations.yaml
 
 # These tests also run in unit CI; retain a focused target for performance workflows.
 .PHONY: test-performance-multikueue-runner
@@ -925,6 +927,20 @@ test-performance-multikueue-once: test-performance-multikueue-runner run-perform
 .PHONY: test-performance-multikueue
 test-performance-multikueue:
 	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-multikueue-once
+
+# The worker reconnect scenario reuses the targets above with its own configuration and expectations.
+.PHONY: run-performance-multikueue-reconnect
+run-performance-multikueue-reconnect: MULTIKUEUE_PERFORMANCE_CONFIG = $(MULTIKUEUE_RECONNECT_PERFORMANCE_CONFIG)
+run-performance-multikueue-reconnect: run-performance-multikueue
+
+.PHONY: test-performance-multikueue-reconnect-once
+test-performance-multikueue-reconnect-once: MULTIKUEUE_PERFORMANCE_CONFIG = $(MULTIKUEUE_RECONNECT_PERFORMANCE_CONFIG)
+test-performance-multikueue-reconnect-once: MULTIKUEUE_PERFORMANCE_EXPECTATIONS = $(MULTIKUEUE_RECONNECT_PERFORMANCE_EXPECTATIONS)
+test-performance-multikueue-reconnect-once: test-performance-multikueue-once
+
+.PHONY: test-performance-multikueue-reconnect
+test-performance-multikueue-reconnect:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-multikueue-reconnect-once
 
 ##@ Scheduler Performance Testing with TAS
 

@@ -348,7 +348,7 @@ func (c *blockingBenchmarkClient) stopWatch(ctx context.Context) {
 }
 
 func runBenchmarkForTest(ctx context.Context, c client.WithWatch, result chan<- error) {
-	_, err := runBenchmark(ctx, &benchmarkCluster{client: c}, configuration.Config{
+	_, _, err := runBenchmark(ctx, &benchmarkCluster{client: c}, configuration.Config{
 		WorkloadCount:   1,
 		WorkerClusters:  1,
 		CreationWorkers: 1,

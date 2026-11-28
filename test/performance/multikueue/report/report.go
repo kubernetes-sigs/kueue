@@ -40,6 +40,15 @@ type Scenario struct {
 	LocalClientBurst           int     `json:"localClientBurst"`
 	RemoteClientQPS            float32 `json:"remoteClientQPS"`
 	RemoteClientBurst          int     `json:"remoteClientBurst"`
+	// Reconnect is set only for the worker reconnect scenario.
+	Reconnect *ReconnectScenario `json:"reconnect,omitempty"`
+}
+
+type ReconnectScenario struct {
+	WorkerMinRequestTimeout string `json:"workerMinRequestTimeout"`
+	ProbeInterval           string `json:"probeInterval"`
+	Reconnects              int    `json:"reconnects"`
+	ProbesAfterReconnects   string `json:"probesAfterReconnects"`
 }
 
 // Build records runtime metadata. GoVersion and Platform are always populated; GitVersion and
@@ -78,4 +87,40 @@ type Summary struct {
 	// admission observation.
 	WatchGaps          int            `json:"watchGaps"`
 	WorkerDistribution map[string]int `json:"workerDistribution"`
+	// Reconnect is set only for the worker reconnect scenario. The fields above then describe
+	// the preloaded workloads, admitted before probing starts.
+	Reconnect *ReconnectSummary `json:"reconnect,omitempty"`
+}
+
+// ReconnectSummary reports how worker reconnects delay new workloads. A reconnect window starts
+// when the manager starts reconnecting to a worker and ends when the MultiKueue workload queue
+// is empty again. Overlapping windows are merged.
+type ReconnectSummary struct {
+	// Windows lists the reconnect windows, relative to the start of probing.
+	Windows []ReconnectWindow `json:"windows"`
+	// ProbeAdmissionMs is the creation to manager admission latency of the probe workloads.
+	ProbeAdmissionMs ProbeLatencies `json:"probeAdmissionMs"`
+	// PeakQueueDepth is the highest sampled depth of the MultiKueue workload queue, by the
+	// priority label of the workqueue_depth metric.
+	PeakQueueDepth map[string]int `json:"peakQueueDepth"`
+}
+
+type ReconnectWindow struct {
+	StartMs int64 `json:"startMs"`
+	// DrainMs is the time from the start of the window until the queue is empty again.
+	DrainMs int64 `json:"drainMs"`
+	// PeakQueueDepth is the highest sampled depth of the MultiKueue workload queue in the
+	// window, summed over priorities.
+	PeakQueueDepth int `json:"peakQueueDepth"`
+	// WorkloadReconciles counts the MultiKueue workload reconciles in the window.
+	WorkloadReconciles int `json:"workloadReconciles"`
+}
+
+// ProbeLatencies splits the probes by when they were pending. A probe pending at any time in a
+// reconnect window is DuringReconnect. The other probes are BeforeReconnect when created before
+// the first window and AfterReconnect otherwise.
+type ProbeLatencies struct {
+	BeforeReconnect Durations `json:"beforeReconnect"`
+	DuringReconnect Durations `json:"duringReconnect"`
+	AfterReconnect  Durations `json:"afterReconnect"`
 }

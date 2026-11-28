@@ -27,6 +27,7 @@ type Durations struct {
 	MinMs int64 `json:"minMs"`
 	AvgMs int64 `json:"avgMs"`
 	P50Ms int64 `json:"p50Ms"`
+	P90Ms int64 `json:"p90Ms"`
 	P95Ms int64 `json:"p95Ms"`
 	P99Ms int64 `json:"p99Ms"`
 	MaxMs int64 `json:"maxMs"`
@@ -52,6 +53,7 @@ func SummarizeDurations(values []time.Duration) Durations {
 		MinMs: sorted[0].Milliseconds(),
 		AvgMs: (total / time.Duration(len(sorted))).Milliseconds(),
 		P50Ms: nearestRank(sorted, 0.50).Milliseconds(),
+		P90Ms: nearestRank(sorted, 0.90).Milliseconds(),
 		P95Ms: nearestRank(sorted, 0.95).Milliseconds(),
 		P99Ms: nearestRank(sorted, 0.99).Milliseconds(),
 		MaxMs: sorted[len(sorted)-1].Milliseconds(),

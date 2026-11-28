@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -77,7 +78,17 @@ type managerRun struct {
 	unexpected bool
 }
 
-func startBenchmarkCluster(ctx context.Context, name, crdPath string, cfg configuration.Config, setup managerSetup, failClusters context.CancelCauseFunc) (*benchmarkCluster, error) {
+// startBenchmarkCluster starts a control plane and its controllers. A positive minRequestTimeout
+// shortens the API server's --min-request-timeout, which bounds how long it serves a watch that
+// requests no timeout.
+func startBenchmarkCluster(
+	ctx context.Context,
+	name, crdPath string,
+	cfg configuration.Config,
+	minRequestTimeout time.Duration,
+	setup managerSetup,
+	failClusters context.CancelCauseFunc,
+) (*benchmarkCluster, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, context.Cause(ctx)
 	}
@@ -87,10 +98,7 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, cfg config
 		return nil, err
 	}
 
-	testEnv := benchmarkEnvironment(crdPath, scheme)
-	testEnv.ControlPlane.GetAPIServer().Configure().
-		Append("max-requests-inflight", "5000").
-		Append("max-mutating-requests-inflight", "2500")
+	testEnv := benchmarkEnvironment(crdPath, scheme, minRequestTimeout)
 
 	restConfig, err := testEnv.Start()
 	if err != nil {
@@ -151,14 +159,21 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, cfg config
 	}, nil
 }
 
-func benchmarkEnvironment(crdPath string, scheme *runtime.Scheme) *envtest.Environment {
-	return &envtest.Environment{
+func benchmarkEnvironment(crdPath string, scheme *runtime.Scheme, minRequestTimeout time.Duration) *envtest.Environment {
+	testEnv := &envtest.Environment{
 		CRDDirectoryPaths:       []string{crdPath},
 		ErrorIfCRDPathMissing:   true,
 		ControlPlaneStopTimeout: 90 * time.Second,
 		UseExistingCluster:      new(false),
 		Scheme:                  scheme,
 	}
+	apiServerArgs := testEnv.ControlPlane.GetAPIServer().Configure().
+		Append("max-requests-inflight", "5000").
+		Append("max-mutating-requests-inflight", "2500")
+	if minRequestTimeout > 0 {
+		apiServerArgs.Set("min-request-timeout", strconv.Itoa(int(minRequestTimeout/time.Second)))
+	}
+	return testEnv
 }
 
 func benchmarkScheme() (*runtime.Scheme, error) {

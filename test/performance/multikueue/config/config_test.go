@@ -157,6 +157,34 @@ func TestConfigValidate(t *testing.T) {
 			config:  makeConfig().Timeout(-1).Obj(),
 			wantErr: "timeout must be positive",
 		},
+		"valid reconnect": {
+			config: makeConfig().Reconnect(makeReconnect()).Obj(),
+		},
+		"missing worker min request timeout": {
+			config:  makeConfig().Reconnect(withReconnect(func(r *Reconnect) { r.WorkerMinRequestTimeout.Duration = 0 })).Obj(),
+			wantErr: "reconnect: workerMinRequestTimeout must be at least 1s",
+		},
+		"fractional worker min request timeout": {
+			config:  makeConfig().Reconnect(withReconnect(func(r *Reconnect) { r.WorkerMinRequestTimeout.Duration = 1500 * time.Millisecond })).Obj(),
+			wantErr: "reconnect: workerMinRequestTimeout must be a whole number of seconds",
+		},
+		"missing probe interval": {
+			config:  makeConfig().Reconnect(withReconnect(func(r *Reconnect) { r.ProbeInterval.Duration = 0 })).Obj(),
+			wantErr: "reconnect: probeInterval must be positive",
+		},
+		"missing reconnects": {
+			config:  makeConfig().Reconnect(withReconnect(func(r *Reconnect) { r.Reconnects = 0 })).Obj(),
+			wantErr: "reconnect: reconnects must be positive",
+		},
+		"missing probes after reconnects": {
+			config:  makeConfig().Reconnect(withReconnect(func(r *Reconnect) { r.ProbesAfterReconnects.Duration = 0 })).Obj(),
+			wantErr: "reconnect: probesAfterReconnects must be positive",
+		},
+		// The runner reserves quota and observation state for every probe that fits in the timeout.
+		"too many probes": {
+			config:  makeConfig().Timeout(time.Hour).Reconnect(withReconnect(func(r *Reconnect) { r.ProbeInterval.Duration = 100 * time.Millisecond })).Obj(),
+			wantErr: "reconnect: workloadCount plus the probes",
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -224,6 +252,40 @@ timeout: 20m
 			data:    strings.Replace(configurationYAML, "gcInterval: 2m\n", "", 1),
 			wantErr: "gcInterval must be positive",
 		},
+		"reconnect": {
+			data: configurationYAML + `reconnect:
+  workerMinRequestTimeout: 45s
+  probeInterval: 2s
+  reconnects: 2
+  probesAfterReconnects: 20s
+`,
+			want: Config{
+				WorkloadCount:       200,
+				WorkerClusters:      4,
+				CreationWorkers:     2,
+				CPURequest:          "2m",
+				LocalClientQPS:      431.5,
+				LocalClientBurst:    701,
+				RemoteClientQPS:     731.5,
+				RemoteClientBurst:   997,
+				WorkloadConcurrency: 6,
+				Dispatcher:          configapi.MultiKueueDispatcherModeAllAtOnce,
+				GCInterval:          metav1.Duration{Duration: 2 * time.Minute},
+				WorkerLostTimeout:   metav1.Duration{Duration: 7 * time.Minute},
+				EventsBatchPeriod:   metav1.Duration{Duration: 3 * time.Second},
+				Timeout:             metav1.Duration{Duration: 20 * time.Minute},
+				Reconnect: &Reconnect{
+					WorkerMinRequestTimeout: metav1.Duration{Duration: 45 * time.Second},
+					ProbeInterval:           metav1.Duration{Duration: 2 * time.Second},
+					Reconnects:              2,
+					ProbesAfterReconnects:   metav1.Duration{Duration: 20 * time.Second},
+				},
+			},
+		},
+		"unknown reconnect field": {
+			data:    configurationYAML + "reconnect:\n  maxDuringReconnectProbeAdmissionP90Ms: 1000\n",
+			wantErr: `unknown field "maxDuringReconnectProbeAdmissionP90Ms"`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -273,12 +335,46 @@ func TestConfigScenario(t *testing.T) {
 	if diff := cmp.Diff(want, config.Scenario()); diff != "" {
 		t.Errorf("Scenario() mismatch (-want,+got):\n%s", diff)
 	}
+
+	want.Reconnect = &report.ReconnectScenario{
+		WorkerMinRequestTimeout: "1m0s",
+		ProbeInterval:           "1s",
+		Reconnects:              3,
+		ProbesAfterReconnects:   "30s",
+	}
+	config.Reconnect = makeReconnect()
+	if diff := cmp.Diff(want, config.Scenario()); diff != "" {
+		t.Errorf("Scenario() with reconnect mismatch (-want,+got):\n%s", diff)
+	}
 }
 
 func TestCommittedConfiguration(t *testing.T) {
-	if _, err := Load(filepath.Join("..", "configs", "baseline", "configuration.yaml")); err != nil {
-		t.Fatalf("Load committed configuration: %v", err)
+	for _, scenario := range []string{"baseline", "reconnect"} {
+		if _, err := Load(filepath.Join("..", "configs", scenario, "configuration.yaml")); err != nil {
+			t.Fatalf("Load committed %s configuration: %v", scenario, err)
+		}
 	}
+}
+
+func TestMaxProbes(t *testing.T) {
+	if got := makeReconnect().MaxProbes(15 * time.Minute); got != 900 {
+		t.Errorf("MaxProbes() = %d, want 900", got)
+	}
+}
+
+func makeReconnect() *Reconnect {
+	return &Reconnect{
+		WorkerMinRequestTimeout: metav1.Duration{Duration: time.Minute},
+		ProbeInterval:           metav1.Duration{Duration: time.Second},
+		Reconnects:              3,
+		ProbesAfterReconnects:   metav1.Duration{Duration: 30 * time.Second},
+	}
+}
+
+func withReconnect(modify func(*Reconnect)) *Reconnect {
+	r := makeReconnect()
+	modify(r)
+	return r
 }
 
 type configWrapper struct{ config Config }
@@ -371,5 +467,10 @@ func (w configWrapper) CPURequest(value string) configWrapper {
 
 func (w configWrapper) Timeout(value time.Duration) configWrapper {
 	w.config.Timeout.Duration = value
+	return w
+}
+
+func (w configWrapper) Reconnect(value *Reconnect) configWrapper {
+	w.config.Reconnect = value
 	return w
 }

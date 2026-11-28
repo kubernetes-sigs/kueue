@@ -1,0 +1,17 @@
+# Bounds for the MultiKueue worker reconnect scenario, from local calibration
+# only. CI calibration is pending; see the benchmark README.
+# The checker verifies the reported scenario against configuration.yaml before
+# applying these bounds; this file does not configure the benchmark.
+#
+# The preload bounds are broad sanity checks. At workloadConcurrency 1 the
+# preload is bound by MultiKueue reconciles rather than workload generation.
+minThroughputPerSecond: 10
+maxAdmissionP95Ms: 300_000
+maxQuotaReservationP95Ms: 10_000
+maxWatchGaps: 1
+reconnect:
+  # Locally about 40ms with the low-priority reconnect requeue, and 3.4s or more
+  # without it.
+  maxDuringReconnectProbeAdmissionP90Ms: 1_500
+  # Locally about 40 probes are pending during the three reconnects.
+  minDuringReconnectProbes: 20

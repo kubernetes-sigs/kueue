@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -30,9 +31,35 @@ import (
 )
 
 func TestBenchmarkEnvironmentDoesNotUseExistingCluster(t *testing.T) {
-	testEnv := benchmarkEnvironment("crds", runtime.NewScheme())
+	testEnv := benchmarkEnvironment("crds", runtime.NewScheme(), 0)
 	if testEnv.UseExistingCluster == nil || *testEnv.UseExistingCluster {
 		t.Fatal("UseExistingCluster must be explicitly disabled")
+	}
+}
+
+func TestBenchmarkEnvironmentMinRequestTimeout(t *testing.T) {
+	testCases := map[string]struct {
+		minRequestTimeout time.Duration
+		want              []string
+	}{
+		"API server default": {},
+		"shortened": {
+			minRequestTimeout: 90 * time.Second,
+			want:              []string{"90"},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			testEnv := benchmarkEnvironment("crds", runtime.NewScheme(), tc.minRequestTimeout)
+			got := testEnv.ControlPlane.GetAPIServer().Configure().Get("min-request-timeout").Get(nil)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("min-request-timeout (-want,+got):\n%s", diff)
+			}
+			inflight := testEnv.ControlPlane.GetAPIServer().Configure().Get("max-requests-inflight").Get(nil)
+			if diff := cmp.Diff([]string{"5000"}, inflight); diff != "" {
+				t.Errorf("max-requests-inflight (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 
