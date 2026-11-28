@@ -80,11 +80,6 @@ var (
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
-
-	// makes sure there is only one fwk.Init and setupClient at the same time
-	// since these functions are not thread safe due to adding to the common
-	// schema.
-	mu sync.Mutex
 )
 
 func TestMultiKueue(t *testing.T) {
@@ -100,10 +95,8 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
-	mu.Lock()
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.SetupClient(c.cfg)
-	mu.Unlock()
 
 	// skip the manager setup if setup func is not provided
 	if setupFnc != nil {
@@ -217,7 +210,8 @@ func managerAndMultiKueueSetup(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
-var _ = ginkgo.BeforeSuite(func() {
+// setupClusters runs only on a process assigned the Ordered test group.
+func setupClusters() {
 	ginkgo.By("creating the clusters", func() {
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
@@ -243,10 +237,12 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 	behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
-})
+}
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.stopAndTeardown()
-	worker1TestCluster.stopAndTeardown()
-	worker2TestCluster.stopAndTeardown()
+	for _, c := range []*cluster{&managerTestCluster, &worker1TestCluster, &worker2TestCluster} {
+		if c.fwk != nil {
+			c.stopAndTeardown()
+		}
+	}
 })

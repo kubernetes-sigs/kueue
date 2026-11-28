@@ -88,6 +88,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 	)
 
 	ginkgo.BeforeAll(func() {
+		setupClusters()
 		managerTestCluster.fwk.StartManagerForSpec(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
 		})
