@@ -9,4 +9,8 @@ labels: kind/documentation
 
 **What would you like to be documented or improved**:
 
+**Do you plan to update the docs?**:
+
+Yes/No
+
 **Location** (URL, file path, or section if applicable):
