@@ -1801,12 +1801,22 @@ func TestEquivalentToWorkload(t *testing.T) {
 	stoppingRuntimeClassJob.Spec.Suspend = new(true)
 	stoppingRuntimeClassJob.Status.Active = 1
 
+	tasConflictJob := (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+		UID(testJobUID).
+		Suspend(false).
+		Parallelism(2).
+		SetAnnotation(job.JobMinParallelismAnnotation, "2").
+		NodeSelector("node-group", "tas").
+		PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+		Obj())
+
 	testCases := map[string]struct {
-		featureGates map[featuregate.Feature]bool
-		job          GenericJob
-		wl           *kueue.Workload
-		want         bool
-		wantErr      bool
+		featureGates  map[featuregate.Feature]bool
+		clientObjects []client.Object
+		job           GenericJob
+		wl            *kueue.Workload
+		want          bool
+		wantErr       bool
 	}{
 		"no controller owner reference (previously panicked)": {
 			job: baseJob(),
@@ -1998,6 +2008,34 @@ func TestEquivalentToWorkload(t *testing.T) {
 			wl:   tasWlWithoutIndex,
 			want: false,
 		},
+		"admitted implicit TAS workload with flavor nodeLabels conflict remains equivalent": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			clientObjects: []client.Object{
+				utiltestingapi.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "other").
+					Obj(),
+			},
+			job: tasConflictJob,
+			wl: utiltestingapi.MakeWorkload("owned-implicit-tas-conflict", testNS).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+					PodSpec(tasConflictJob.Spec.Template.Spec).
+					SetMinimumCount(2).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Obj()).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Flavor(corev1.ResourceCPU, "tas-flavor").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+							Obj()).
+						Obj(),
+				).Obj(), time.Now().Truncate(time.Hour)).
+				AdmittedAt(true, time.Now().Truncate(time.Hour)).
+				Obj(),
+			want: true,
+		},
 		"workload admitted without TAS matches a running job that requests a topology": {
 			job:  preferredTASJob(false),
 			wl:   wlAdmittedWithoutTAS.DeepCopy(),
@@ -2039,7 +2077,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).Build()
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).WithObjects(tc.clientObjects...).Build()
 
 			got, err := EquivalentToWorkload(ctx, cl, tc.job, tc.wl)
 			if tc.wantErr {
