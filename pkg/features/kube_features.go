@@ -1095,6 +1095,23 @@ const (
 	// controller does not build a Workload for it. Disable this gate to update
 	// existing Pods that carry such a count.
 	PodGroupValidateTotalCountAnnotation featuregate.Feature = "PodGroupValidateTotalCountAnnotation"
+
+	// owner: @unaimeds
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/19041
+	//
+	// Rejects an update to the pod template of a job managed by Kueue when the
+	// update changes the quota that Kueue computes for the pods, which would
+	// make the quota of the Workload stale. Besides changes to the requests,
+	// Kueue rejects changes to a container or pod-level limit without a matching
+	// request, or turning an init container into a sidecar, when they change
+	// this quota.
+	// When disabled, the webhooks validate the pod template as before.
+	//
+	// Supported integrations:
+	// - StatefulSet
+	// - LeaderWorkerSet
+	// - DisaggregatedSet
+	ValidateEffectiveRequestsOnPodTemplateUpdate featuregate.Feature = "ValidateEffectiveRequestsOnPodTemplateUpdate"
 )
 
 func init() {
@@ -1694,6 +1711,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PodGroupValidateTotalCountAnnotation: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ValidateEffectiveRequestsOnPodTemplateUpdate: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

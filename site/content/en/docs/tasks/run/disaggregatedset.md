@@ -116,6 +116,16 @@ environment, command and arguments can change. A container that sets a limit
 without a request for a resource uses the limit as its request, so Kueue also
 rejects a change of that limit.
 
+Since Kueue v0.21, Kueue also rejects turning an init container into a sidecar
+container with `restartPolicy: Always` when that changes the effective resource
+requests of the Pods. Kueue counts the defaults of the LimitRanges in the
+namespace, so an init container without requests can still change them. A
+limit change that keeps the effective requests is accepted, for example raising
+a container limit that has no request while it stays at or below the Pod-level
+limit. To turn this off, disable the `ValidateEffectiveRequestsOnPodTemplateUpdate`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+Kueue then rejects every change of a limit that is used as a request.
+
 Kueue stamps two annotations on every role template of a DisaggregatedSet that
 it manages: `kueue.x-k8s.io/pod-suspending-parent` and
 `kueue.x-k8s.io/pod-group-serving`. A tool that re-applies the manifest without

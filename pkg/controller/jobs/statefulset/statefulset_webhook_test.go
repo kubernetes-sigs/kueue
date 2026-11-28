@@ -39,6 +39,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
@@ -1065,6 +1066,288 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"attempt to add a limit of a resource that the container does not request": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"attempt to remove a limit of a resource that the container does not request": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"attempt to raise the limit of an init container above the largest container request": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"attempt to change an init container into a sidecar container": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceReq(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"allow changing the limit of a resource that the container requests": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceCPU, "3").
+				Obj(),
+		},
+		"allow changing the limit of an init container that stays below the largest container request": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "2").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceLimit(corev1.ResourceCPU, "1500m").Obj()).
+				Obj(),
+		},
+		"attempt to add a pod-level limit of a resource that the pod does not request": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"allow changing a pod-level limit of a resource that the pod requests": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceCPU, "6").
+				Obj(),
+		},
+		"attempt to raise a pod-level limit of a resource that the container requests": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceCPU, "6").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"allow changing an init container into a sidecar container under a pod-level limit": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceReq(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+				Obj(),
+		},
+		"allow raising the limit of a resource that the container does not request under a higher pod-level limit": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Limit(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Limit(corev1.ResourceCPU, "3").
+				PodLevelLimit(corev1.ResourceCPU, "4").
+				Obj(),
+		},
+		"allow adding a limit of a resource that the container does not request when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+		},
+		"allow removing a limit of a resource that the container does not request when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
+		"allow raising the limit of an init container above the largest container request when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceLimit(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceLimit(corev1.ResourceCPU, "2").Obj()).
+				Obj(),
+		},
+		"allow changing an init container into a sidecar container when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceReq(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				InitContainer(*utiltesting.MakeContainer().Name("ic").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj()).
+				Obj(),
+		},
+		"allow adding a pod-level limit of a resource that the pod does not request when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceCPU, "2").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+		},
+		"allow raising a pod-level limit of a resource that the pod does not request when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "4Gi").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "8Gi").
+				Obj(),
+		},
+		"allow adding a limit that equals the LimitRange default request of a resource that the container does not request": {
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "test-ns").WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+		},
+		"attempt to add a limit above the LimitRange default request of a resource that the container does not request": {
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "test-ns").WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1").
+				Limit(corev1.ResourceMemory, "2Gi").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: podSpecPath.String(),
+				},
+			}.ToAggregate(),
+		},
 		"scale up from zero blocked by existing workload": {
 			objs: []runtime.Object{
 				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-statefulset"), "test-ns").Obj(),
@@ -1228,6 +1511,7 @@ func TestValidateUpdate(t *testing.T) {
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.integrations...))
 
 			client := utiltesting.NewClientBuilder(awv1beta2.AddToScheme, leaderworkersetv1.AddToScheme).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithRuntimeObjects(tc.objs...).
 				Build()
 

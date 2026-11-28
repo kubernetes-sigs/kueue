@@ -37,6 +37,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -788,7 +789,20 @@ func TestValidateUpdate(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 		PodGroupServingAnnotation()
+	roleWithoutRequests := testingds.MakeRole("prefill").WithLeader().Size(2).
+		PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+		PodGroupServingAnnotation()
 	unmanagedDS := testingds.MakeDisaggregatedSet("ds", "ns")
+
+	// Roles that turn an init container into a sidecar container.
+	initRole := baseRole.Clone().
+		InitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").Obj())
+	sidecarRole := baseRole.Clone().
+		InitContainer(*utiltesting.MakeContainer().Name("init").WithResourceReq(corev1.ResourceCPU, "1").AsSidecar().Obj())
+	initRoleWithoutRequests := baseRole.Clone().
+		InitContainer(*utiltesting.MakeContainer().Name("init").Obj())
+	sidecarRoleWithoutRequests := baseRole.Clone().
+		InitContainer(*utiltesting.MakeContainer().Name("init").AsSidecar().Obj())
 
 	// A role above the slice-size budget that Topology Aware Scheduling
 	// reserves, which is within the limits only while the gate is disabled.
@@ -933,6 +947,28 @@ func TestValidateUpdate(t *testing.T) {
 			oldObj: baseDS.Clone().Roles(baseRole.Clone().Limit("example.com/gpu", "1")).RoleStatus("prefill", 1).Obj(),
 			newObj: baseDS.Clone().Roles(baseRole.Clone().Limit("example.com/gpu", "2")).RoleStatus("prefill", 1).Obj(),
 			wantErr: field.ErrorList{
+				field.Forbidden(role0LWTPath.Child("leaderTemplate", "spec"), ""),
+				field.Forbidden(role0LWTPath.Child("workerTemplate", "spec"), ""),
+			}.ToAggregate(),
+		},
+		"raising a limit that is used as the request when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj:       baseDS.Clone().Roles(baseRole.Clone().Limit("example.com/gpu", "1")).RoleStatus("prefill", 1).Obj(),
+			newObj:       baseDS.Clone().Roles(baseRole.Clone().Limit("example.com/gpu", "2")).RoleStatus("prefill", 1).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(role0LWTPath.Child("leaderTemplate", "spec", "containers").Index(0).Child("resources", "requests"), nil, ""),
+				field.Invalid(role0LWTPath.Child("workerTemplate", "spec", "containers").Index(0).Child("resources", "requests"), nil, ""),
+			}.ToAggregate(),
+		},
+		"raising a limit that is used as the request under a higher pod-level limit": {
+			oldObj: baseDS.Clone().Roles(roleWithoutRequests.Clone().Limit(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4")).RoleStatus("prefill", 1).Obj(),
+			newObj: baseDS.Clone().Roles(roleWithoutRequests.Clone().Limit(corev1.ResourceCPU, "3").PodLevelLimit(corev1.ResourceCPU, "4")).RoleStatus("prefill", 1).Obj(),
+		},
+		"raising a limit that is used as the request under a higher pod-level limit when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj:       baseDS.Clone().Roles(roleWithoutRequests.Clone().Limit(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4")).RoleStatus("prefill", 1).Obj(),
+			newObj:       baseDS.Clone().Roles(roleWithoutRequests.Clone().Limit(corev1.ResourceCPU, "3").PodLevelLimit(corev1.ResourceCPU, "4")).RoleStatus("prefill", 1).Obj(),
+			wantErr: field.ErrorList{
 				field.Invalid(role0LWTPath.Child("leaderTemplate", "spec", "containers").Index(0).Child("resources", "requests"), nil, ""),
 				field.Invalid(role0LWTPath.Child("workerTemplate", "spec", "containers").Index(0).Child("resources", "requests"), nil, ""),
 			}.ToAggregate(),
@@ -940,6 +976,38 @@ func TestValidateUpdate(t *testing.T) {
 		"raising a limit of a resource that has a request": {
 			oldObj: baseDS.Clone().Roles(baseRole.Clone().Limit(corev1.ResourceCPU, "1")).RoleStatus("prefill", 1).Obj(),
 			newObj: baseDS.Clone().Roles(baseRole.Clone().Limit(corev1.ResourceCPU, "2")).RoleStatus("prefill", 1).Obj(),
+		},
+		"turning an init container into a sidecar": {
+			oldObj: baseDS.Clone().Roles(initRole).RoleStatus("prefill", 1).Obj(),
+			newObj: baseDS.Clone().Roles(sidecarRole).RoleStatus("prefill", 1).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(role0LWTPath.Child("leaderTemplate", "spec"), ""),
+				field.Forbidden(role0LWTPath.Child("workerTemplate", "spec"), ""),
+			}.ToAggregate(),
+		},
+		"turning an init container into a sidecar when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldObj:       baseDS.Clone().Roles(initRole).RoleStatus("prefill", 1).Obj(),
+			newObj:       baseDS.Clone().Roles(sidecarRole).RoleStatus("prefill", 1).Obj(),
+		},
+		"turning an init container into a sidecar with a pod-level limit": {
+			oldObj: baseDS.Clone().Roles(initRole.Clone().PodLevelLimit(corev1.ResourceCPU, "4")).RoleStatus("prefill", 1).Obj(),
+			newObj: baseDS.Clone().Roles(sidecarRole.Clone().PodLevelLimit(corev1.ResourceCPU, "4")).RoleStatus("prefill", 1).Obj(),
+		},
+		"turning an init container without requests into a sidecar": {
+			oldObj: baseDS.Clone().Roles(initRoleWithoutRequests).RoleStatus("prefill", 1).Obj(),
+			newObj: baseDS.Clone().Roles(sidecarRoleWithoutRequests).RoleStatus("prefill", 1).Obj(),
+		},
+		"turning an init container without requests into a sidecar with a LimitRange default request": {
+			objs: []runtime.Object{
+				utiltesting.MakeLimitRange("limits", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj(),
+			},
+			oldObj: baseDS.Clone().Roles(initRoleWithoutRequests).RoleStatus("prefill", 1).Obj(),
+			newObj: baseDS.Clone().Roles(sidecarRoleWithoutRequests).RoleStatus("prefill", 1).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(role0LWTPath.Child("leaderTemplate", "spec"), ""),
+				field.Forbidden(role0LWTPath.Child("workerTemplate", "spec"), ""),
+			}.ToAggregate(),
 		},
 		"changing the image": {
 			oldObj: baseDS.Clone().Roles(baseRole).RoleStatus("prefill", 1).Obj(),
@@ -1003,7 +1071,10 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			client := utiltesting.NewClientBuilder().WithRuntimeObjects(tc.objs...).Build()
+			client := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithRuntimeObjects(tc.objs...).
+				Build()
 			w := &Webhook{integrationManager: newTestIntegrationManager(t), client: client}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := w.ValidateUpdate(ctx, tc.oldObj, tc.newObj)

@@ -300,6 +300,28 @@ func (w *RoleWrapper) Limit(name corev1.ResourceName, quantity string) *RoleWrap
 	return w
 }
 
+// PodLevelLimit sets a pod-level resource limit on every template of the role.
+func (w *RoleWrapper) PodLevelLimit(name corev1.ResourceName, quantity string) *RoleWrapper {
+	for _, t := range w.templates() {
+		if t.Spec.Resources == nil {
+			t.Spec.Resources = &corev1.ResourceRequirements{}
+		}
+		if t.Spec.Resources.Limits == nil {
+			t.Spec.Resources.Limits = corev1.ResourceList{}
+		}
+		t.Spec.Resources.Limits[name] = resource.MustParse(quantity)
+	}
+	return w
+}
+
+// InitContainer adds an init container to every template of the role.
+func (w *RoleWrapper) InitContainer(c corev1.Container) *RoleWrapper {
+	for _, t := range w.templates() {
+		t.Spec.InitContainers = append(t.Spec.InitContainers, *c.DeepCopy())
+	}
+	return w
+}
+
 // Args sets the arguments of the first container of every template of the role.
 func (w *RoleWrapper) Args(args ...string) *RoleWrapper {
 	for _, t := range w.templates() {

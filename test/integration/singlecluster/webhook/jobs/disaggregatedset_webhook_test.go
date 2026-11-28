@@ -562,7 +562,7 @@ var _ = ginkgo.Describe("DisaggregatedSet Webhook", func() {
 				}
 			})).To(gomega.SatisfyAll(
 				utiltesting.BeForbiddenError(),
-				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].spec.leaderWorkerTemplate.workerTemplate.spec.containers[0].resources.requests")),
+				gomega.MatchError(gomega.ContainSubstring("spec.roles[0].spec.leaderWorkerTemplate.workerTemplate.spec")),
 			))
 		})
 

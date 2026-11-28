@@ -377,6 +377,18 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	return p
 }
 
+// PodLevelLimit adds a pod-level resource limit.
+func (p *PodWrapper) PodLevelLimit(r corev1.ResourceName, v string) *PodWrapper {
+	if p.Spec.Resources == nil {
+		p.Spec.Resources = &corev1.ResourceRequirements{}
+	}
+	if p.Spec.Resources.Limits == nil {
+		p.Spec.Resources.Limits = corev1.ResourceList{}
+	}
+	p.Spec.Resources.Limits[r] = resource.MustParse(v)
+	return p
+}
+
 // RuntimeClass sets the RuntimeClassName of the Pod.
 func (p *PodWrapper) RuntimeClass(name string) *PodWrapper {
 	p.Spec.RuntimeClassName = &name
