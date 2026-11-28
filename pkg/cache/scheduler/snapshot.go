@@ -322,8 +322,10 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
 
+	var nodes []*corev1.Node
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if err := c.setupTAS(ctx, &snap); err != nil {
+		nodes = c.tasCache.nodesCache.getAllNodes()
+		if err := c.setupTAS(ctx, &snap, nodes); err != nil {
 			return nil, err
 		}
 	}
@@ -394,7 +396,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
 			}
 		}
-		unreservedTASUsage, residualTASPods := c.tasCache.nonTasUsageCache.unreservedTASUsageAndPods(reserved)
+		unreservedTASUsage, residualTASPods := c.tasCache.nonTasUsageCache.unreservedTASUsageAndPods(reserved, nodes)
 		snap.residualTASPods = residualTASPods
 		for _, snapshot := range tasSnapshots {
 			for nodeName, usage := range unreservedTASUsage {
@@ -429,8 +431,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	return &snap, nil
 }
 
-func (c *Cache) setupTAS(ctx context.Context, snap *Snapshot) error {
-	nodes := c.tasCache.nodesCache.getAllNodes()
+func (c *Cache) setupTAS(ctx context.Context, snap *Snapshot, nodes []*corev1.Node) error {
 	assumed := c.assumedWorkloads()
 
 	// Set up native NodeFeasibilityEvaluator

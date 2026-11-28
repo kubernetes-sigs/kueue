@@ -25,14 +25,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
@@ -63,6 +66,7 @@ type tasPodUsageValue struct {
 	usage           resources.Requests
 	workload        workload.Reference
 	sliceWorkload   workload.Reference
+	podSet          kueue.PodSetReference
 	podUID          types.UID
 	ownerUID        types.UID
 	ownerKind       string
@@ -200,7 +204,7 @@ func (n *nonTasUsageCache) updateTASPodUsage(pod *corev1.Pod, log logr.Logger) s
 	}
 	n.addTASNodeUsage(value)
 	if oldNode != value.node || identityChanged ||
-		(hadOld && (old.deleting != value.deleting || requestsDecreased(old.usage, value.usage))) {
+		(hadOld && (old.deleting != value.deleting || old.podSet != value.podSet || requestsDecreased(old.usage, value.usage))) {
 		return oldNode
 	}
 	return ""
@@ -211,6 +215,7 @@ func newTASPodUsageValue(pod *corev1.Pod) tasPodUsageValue {
 		podKey: client.ObjectKeyFromObject(pod), node: pod.Spec.NodeName,
 		usage: resources.NewRequestsFromPodSpec(&pod.Spec), podUID: pod.UID,
 		deleting: pod.DeletionTimestamp != nil,
+		podSet:   kueue.PodSetReference(pod.Labels[constants.PodSetLabel]),
 	}
 	if name := pod.Annotations[kueue.WorkloadAnnotation]; name != "" {
 		value.workload = workload.NewReference(pod.Namespace, name)
@@ -358,11 +363,11 @@ func (n *nonTasUsageCache) removeTASPodUsage(key client.ObjectKey, log logr.Logg
 // cache. It never lists Pods on the scheduling path. Reservation changes are
 // reflected in the next snapshot even when no Pod event follows them.
 func (n *nonTasUsageCache) unreservedTASUsage(reserved map[workload.Reference]*workload.Info) map[string]resources.Requests {
-	usage, _ := n.unreservedTASUsageAndPods(reserved)
+	usage, _ := n.unreservedTASUsageAndPods(reserved, nil)
 	return usage
 }
 
-func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Reference]*workload.Info) (map[string]resources.Requests, []tasPodUsageValue) {
+func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Reference]*workload.Info, nodes []*corev1.Node) (map[string]resources.Requests, []tasPodUsageValue) {
 	if !features.Enabled(features.TASResidualPodAccounting) {
 		return nil, nil
 	}
@@ -370,6 +375,10 @@ func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Refer
 	defer n.lock.RUnlock()
 	result := make(map[string]resources.Requests)
 	var residualPods []tasPodUsageValue
+	hostnames := make(map[string]string, len(nodes))
+	for _, node := range nodes {
+		hostnames[node.Name] = node.Labels[corev1.LabelHostname]
+	}
 	releasingOwners := make(map[workload.Reference][]tasReservationOwnerIndex, len(n.releasingTASWorkloads))
 	releasingPods := make(map[client.ObjectKey]types.UID)
 	for key, entry := range n.releasingTASWorkloads {
@@ -391,7 +400,7 @@ func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Refer
 		usage.Add(resources.OnePodRequest)
 		addResidualTASUsage(result, pod.node, usage)
 		uid, known := releasingPods[pod.podKey]
-		pod.releasing = (known && uid == pod.podUID) || reservationCoversPod(releasingOwners, pod)
+		pod.releasing = (known && uid == pod.podUID) || reservationCoversPod(releasingOwners, pod, "")
 		residualPods = append(residualPods, pod)
 	}
 	// A reservation can be named after a replacement slice or a concurrent
@@ -404,6 +413,9 @@ func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Refer
 			continue
 		}
 		owners := newTASReservationOwnerIndex(info.Obj)
+		if len(hostnames) != 0 {
+			owners.hostnamesByPodSet = reservationHostnames(info.TotalRequests)
+		}
 		ownersByRef[ref] = append(ownersByRef[ref], owners)
 		if name := info.Obj.Annotations[kueue.WorkloadSliceNameAnnotation]; name != "" {
 			alias := workload.NewReference(info.Obj.Namespace, name)
@@ -419,8 +431,8 @@ func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Refer
 		}
 	}
 	for ref, nodeUsages := range n.tasNodeUsage {
-		// Active reservations cover Pods with matching or ambiguous ownership.
-		// A provably different owner remains physical usage if the name is reused.
+		// Count physical usage if the active reservation belongs to another owner
+		// or if its hostname assignment no longer includes the Pod's node.
 		// A Pod may have an old Workload annotation but a slice-chain name
 		// pointing at the admitted replacement.
 		hasReservation := ref != "" && len(ownersByRef[ref]) != 0
@@ -434,7 +446,7 @@ func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Refer
 		}
 		if hasReservation {
 			for pod := range n.tasPodsForWorkload(ref) {
-				if !reservationCoversPod(ownersByRef, pod) {
+				if !reservationCoversPod(ownersByRef, pod, hostnames[pod.node]) {
 					addPod(pod)
 				}
 			}
@@ -445,22 +457,22 @@ func (n *nonTasUsageCache) unreservedTASUsageAndPods(reserved map[workload.Refer
 		}
 		for pod := range n.tasPodsForWorkload(ref) {
 			uid, known := releasingPods[pod.podKey]
-			pod.releasing = (known && uid == pod.podUID) || reservationCoversPod(releasingOwners, pod)
+			pod.releasing = (known && uid == pod.podUID) || reservationCoversPod(releasingOwners, pod, "")
 			residualPods = append(residualPods, pod)
 		}
 	}
 	return result, residualPods
 }
 
-func reservationCoversPod(ownersByRef map[workload.Reference][]tasReservationOwnerIndex, pod tasPodUsageValue) bool {
+func reservationCoversPod(ownersByRef map[workload.Reference][]tasReservationOwnerIndex, pod tasPodUsageValue, hostname string) bool {
 	for _, owners := range ownersByRef[pod.workload] {
-		if owners.covers(pod) {
+		if owners.covers(pod) && owners.coversHostname(pod.podSet, hostname) {
 			return true
 		}
 	}
 	if pod.sliceWorkload != pod.workload {
 		for _, owners := range ownersByRef[pod.sliceWorkload] {
-			if owners.covers(pod) {
+			if owners.covers(pod) && owners.coversHostname(pod.podSet, hostname) {
 				return true
 			}
 		}
@@ -479,10 +491,48 @@ type tasOwnerIdentity struct {
 }
 
 type tasReservationOwnerIndex struct {
-	valid       bool
-	hasPodOwner bool
-	types       map[tasOwnerType]struct{}
-	identities  map[tasOwnerIdentity]struct{}
+	valid             bool
+	hasPodOwner       bool
+	types             map[tasOwnerType]struct{}
+	identities        map[tasOwnerIdentity]struct{}
+	hostnamesByPodSet map[kueue.PodSetReference]sets.Set[string]
+}
+
+func reservationHostnames(podSets []workload.PodSetResources) map[kueue.PodSetReference]sets.Set[string] {
+	if len(podSets) == 0 {
+		return nil
+	}
+	hostnames := make(map[kueue.PodSetReference]sets.Set[string], len(podSets))
+	for _, podSet := range podSets {
+		hostnames[podSet.Name] = nil
+		if request := podSet.TopologyRequest; request != nil && utiltas.IsLowestLevelHostname(request.Levels) {
+			nodes := sets.New[string]()
+			for _, domain := range request.DomainRequests {
+				if domain.Count > 0 && len(domain.Values) > 0 {
+					nodes.Insert(domain.Values[len(domain.Values)-1])
+				}
+			}
+			hostnames[podSet.Name] = nodes
+		}
+	}
+	return hostnames
+}
+
+func (index tasReservationOwnerIndex) coversHostname(podSet kueue.PodSetReference, hostname string) bool {
+	if hostname == "" || len(index.hostnamesByPodSet) == 0 {
+		return true
+	}
+	if nodes, known := index.hostnamesByPodSet[podSet]; known {
+		return nodes == nil || nodes.Has(hostname)
+	}
+	// Older Pods or slice aliases may not identify the PodSet. Only exclude
+	// the node if every candidate PodSet has an assignment elsewhere.
+	for _, nodes := range index.hostnamesByPodSet {
+		if nodes == nil || nodes.Has(hostname) {
+			return true
+		}
+	}
+	return false
 }
 
 // Build the index once per reservation, not per Pod. OwnerReferences can change

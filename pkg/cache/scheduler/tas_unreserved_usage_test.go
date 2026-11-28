@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -351,6 +352,103 @@ func TestUnreservedTASPodUsage(t *testing.T) {
 	assertUsage(nil, 0, 0)
 }
 
+func TestUnreservedTASUsageFollowsHostnameAssignment(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, true)
+	primary := workload.PodSetResources{
+		Name: kueue.DefaultPodSetName,
+		TopologyRequest: &workload.TopologyRequest{
+			Levels: []string{corev1.LabelHostname},
+			DomainRequests: []workload.TopologyDomainRequests{
+				{Values: []string{"host-b"}, Count: 1},
+			},
+		},
+	}
+	other := workload.PodSetResources{
+		Name: "other",
+		TopologyRequest: &workload.TopologyRequest{
+			Levels: []string{corev1.LabelHostname},
+			DomainRequests: []workload.TopologyDomainRequests{
+				{Values: []string{"host-a"}, Count: 1},
+			},
+		},
+	}
+	node := testingnode.MakeNode("node-a").Label(corev1.LabelHostname, "host-a").Obj()
+	testCases := map[string]struct {
+		podSet       kueue.PodSetReference
+		reservations []workload.PodSetResources
+		wantResidual int64
+		featureGates map[featuregate.Feature]bool
+	}{
+		"same owner on a previously assigned hostname": {
+			podSet: kueue.DefaultPodSetName, reservations: []workload.PodSetResources{primary}, wantResidual: 1,
+		},
+		"an unrelated PodSet on the old hostname does not cover the Pod": {
+			podSet: kueue.DefaultPodSetName, reservations: []workload.PodSetResources{primary, other}, wantResidual: 1,
+		},
+		"assigned hostname covers the Pod even if the node name differs": {
+			podSet: other.Name, reservations: []workload.PodSetResources{primary, other},
+		},
+		"missing PodSet label with single known assignment": {
+			reservations: []workload.PodSetResources{primary}, wantResidual: 1,
+		},
+		"missing PodSet label with a matching candidate assignment": {
+			reservations: []workload.PodSetResources{primary, other},
+		},
+		"residual accounting disabled": {
+			podSet: kueue.DefaultPodSetName, reservations: []workload.PodSetResources{primary},
+			featureGates: map[featuregate.Feature]bool{features.TASResidualPodAccounting: false},
+		},
+		"a non-hostname assignment does not establish exact coverage": {
+			podSet: kueue.DefaultPodSetName, reservations: []workload.PodSetResources{{
+				Name: kueue.DefaultPodSetName,
+				TopologyRequest: &workload.TopologyRequest{
+					Levels: []string{"rack"},
+					DomainRequests: []workload.TopologyDomainRequests{
+						{Values: []string{"rack-a"}, Count: 1},
+					},
+				},
+			}},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			log := logr.Discard()
+			cache := &nonTasUsageCache{}
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
+			pod := makePod("pod", "ns", node.Name, "2")
+			pod.Annotations = map[string]string{kueue.WorkloadAnnotation: wl.Name}
+			pod.Labels = map[string]string{constants.PodSetLabel: string(tc.podSet)}
+			cache.updateTAS(pod, log)
+			reserved := map[workload.Reference]*workload.Info{
+				workload.Key(wl): {Obj: wl, TotalRequests: tc.reservations},
+			}
+
+			usage, residual := cache.unreservedTASUsageAndPods(reserved, []*corev1.Node{node})
+			if got := len(residual); got != int(tc.wantResidual) {
+				t.Fatalf("residual Pods = %d, want %d", got, tc.wantResidual)
+			}
+			nodeUsage := usage[node.Name]
+			if tc.wantResidual == 0 {
+				if nodeUsage != nil {
+					t.Errorf("unexpected residual usage: %v", nodeUsage)
+				}
+				return
+			}
+			if nodeUsage == nil {
+				t.Fatal("missing residual node usage")
+			}
+			if got := nodeUsage.ResourceValue(corev1.ResourcePods); got.CmpInt64(tc.wantResidual) != 0 {
+				t.Fatalf("residual pod count = %v, want %d", got, tc.wantResidual)
+			}
+			if got := nodeUsage.ResourceValue(corev1.ResourceCPU); got.CmpInt64(2000*tc.wantResidual) != 0 {
+				t.Fatalf("residual CPU = %v, want %d millicores", got, 2000*tc.wantResidual)
+			}
+		})
+	}
+}
+
 func TestUnreservedTASUsageWithoutPrimaryReference(t *testing.T) {
 	cases := map[string]struct {
 		annotations map[string]string
@@ -383,7 +481,7 @@ func TestUnreservedTASUsageWithoutPrimaryReference(t *testing.T) {
 			}
 			cache.updateTAS(pod, logr.Discard())
 			reserved := map[workload.Reference]*workload.Info{workload.Key(wl): {Obj: wl}}
-			usage, residual := cache.unreservedTASUsageAndPods(reserved)
+			usage, residual := cache.unreservedTASUsageAndPods(reserved, nil)
 			if tc.wantCovered {
 				if len(usage) != 0 || len(residual) != 0 {
 					t.Fatalf("slice reservation double-counted the Pod: usage=%v, residual=%v", usage, residual)
@@ -393,12 +491,12 @@ func TestUnreservedTASUsageWithoutPrimaryReference(t *testing.T) {
 				t.Fatalf("unannotated Pod was not fully charged: usage=%v, residual=%v", usage, residual)
 			}
 			// Reservation changes must take effect without another Pod event.
-			usage, residual = cache.unreservedTASUsageAndPods(nil)
+			usage, residual = cache.unreservedTASUsageAndPods(nil, nil)
 			if len(residual) != 1 || usage["node-a"].ResourceValue(corev1.ResourceCPU).CmpInt64(1000) != 0 {
 				t.Fatalf("released reservation hid physical usage: usage=%v, residual=%v", usage, residual)
 			}
 			cache.deleteTAS(client.ObjectKeyFromObject(pod), logr.Discard())
-			if usage, residual := cache.unreservedTASUsageAndPods(nil); len(usage) != 0 || len(residual) != 0 || len(cache.tasPods.Pods()) != 0 {
+			if usage, residual := cache.unreservedTASUsageAndPods(nil, nil); len(usage) != 0 || len(residual) != 0 || len(cache.tasPods.Pods()) != 0 {
 				t.Fatalf("deleted Pod remained tracked: usage=%v, residual=%v", usage, residual)
 			}
 		})
@@ -546,7 +644,7 @@ func TestDeletedTASWorkloadIntentMatchesSliceReferences(t *testing.T) {
 			cache.observeWorkload(wl)
 			assertReleasing := func() {
 				t.Helper()
-				usage, pods := cache.unreservedTASUsageAndPods(nil)
+				usage, pods := cache.unreservedTASUsageAndPods(nil, nil)
 				if len(pods) != 1 || pods[0].releasing != tc.wantReleasing ||
 					usage["node-a"].ResourceValue(corev1.ResourceCPU).CmpInt64(1000) != 0 ||
 					usage["node-a"].ResourceValue(corev1.ResourcePods).CmpInt64(1) != 0 {
@@ -615,7 +713,7 @@ func TestDeletedTASWorkloadSliceIntentPodUpdates(t *testing.T) {
 				tc.change(pod)
 				cache.updateTAS(pod, logr.Discard())
 			}
-			usage, residual := cache.unreservedTASUsageAndPods(nil)
+			usage, residual := cache.unreservedTASUsageAndPods(nil, nil)
 			if !tc.wantPod {
 				if len(usage) != 0 || len(residual) != 0 || len(cache.tasPodUsage) != 0 ||
 					len(cache.tasPods.Pods()) != 0 || len(cache.tasPodsBySliceWorkload) != 0 || len(cache.tasNodeUsage) != 0 {
@@ -684,7 +782,7 @@ func TestDeletedTASWorkloadSliceIntentSharedAlias(t *testing.T) {
 	cache.observeWorkload(wl)
 	cache.deleteWorkload(workload.Key(wl), wl.UID)
 	for remaining := len(pods); remaining > 0; remaining-- {
-		usage, residual := cache.unreservedTASUsageAndPods(nil)
+		usage, residual := cache.unreservedTASUsageAndPods(nil, nil)
 		if len(residual) != remaining || usage["node-a"].ResourceValue(corev1.ResourceCPU).CmpInt64(int64(remaining)*1000) != 0 ||
 			usage["node-a"].ResourceValue(corev1.ResourcePods).CmpInt64(int64(remaining)) != 0 {
 			t.Fatalf("usage=%v, residual=%v, want %d Pods charged once", usage, residual, remaining)
@@ -737,7 +835,7 @@ func TestReleasedTASWorkloadIntent(t *testing.T) {
 			}
 			assertReleasing := func(want bool) {
 				t.Helper()
-				usage, pods := cache.unreservedTASUsageAndPods(nil)
+				usage, pods := cache.unreservedTASUsageAndPods(nil, nil)
 				if usage["node-a"].ResourceValue(corev1.ResourceCPU).CmpInt64(1000) != 0 || len(pods) != 1 || pods[0].releasing != want {
 					t.Fatalf("usage=%v, pods=%v, want charged CPU and releasing=%t", usage, pods, want)
 				}
@@ -778,7 +876,7 @@ func TestReleasedTASWorkloadIntent(t *testing.T) {
 			newPod.Name = "replacement-pod"
 			newPod.UID = "new-pod"
 			cache.updateTAS(newPod, log)
-			_, residual := cache.unreservedTASUsageAndPods(nil)
+			_, residual := cache.unreservedTASUsageAndPods(nil, nil)
 			for _, value := range residual {
 				if value.podKey.Name == newPod.Name && value.releasing {
 					t.Fatal("deleted Workload intent incorrectly covers a new Pod")
@@ -825,7 +923,7 @@ func TestDeletedTASIntentDetachesOnPodAttributionChange(t *testing.T) {
 				pod.UID = "replacement"
 			}
 			cache.updateTAS(pod, logr.Discard())
-			usage, residual := cache.unreservedTASUsageAndPods(nil)
+			usage, residual := cache.unreservedTASUsageAndPods(nil, nil)
 			if len(residual) != 1 || residual[0].releasing || usage["node-a"].ResourceValue(corev1.ResourceCPU).CmpInt64(1000) != 0 {
 				t.Fatalf("changed Pod attribution retained deleted intent or lost physical usage: pods=%v, usage=%v", residual, usage)
 			}

@@ -36,6 +36,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/podtracker"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -240,6 +241,15 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
 				Annotation(kueue.WorkloadSliceNameAnnotation, "slice").Obj(),
+			want: true,
+		},
+		"reconciles when a TAS pod gains a PodSet label": {
+			wantWithoutResidual: new(false),
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				Label(constants.PodSetLabel, "worker").Obj(),
 			want: true,
 		},
 		"reconciles when a TAS pod starts deleting without a spec update": {
