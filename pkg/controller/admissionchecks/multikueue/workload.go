@@ -99,6 +99,10 @@ const syncDeferredRequeueAfter = 2 * time.Second
 // why no worker reserved quota.
 const noWorkerReservedQuotaMessagePrefix = "No worker cluster reserved quota: "
 
+// deactivatedOnAllWorkersMessagePrefix starts the admission check message of a
+// workload rejected because every worker deactivated its remote workload.
+const deactivatedOnAllWorkersMessagePrefix = "The workload was deactivated on all worker clusters: "
+
 type wlReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
@@ -213,6 +217,53 @@ func (g *wlGroup) quotaReservationFailuresMessage() string {
 		failures = append(failures, "unreachable: "+strings.Join(g.unavailableClusters, ", "))
 	}
 	return api.TruncateConditionMessage(noWorkerReservedQuotaMessagePrefix + strings.Join(failures, "; "))
+}
+
+// hasRemoteDeactivatedOnWorker reports whether a worker deactivated its remote workload.
+func (g *wlGroup) hasRemoteDeactivatedOnWorker() bool {
+	for _, wl := range g.remotes {
+		if wl != nil && isDeactivatedOnWorker(g.local, wl) {
+			return true
+		}
+	}
+	return false
+}
+
+// deactivatedOnAllWorkersMessage returns why the workers deactivated the remote
+// workloads, when every worker the workload can be dispatched to deactivated its
+// remote workload. targetCluster is the only such worker, or empty when the workload
+// can be dispatched to every worker; then no worker may be unreachable. Otherwise,
+// it returns an empty string.
+func (g *wlGroup) deactivatedOnAllWorkersMessage(targetCluster string) string {
+	targets := []string{targetCluster}
+	if targetCluster == "" {
+		if len(g.remotes) == 0 || len(g.unavailableClusters) > 0 {
+			return ""
+		}
+		targets = slices.Sorted(maps.Keys(g.remotes))
+	}
+	var reasons []string
+	for _, remote := range targets {
+		wl := g.remotes[remote]
+		if wl == nil || !isDeactivatedOnWorker(g.local, wl) {
+			return ""
+		}
+		reasons = append(reasons, deactivationReason(remote, wl))
+	}
+	return api.TruncateConditionMessage(deactivatedOnAllWorkersMessagePrefix + strings.Join(reasons, "; "))
+}
+
+// deactivationReason names the worker and, when the remote workload records it, the
+// reason for its deactivation. The worker replaces the DeactivationTarget condition
+// with the Evicted condition when it evicts the workload, and an Evicted condition
+// next to a DeactivationTarget one is left from an earlier eviction.
+func deactivationReason(remote string, wl *kueue.Workload) string {
+	for _, condType := range []string{kueue.WorkloadDeactivationTarget, kueue.WorkloadEvicted} {
+		if cond := apimeta.FindStatusCondition(wl.Status.Conditions, condType); cond != nil && cond.Status == metav1.ConditionTrue {
+			return fmt.Sprintf("%s (%s): %s", remote, cond.Reason, cond.Message)
+		}
+	}
+	return remote
 }
 
 // jobHasMultipleWorkloads reports whether the job creates a workload per component,
@@ -718,8 +769,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// - workloads for which workload priority has changed
 	// - workloads for which the priority boost has changed
 	// - workloads with tolerations added to their PodSets
+	// Remote workloads deactivated by their worker are kept. Recreating them would
+	// reset their admission check retry history, and the worker would reject them again.
 	for rem, remWl := range group.remotes {
-		if remWl != nil && (isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) || !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)) {
+		if remWl != nil && !isDeactivatedOnWorker(group.local, remWl) && (isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) || !ptr.Equal(group.local.Spec.PriorityBoost, remWl.Spec.PriorityBoost)) {
 			updated, err := updateRemoteWorkload(ctrl.LoggerInto(ctx, log), group.remoteClients[rem].getClient(), group.local, remWl)
 			if err != nil {
 				return reconcile.Result{}, fmt.Errorf("updating remote workload on worker cluster %q: %w", rem, err)
@@ -733,6 +786,19 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, utillogging.ErrorWithValues(err, "workerCluster", rem)
 			}
 			group.remotes[rem] = nil
+		}
+	}
+
+	// 5a. Reject the workload when every worker it can be dispatched to deactivated
+	// its remote workload. The manager then deactivates the local workload, as for
+	// any rejected check.
+	if acs.State == kueue.CheckStatePending && group.hasRemoteDeactivatedOnWorker() {
+		targetCluster, err := w.singleTargetCluster(ctx, group)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("getting the target worker cluster: %w", err)
+		}
+		if message := group.deactivatedOnAllWorkersMessage(targetCluster); message != "" {
+			return reconcile.Result{}, w.updateACS(ctx, group.local, acs, kueue.CheckStateRejected, message)
 		}
 	}
 
@@ -1177,6 +1243,13 @@ func addRemoteTolerations(ctx context.Context, remoteClient client.Client, local
 	return true, nil
 }
 
+// isDeactivatedOnWorker reports whether the worker deactivated the remote workload,
+// for example because an admission check of the worker was rejected. The manager
+// deactivates a remote workload only after it evicts or deactivates the local one.
+func isDeactivatedOnWorker(local, remote *kueue.Workload) bool {
+	return !workload.IsActive(remote) && workload.IsActive(local) && !workloadevict.IsEvicted(local)
+}
+
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// The priority boost is updated in place, so a difference in it is not
 	// considered as out-of-sync.
@@ -1220,6 +1293,24 @@ func listComponentWorkloads(ctx context.Context, c client.Client, wl *kueue.Work
 
 	log.V(5).Info("Listed component workloads", "count", len(componentWorkloads.Items))
 	return componentWorkloads, nil
+}
+
+// singleTargetCluster returns the only worker cluster that nominateAndSynchronizeWorkers
+// dispatches the workload to: the cluster of its component workloads or, for an elastic
+// workload, the cluster it runs on. It returns an empty string when there is no such
+// cluster.
+func (w *wlReconciler) singleTargetCluster(ctx context.Context, group *wlGroup) (string, error) {
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, group.local)
+	if err != nil {
+		return "", err
+	}
+	if clusterName, err := w.getComponentWorkloadsClusterName(group.local, componentWorkloads); clusterName != "" || err != nil {
+		return clusterName, err
+	}
+	if group.IsElasticWorkload() {
+		return workload.ClusterName(group.local), nil
+	}
+	return "", nil
 }
 
 func (w *wlReconciler) getComponentWorkloadsClusterName(wl *kueue.Workload, componentWorkloads *kueue.WorkloadList) (string, error) {

@@ -494,4 +494,130 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("Should keep the worker workloads deactivated by a rejected ProvisioningRequest and reject the manager workload", func() {
+		ginkgo.By("disabling the retries of the ProvisioningRequests on both workers", func() {
+			for _, worker := range []struct {
+				testCluster cluster
+				prcName     string
+			}{
+				{testCluster: worker1TestCluster, prcName: worker1ProvReqConfig.Name},
+				{testCluster: worker2TestCluster, prcName: worker2ProvReqConfig.Name},
+			} {
+				gomega.Eventually(func(g gomega.Gomega) {
+					prc := &kueue.ProvisioningRequestConfig{}
+					g.Expect(worker.testCluster.client.Get(worker.testCluster.ctx, types.NamespacedName{Name: worker.prcName}, prc)).To(gomega.Succeed())
+					prc.Spec.RetryStrategy.BackoffLimitCount = new(int32(0))
+					g.Expect(worker.testCluster.client.Update(worker.testCluster.ctx, prc)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+		})
+
+		job := testingjob.MakeJob("test-job-rejected", managerNs.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
+
+		wlName := workloadjob.GetWorkloadNameForJob(job.Name, job.UID)
+		managerWlKey := types.NamespacedName{Name: wlName, Namespace: managerNs.Name}
+		worker1WlKey := types.NamespacedName{Name: wlName, Namespace: worker1Ns.Name}
+		worker2WlKey := types.NamespacedName{Name: wlName, Namespace: worker2Ns.Name}
+
+		ginkgo.By("setting quota reservation on manager cluster", func() {
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+				PodSets(
+					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(managerRf.Name), "2").
+						Obj(),
+				).
+				Obj()
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, admission)
+		})
+
+		rejectOnWorker := func(testCluster cluster, wlKey types.NamespacedName, cq *kueue.ClusterQueue, rf *kueue.ResourceFlavor, ac *kueue.AdmissionCheck) types.UID {
+			ginkgo.GinkgoHelper()
+			workerWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testCluster.client.Get(testCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(
+					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+						Obj(),
+				).
+				Obj()
+			integration.SetQuotaReservation(testCluster.ctx, testCluster.client, wlKey, admission)
+
+			provReqKey := types.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+			}
+			gomega.Eventually(func(g gomega.Gomega) {
+				provReq := &autoscaling.ProvisioningRequest{}
+				g.Expect(testCluster.client.Get(testCluster.ctx, provReqKey, provReq)).To(gomega.Succeed())
+				apimeta.SetStatusCondition(&provReq.Status.Conditions, metav1.Condition{
+					Type:    autoscaling.Failed,
+					Status:  metav1.ConditionTrue,
+					Reason:  autoscaling.Failed,
+					Message: "insufficient capacity",
+				})
+				g.Expect(testCluster.client.Status().Update(testCluster.ctx, provReq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testCluster.client.Get(testCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(workerWl)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(workerWl)).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			return workerWl.UID
+		}
+
+		var worker1WlUID types.UID
+		ginkgo.By("rejecting the ProvisioningRequest on worker1", func() {
+			worker1WlUID = rejectOnWorker(worker1TestCluster, worker1WlKey, worker1Cq, worker1Rf, worker1ProvReqAC)
+		})
+
+		ginkgo.By("checking that the manager keeps the deactivated workload on worker1 and waits for worker2", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				workerWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, worker1WlKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workerWl.UID).To(gomega.Equal(worker1WlUID))
+				g.Expect(workload.IsActive(workerWl)).To(gomega.BeFalse())
+			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectAdmissionCheckState(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, multiKueueAC.Name, kueue.CheckStatePending)
+		})
+
+		ginkgo.By("rejecting the ProvisioningRequest on worker2", func() {
+			rejectOnWorker(worker2TestCluster, worker2WlKey, worker2Cq, worker2Rf, worker2ProvReqAC)
+		})
+
+		ginkgo.By("checking that the manager workload is rejected and deactivated", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, managerWlKey, managerWl)).To(gomega.Succeed())
+				g.Expect(workload.IsActive(managerWl)).To(gomega.BeFalse())
+				g.Expect(workload.HasQuotaReservation(managerWl)).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking that the workloads on the workers are deleted and not recreated", func() {
+			for _, worker := range []struct {
+				testCluster cluster
+				wlKey       types.NamespacedName
+			}{
+				{testCluster: worker1TestCluster, wlKey: worker1WlKey},
+				{testCluster: worker2TestCluster, wlKey: worker2WlKey},
+			} {
+				workerWl := utiltestingapi.MakeWorkload(worker.wlKey.Name, worker.wlKey.Namespace).Obj()
+				behavioral.ExpectObjectToBeDeleted(worker.testCluster.ctx, worker.testCluster.client, workerWl, false)
+			}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, worker1WlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, worker2WlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
 })
