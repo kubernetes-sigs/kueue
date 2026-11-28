@@ -21,6 +21,8 @@
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Overprovisioning](#overprovisioning)
     - [Wrong pod consumption race](#wrong-pod-consumption-race)
+    - [Capacity is reported before its nodes are ready](#capacity-is-reported-before-its-nodes-are-ready)
+    - [Gated Pods wait when the workload's Pods are not all created](#gated-pods-wait-when-the-workloads-pods-are-not-all-created)
     - [Consolidation before the Pods are scheduled](#consolidation-before-the-pods-are-scheduled)
     - [No infeasibility detection](#no-infeasibility-detection)
     - [Prolonged unavailability holding quota](#prolonged-unavailability-holding-quota)
@@ -203,6 +205,25 @@ Mitigation: Kueue deletes each PodSet's CapacityBuffer once all its Pods exist, 
 
 While the CapacityBuffer exists, other pods can still be scheduled onto the provisioned nodes, because kube-scheduler does not see the buffer. The autoscaler then provisions replacement capacity for the buffer, so the workload is delayed rather than left without capacity. After the buffer is deleted, the workload Pods are ungated and scheduled within seconds, which leaves a short window. This is the same class of race that exists with ProvisioningRequest today. See Appendix for prevention approaches.
 
+#### Capacity is reported before its nodes are ready
+
+Karpenter sets `FitsExistingCapacity` when the virtual pods fit on existing nodes, including nodes that have launched but have not registered or initialized yet.
+Kueue can then admit the workload before those nodes can run Pods.
+If a node never becomes ready, the ungated Pods stay pending until Karpenter replaces the node.
+
+Mitigation: an upstream proposal ([kubernetes/autoscaler#10484](https://github.com/kubernetes/autoscaler/pull/10484)) adds a `Provisioned` condition that counts only nodes that are initialized and ready to run Pods.
+Once Karpenter sets it, Kueue waits on `Provisioned` instead of `FitsExistingCapacity`.
+
+#### Gated Pods wait when the workload's Pods are not all created
+
+Kueue deletes a PodSet's buffer and ungates its Pods only once all its Pods exist.
+If Pod creation stalls, for example because a namespace ResourceQuota allows only some of the Pods, the Pods that exist stay gated, the buffer keeps its nodes, and the workload keeps its quota until it finishes or is evicted.
+`timeoutSeconds` does not apply once the check is `Ready`.
+
+Mitigation: enable [`waitForPodsReady`](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/).
+It evicts a workload whose Pods are not ready within its timeout, which deletes the buffers, and then requeues or deactivates the workload as its `requeuingStrategy` sets.
+Capped buffers (Beta) remove the gate.
+
 #### Consolidation before the Pods are scheduled
 
 While the CapacityBuffer exists, Karpenter does not consolidate its nodes. After Kueue deletes the buffer, those nodes count as empty until the ungated Pods are bound. Karpenter's NodePool `consolidateAfter` sets how long a node is protected from consolidation. It is measured from when the node was initialized or a pod was last scheduled on or removed from it, not from when the buffer is deleted. The default is `0s`, which gives no protection.
@@ -239,28 +260,25 @@ This section describes how Kueue integrates with the CapacityBuffer API to pre-p
 
 ### CapacityBuffer status conditions
 
-The CapacityBuffer API exposes two status conditions that Kueue reacts to:
+Alpha supports Karpenter only.
+The reasons below are set by Karpenter; the CapacityBuffer API does not define them.
+Cluster Autoscaler sets `Provisioning=True` with reason `FakePodsInjected` when it adds the virtual pods to its simulation, which does not mean the capacity exists, so the check stays `Pending` there.
 
-| Condition | Status | Reason | Meaning |
-|-----------|--------|--------|--------|
-| `ReadyForProvisioning` | `True` | - | Pod template resolved, replicas computed. Buffer is ready for the provisioner. |
-| `ReadyForProvisioning` | `False` | `InvalidPodTemplate` | Resolution failed (e.g., missing PodTemplate reference, invalid scalableRef target). |
-| `Provisioning` | `True` | `FitsExistingCapacity` | All virtual pods fit on existing nodes. Capacity is ready. |
-| `Provisioning` | `False` | `RequiresNewCapacity` | Virtual pods need new nodes. Autoscaler is working on provisioning. |
-| `Provisioning` | `False` | `NotReadyForProvisioning` | Buffer has not been resolved yet. |
-| `Provisioning` | `False` | `BufferEmpty` | Replicas are zero (buffer has been scaled down). |
+Kueue reads the `Provisioning` condition that Karpenter sets:
+
+| Status | Reason | Meaning |
+|--------|--------|---------|
+| `True` | `FitsExistingCapacity` | All virtual pods fit on existing nodes, including nodes that have launched but have not registered or initialized yet. |
+| `False` | `RequiresNewCapacity` | Virtual pods need new nodes. Karpenter is provisioning them. |
+| `False` | `NotReadyForProvisioning` | Karpenter has not resolved the buffer's Pod template and replicas yet. |
+| `False` | `BufferEmpty` | The buffer has zero replicas. |
 
 Kueue maps these to AdmissionCheck states:
 
-* `Provisioning=True` + `FitsExistingCapacity` - AdmissionCheck `Ready`
-* `Provisioning=False` + `RequiresNewCapacity` - AdmissionCheck `Pending`
-* `Provisioning=False` + `NotReadyForProvisioning` - AdmissionCheck `Pending`
-* `Provisioning=False` + `BufferEmpty` - AdmissionCheck `Pending`
-* `ReadyForProvisioning=False` - AdmissionCheck `Pending`
+* `Provisioning=True` with reason `FitsExistingCapacity` - AdmissionCheck `Ready`
+* While the check is `Pending`, any other `Provisioning` condition, or none, keeps it `Pending`
 * Timeout expires (`timeoutSeconds` exceeded) - AdmissionCheck `Retry` (workload evicted and re-enters queue)
 * Infeasibility signal from autoscaler (Milestone 2, exact condition TBD per [#3223](https://github.com/kubernetes-sigs/karpenter/issues/3223)) - AdmissionCheck `Rejected` (workload deactivated, admin must fix)
-
-Note: Since Kueue creates the PodTemplate itself, `ReadyForProvisioning=False` should not occur in normal operation. It is treated as `Pending` (not `Rejected`) because it likely reflects a transient race condition that resolves on its own. If it does not resolve, `timeoutSeconds` handles it via `Retry`.
 
 ### CapacityBuffer lifecycle
 
@@ -320,7 +338,8 @@ After a timeout or preemption, the workload re-enters the queue. A rejected chec
 
 `PodSetUpdate` has no field for scheduling gates. When the check becomes `Ready`, it adds the `kueue.x-k8s.io/capacity-buffer-gated: "true"` annotation in its `PodSetUpdates` for each PodSet that has a CapacityBuffer. When Kueue starts the job, it adds the `kueue.x-k8s.io/capacity-buffer` scheduling gate to the Pod templates of those PodSets.
 
-A PodSet is complete when the number of its Pods that have not finished reaches its admitted count. Pods that already exist at admission, such as plain Pods, cannot be gated. They count as well, so their buffer is deleted at admission.
+A PodSet is complete when the number of its Pods that have not finished reaches its admitted count. Pods that already exist at admission, such as plain Pods, cannot be gated. They count as well, so their buffer is deleted at admission when all its Pods exist.
+Integrations that create Pods one at a time after admission, such as a StatefulSet with ordered startup, cannot gate those Pods either, so they use the buffered capacity until the last Pod is created, and the autoscaler can refill the buffer (see [Overprovisioning](#overprovisioning)).
 
 A PodSet whose Pods never all appear keeps its buffer until the workload is evicted, for example by `waitForPodsReady`, or finishes.
 
@@ -443,7 +462,7 @@ The table lists the proposed behavior for each case.
 | No podset of the workload requests a managed resource | No CapacityBuffer is created. | Check `Ready`: "the workload has no podsets requesting managed resources" |
 | The check is added to the ClusterQueue of an admitted workload | No CapacityBuffer is created and the timeout does not apply, so the workload keeps running. | Check `Ready`: "the workload was admitted before the check was added" |
 | CapacityBuffers are created | Kueue waits for every buffer of the check to reach `Provisioning=True` with reason `FitsExistingCapacity`. | Event `CapacityBufferCreated`; check `Pending`: "waiting for CapacityBuffers to fit existing capacity" |
-| Every buffer fits existing capacity | The check is `Ready` and marks the PodSets that have a buffer to be gated. After admission, each PodSet's buffer is deleted once all its Pods exist, and its Pods are ungated. | Check `Ready`: "CapacityBuffers fit existing capacity"; Pods have the `kueue.x-k8s.io/capacity-buffer` scheduling gate until their buffer is deleted |
+| Every buffer fits existing capacity | The check is `Ready`. Kueue does not check the buffers' condition again, so a buffer that stops fitting later does not set the check back to `Pending` or `Retry`. The check marks the PodSets that have a buffer to be gated. After admission, each PodSet's buffer is deleted once all its Pods exist, and its Pods are ungated. | Check `Ready`: "CapacityBuffers fit existing capacity"; Pods have the `kueue.x-k8s.io/capacity-buffer` scheduling gate until their buffer is deleted |
 | `timeoutSeconds` passes before every buffer fits | The check is `Retry`, so the workload is evicted and requeued after a backoff of about `backoffBaseSeconds * 2^(n-1)`, capped at `backoffMaxSeconds` (by default 60s, 120s, 240s, … up to 1800s). Kueue keeps retrying at the cap. The buffers are deleted. | Check `Retry` with `requeueAfterSeconds`: "CapacityBuffers did not fit existing capacity within `<n>`s"; the workload's `Evicted` condition |
 | `timeoutSeconds` passes after the check became `Ready`, but before the delayed topology is assigned (TAS) | The check is `Retry`, with the same eviction, backoff and buffer deletion as above. This also applies to a check that is `Ready` because no PodSet needs a buffer. | Check `Retry` with `requeueAfterSeconds`: "the topology was not assigned within `<n>`s after the check became Ready"; the workload's `Evicted` condition |
 | The `CapacityBufferACC` gate is disabled on a cluster that serves the CapacityBuffer API | The controller is not started, so the AdmissionCheck never becomes active and its ClusterQueues are inactive. Kueue removes the scheduling gate from Pods that still have it, including Pods created later from Pod templates that Kueue gated. Kueue keeps the existing CapacityBuffers, so that enabling the gate again resumes where it stopped. They keep their capacity provisioned until their workloads are deleted. To release it sooner, delete them by label. | ClusterQueue `Active=False`: "references inactive AdmissionCheck(s): `<name>`"; the gated Pods are scheduled; `kubectl delete capacitybuffers -A -l kueue.x-k8s.io/managed=true` releases the capacity |
@@ -460,6 +479,7 @@ Every change of the check state will also emit an `UpdatedAdmissionCheck` event 
 | Elastic jobs | Not supported in alpha. |
 | DRA and PersistentVolumeClaims | Not supported in alpha: Karpenter does not add a Pod's ResourceClaims or volumes to the virtual Pods of a CapacityBuffer, so their device and volume needs are not considered ([karpenter#3189](https://github.com/kubernetes-sigs/karpenter/issues/3189)). DRA support can be revisited after Karpenter fixes this, and may need changes on the Kueue side. |
 | MultiKueue | Not supported in alpha. |
+| ConcurrentAdmission | Not supported in alpha. |
 | Partial admission | Each CapacityBuffer uses the PodSet's admitted count. |
 
 ### Worked example: heterogeneous JobSet
@@ -607,7 +627,9 @@ This feature will follow the standard Kueue graduation process:
   * Kueue integrates with capped buffers, so it no longer deletes the CapacityBuffer or holds the Pods. The autoscaler can recognize intended consumption and does not refill.
   * In the release that stops gating Pods, Kueue still removes the `kueue.x-k8s.io/capacity-buffer` scheduling gate from Pods gated by earlier versions. The next release drops the removal, with an `ACTION REQUIRED` release note asking admins to check that no Pods still have the gate before upgrading.
   * Infeasibility detection is available (Milestone 2).
+  * Kueue waits on the shared `Provisioned` condition instead of `FitsExistingCapacity`, once the node autoscaler sets it. It counts only nodes that are ready to run Pods.
   * Review `retryStrategy` based on user feedback.
+  * The `CapacityBufferConfig` CRD is installed by default, so that the `CapacityBufferACC` gate can be enabled by default.
 * Stable:
   * The upstream CapacityBuffer API has reached GA.
   * `CapacityBufferConfig` is promoted from `v1alpha1` to a stable API version.
@@ -617,7 +639,8 @@ This feature will follow the standard Kueue graduation process:
 Between the buffer capacity being provisioned and the workload pods being scheduled, an unrelated pod could consume the buffered capacity (sniping). Today, sniping is recovered from but not prevented:
 
 - If sniping occurs **after** the buffer is deleted: the ungated workload Pods are pending, and Karpenter provisions new nodes through normal autoscaling.
-- If sniping occurs **before** admission (buffer alive): the buffer controller may detect that virtual pods no longer fit and flip the condition back to `RequiresNewCapacity`, keeping the AdmissionCheck in `Pending` state. However, if Kueue reads a stale `FitsExistingCapacity` before the buffer controller re-evaluates, it admits on stale data and the workload falls back to normal autoscaling recovery.
+- If sniping occurs **before the check is `Ready`**: Karpenter can set the buffer back to `RequiresNewCapacity` and add capacity, and the check stays `Pending` until the buffer fits again. If Kueue read `FitsExistingCapacity` just before the buffer changed, it can still set the check to `Ready`, and the next case applies.
+- If sniping occurs **after the check is `Ready`**: Kueue does not re-evaluate the check, so the workload is admitted and its Pods fall back to normal autoscaling recovery.
 
 Preventing sniping entirely requires node-level exclusion. One approach is using a dedicated NodePool with static taints. The admin creates a NodePool with a taint (e.g., `dedicated=ml-buffer:NoSchedule`), and the buffer's PodTemplate includes a matching toleration and nodeSelector targeting that NodePool. Kueue would inject the same toleration into workload pods via `podSetUpdates`. This works with existing Karpenter machinery but has trade-offs:
 
