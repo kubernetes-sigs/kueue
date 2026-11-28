@@ -1216,6 +1216,16 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	return false
 }
 
+// DeleteReadySecondPassIfNotNeeded drops the ready copy of a Workload that needs no second pass.
+func (m *Manager) DeleteReadySecondPassIfNotNeeded(ctx context.Context, w *kueue.Workload) {
+	if workload.NeedsSecondPass(w) {
+		return
+	}
+	if m.secondPassQueue.deleteReady(workload.Key(w)) {
+		ctrl.LoggerFrom(ctx).V(3).Info("Workload removed from second pass queue", "workload", klog.KObj(w))
+	}
+}
+
 // queueSecondPass re-reads the live Workload by key and queues it for a second pass if it still needs one.
 func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, iteration int) {
 	m.Lock()

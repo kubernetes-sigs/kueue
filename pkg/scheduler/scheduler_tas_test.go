@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -68,6 +69,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -13728,6 +13730,21 @@ func TestScheduleForTASCohorts(t *testing.T) {
 	}, cases)
 }
 
+// staleStatusWriteError returns the Conflict the apiserver gives an apply with an outdated resourceVersion.
+func staleStatusWriteError(ctx context.Context, cl client.Client, key client.ObjectKey, rv string) error {
+	if rv == "" {
+		return nil
+	}
+	var stored kueue.Workload
+	if err := cl.Get(ctx, key, &stored); err != nil {
+		return err
+	}
+	if stored.ResourceVersion != rv {
+		return apierrors.NewConflict(kueue.Resource("workloads"), key.Name, errors.New("the object has been modified"))
+	}
+	return nil
+}
+
 func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -13757,7 +13774,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 		wantWorkloads []kueue.Workload
 		wantEvents    []utiltesting.EventRecord
 	}{
-		"use patch in evictWorkloadAfterFailedTASReplacement": {
+		"the concurrent update skips the first eviction and the retried second pass evicts": {
 			workload: utiltestingapi.MakeWorkload("wl", ns.Name).
 				ResourceVersion("1").
 				UnhealthyNodes("x0").
@@ -13813,6 +13830,8 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "OutdatedScheduleCycle", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord("default", "wl", "SecondPassFailed", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord("default", "wl", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
 					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
 					Obj(),
@@ -13825,35 +13844,43 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 				ctx, log := utiltesting.ContextWithLog(t)
 				var patched bool
+				var statusWrites int
+				// Simulate concurrent modification by another controller, so the write carries an outdated resourceVersion.
+				bumpOnce := func(ctx context.Context, c client.Client) error {
+					if patched {
+						return nil
+					}
+					patched = true
+					wlCopy := tc.workload.DeepCopy()
+					if wlCopy.Labels == nil {
+						wlCopy.Labels = make(map[string]string, 1)
+					}
+					wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+					return c.Update(ctx, wlCopy)
+				}
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload.DeepCopy()).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && !patched {
-								patched = true
-								// Simulate concurrent modification by another controller
-								wlCopy := tc.workload.DeepCopy()
-								if wlCopy.Labels == nil {
-									wlCopy.Labels = make(map[string]string, 1)
-								}
-								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
-								if err := c.Update(ctx, wlCopy); err != nil {
+							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+								statusWrites++
+								if err := bumpOnce(ctx, c); err != nil {
 									return err
 								}
 							}
 							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 						},
 						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-							if subResourceName == "status" && !patched {
-								patched = true
-								// Simulate concurrent modification by another controller
-								wlCopy := tc.workload.DeepCopy()
-								if wlCopy.Labels == nil {
-									wlCopy.Labels = make(map[string]string, 1)
+							if subResourceName == "status" {
+								statusWrites++
+								if err := bumpOnce(ctx, c); err != nil {
+									return err
 								}
-								wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
-								if err := c.Update(ctx, wlCopy); err != nil {
+								applied, ok := applyConf.(interface{ GetResourceVersion() string })
+								if !ok {
+									t.Errorf("status apply configuration %T does not expose a resourceVersion", applyConf)
+								} else if err := staleStatusWriteError(ctx, c, client.ObjectKeyFromObject(tc.workload), applied.GetResourceVersion()); err != nil {
 									return err
 								}
 							}
@@ -13892,6 +13919,23 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 				go qManager.CleanUpOnContext(ctx)
 				defer cancel()
 
+				scheduler.schedule(ctx)
+				wg.Wait()
+
+				// The cycle must not evict from the outdated copy: the write is rejected and the second pass is retried.
+				firstCycle := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), firstCycle); err != nil {
+					t.Fatalf("Getting workload %s: %v", tc.workload.Name, err)
+				}
+				if workloadevict.IsEvicted(firstCycle) {
+					t.Error("the first cycle evicted the workload from an outdated copy")
+				}
+				if statusWrites != 1 {
+					t.Errorf("got %d workload status writes in the first cycle, want the single rejected one", statusWrites)
+				}
+
+				// The retried second pass reads the newer Workload and evicts it.
+				fakeClock.Step(time.Minute)
 				scheduler.schedule(ctx)
 				wg.Wait()
 
@@ -15148,5 +15192,301 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 				t.Errorf("unexpected events (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestSecondPassFailFastEvictionSkipsOutdatedCopy checks that an outdated copy never evicts the Workload.
+func TestSecondPassFailFastEvictionSkipsOutdatedCopy(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	rf := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	cq := utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("tas-main", ns.Name).ClusterQueue(cq.Name).Obj()
+	makeNode := func(name string) corev1.Node {
+		return *testingnode.MakeNode(name).
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	assignment := func(node string) *kueue.Admission {
+		return utiltestingapi.MakeAdmission("tas-main").
+			PodSets(utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj()
+	}
+	podSet := *utiltestingapi.MakePodSet("one", 1).
+		RequiredTopologyRequest(corev1.LabelHostname).
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+	// failedReplacement keeps its assignment on the failed node x1, so it needs a replacement.
+	failedReplacement := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		UnhealthyNodes("x1").
+		PodSets(podSet).
+		ReserveQuotaAt(assignment("x1"), now).
+		AdmittedAt(true, now).
+		Obj()
+	// pendingCopy is the pre-admission copy that admit requeues when its write fails.
+	pendingCopy := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		PodSets(podSet).
+		Obj()
+
+	type repairFunc func(t *testing.T, ctx context.Context, cl client.Client) *kueue.Workload
+	// recoverNode clears the unhealthy node, as the node controller does once the node is Ready again.
+	recoverNode := func(t *testing.T, ctx context.Context, cl client.Client) *kueue.Workload {
+		t.Helper()
+		stored := &kueue.Workload{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(failedReplacement), stored); err != nil {
+			t.Fatalf("Getting workload %s: %v", failedReplacement.Name, err)
+		}
+		stored.Status.UnhealthyNodes = nil
+		if err := cl.Status().Update(ctx, stored); err != nil {
+			t.Fatalf("Clearing the unhealthy nodes: %v", err)
+		}
+		return stored
+	}
+	// replaceNode moves the workload to x2, as a leader that found a replacement does.
+	replaceNode := func(t *testing.T, ctx context.Context, cl client.Client) *kueue.Workload {
+		t.Helper()
+		stored := &kueue.Workload{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(failedReplacement), stored); err != nil {
+			t.Fatalf("Getting workload %s: %v", failedReplacement.Name, err)
+		}
+		stored.Status.Admission = assignment("x2")
+		stored.Status.UnhealthyNodes = nil
+		if err := cl.Status().Update(ctx, stored); err != nil {
+			t.Fatalf("Moving the workload to x2: %v", err)
+		}
+		return stored
+	}
+
+	// outdatedEvents are reported by the rejected eviction write and in turn by the failed second pass.
+	outdatedEvents := []utiltesting.EventRecord{
+		utiltesting.MakeEventRecord(ns.Name, failedReplacement.Name, "OutdatedScheduleCycle", corev1.EventTypeWarning).
+			Message("Skipped eviction because the workload changed while it was being scheduled").Obj(),
+		utiltesting.MakeEventRecord(ns.Name, failedReplacement.Name, "SecondPassFailed", corev1.EventTypeWarning).
+			Message("Skipped eviction because the workload changed while it was being scheduled").Obj(),
+	}
+
+	cases := map[string]struct {
+		nodes []corev1.Node
+		// repair lands after the second pass read its copy; the cache gets it too, as an informer event would.
+		repair repairFunc
+		// queueRepair also delivers the repair to the update handler, which drops the entry.
+		queueRepair bool
+		// requeuePending requeues the pre-admission copy, as admit does after a failed write.
+		requeuePending bool
+		// repairDuringWrite lands the repair just before the eviction write instead.
+		repairDuringWrite repairFunc
+		// wantStatusWrites is 0 when an update dropped the entry and 1 when the eviction write is attempted.
+		wantStatusWrites int
+		// wantEvents is empty for a case whose entry an update dropped, so its pass never runs.
+		wantEvents  []utiltesting.EventRecord
+		wantEvicted bool
+	}{
+		// The repair is cached but not queued, and this replica has not synced its node, so the replacement does not fit.
+		"replacement popped mid-handler": {
+			repair:           replaceNode,
+			wantStatusWrites: 1,
+			wantEvents:       outdatedEvents,
+		},
+		// The only node is the one the workload occupies, so the replacement does not fit.
+		"node recovered just before the eviction write": {
+			nodes:             []corev1.Node{makeNode("x1")},
+			repairDuringWrite: recoverNode,
+			wantStatusWrites:  1,
+			wantEvents:        outdatedEvents,
+		},
+		// Only x2 exists, so a replacement computed from the copy does not fit.
+		"workload replaced by the previous leader": {
+			nodes:            []corev1.Node{makeNode("x2")},
+			repair:           replaceNode,
+			queueRepair:      true,
+			wantStatusWrites: 0,
+		},
+		// A fresh copy is still evicted: only a newer Workload rejects the write.
+		"fresh copy": {
+			nodes:            []corev1.Node{makeNode("x1")},
+			wantStatusWrites: 1,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, failedReplacement.Name, "EvictedDueToNodeFailures", corev1.EventTypeNormal).
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x1").Obj(),
+			},
+			wantEvicted: true,
+		},
+		// The requeued copy needs no pass, so only the update handler may drop the ready copy.
+		"admission copy requeued after the pass fired": {
+			nodes:            []corev1.Node{makeNode("x1")},
+			requeuePending:   true,
+			wantStatusWrites: 1,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, failedReplacement.Name, "EvictedDueToNodeFailures", corev1.EventTypeNormal).
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x1").Obj(),
+			},
+			wantEvicted: true,
+		},
+	}
+	for name, tc := range cases {
+		for _, useMergePatch := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+				features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacementFailFast, true)
+				ctx, log := utiltesting.ContextWithLog(t)
+
+				var statusWrites int
+				// The eviction is the first status write of the cycle, where the case makes one.
+				beforeWrite := func(ctx context.Context, c client.Client) {
+					statusWrites++
+					if statusWrites == 1 && tc.repairDuringWrite != nil {
+						tc.repairDuringWrite(t, ctx, c)
+					}
+				}
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), failedReplacement.DeepCopy()).
+					WithStatusSubresource(&kueue.Workload{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+							if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+								beforeWrite(ctx, c)
+							}
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if subResourceName == "status" {
+								beforeWrite(ctx, c)
+								applied, ok := applyConf.(interface{ GetResourceVersion() string })
+								if !ok {
+									t.Errorf("status apply configuration %T does not expose a resourceVersion", applyConf)
+								} else if err := staleStatusWriteError(ctx, c, client.ObjectKeyFromObject(failedReplacement), applied.GetResourceVersion()); err != nil {
+									return err
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+						},
+					})
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				cl := clientBuilder.Build()
+				storedWl := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(failedReplacement), storedWl); err != nil {
+					t.Fatalf("Getting workload %s: %v", failedReplacement.Name, err)
+				}
+				recorder := &utiltesting.EventRecorder{}
+				fakeClock := testingclock.NewFakeClock(now)
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+				for _, node := range tc.nodes {
+					cqCache.TASCache().SyncNode(&node)
+				}
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+				if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+				}
+				cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl.DeepCopy())
+				if !qManager.QueueSecondPassIfNeeded(ctx, storedWl, 0) {
+					t.Fatal("expected the workload to be queued for a second pass")
+				}
+				// The pass re-reads the workload when the backoff elapses, so the repair must land after that read.
+				fakeClock.Step(time.Second)
+				if tc.repair != nil {
+					repaired := tc.repair(t, ctx, cl)
+					if !cqCache.AddOrUpdateWorkload(ctx, log, repaired) {
+						t.Error("Failed to update the workload in the cache")
+					}
+					// The update handler drops the entry of a Workload that no longer needs a pass.
+					if tc.queueRepair {
+						if qManager.QueueSecondPassIfNeeded(ctx, repaired, 0) {
+							t.Fatal("expected the repaired workload not to need a second pass")
+						}
+						qManager.DeleteReadySecondPassIfNotNeeded(ctx, repaired)
+					}
+				}
+
+				scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+				if tc.requeuePending {
+					h := qcache.Head{Info: *workload.NewInfo(log, pendingCopy.DeepCopy())}
+					h.ClusterQueue = "tas-main"
+					scheduler.requeueAndUpdate(ctx, entry{Head: h, status: assumed})
+				}
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				defer cancel()
+				go cqCache.CleanUpOnContext(ctx)
+				go qManager.CleanUpOnContext(ctx)
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+
+				if statusWrites != tc.wantStatusWrites {
+					t.Errorf("got %d workload status writes, want %d", statusWrites, tc.wantStatusWrites)
+				}
+				got := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(failedReplacement), got); err != nil {
+					t.Fatalf("Getting workload %s: %v", failedReplacement.Name, err)
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+					t.Errorf("unexpected events (-want,+got):\n%s", diff)
+				}
+				if tc.wantEvicted {
+					if !workloadevict.IsEvicted(got) {
+						t.Error("the workload was not evicted")
+					}
+					if c := meta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadEvicted); c == nil || c.Reason != kueue.WorkloadEvictedDueToNodeFailures {
+						t.Errorf("the workload evicted condition is %v, want reason %s", c, kueue.WorkloadEvictedDueToNodeFailures)
+					}
+					return
+				}
+				if workloadevict.IsEvicted(got) {
+					t.Error("the outdated copy evicted the workload")
+				}
+				if got.Status.Admission == nil {
+					t.Error("the outdated copy dropped the workload's admission")
+				}
+				if !meta.IsStatusConditionTrue(got.Status.Conditions, kueue.WorkloadAdmitted) {
+					t.Error("the workload is no longer admitted")
+				}
+
+				// The entry is gone either way: the re-read drops it, or the update handler already did.
+				fakeClock.Step(time.Minute)
+				scheduler.schedule(ctx)
+				wg.Wait()
+
+				if statusWrites != tc.wantStatusWrites {
+					t.Errorf("got %d workload status writes, want %d: nothing is left to schedule", statusWrites, tc.wantStatusWrites)
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+					t.Errorf("unexpected events after the second cycle (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }

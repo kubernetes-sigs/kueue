@@ -1674,6 +1674,8 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	}
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
+	// Updates for one Workload arrive in order, so the newest version decides.
+	r.queues.DeleteReadySecondPassIfNotNeeded(ctx, wl)
 	return true
 }
 

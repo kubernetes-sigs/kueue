@@ -75,7 +75,8 @@ import (
 )
 
 const (
-	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
+	errCouldNotAdmitWL          = "Could not admit Workload and assign flavors in apiserver"
+	outdatedScheduleCycleReason = "OutdatedScheduleCycle"
 )
 
 var (
@@ -760,7 +761,16 @@ func inFlightEvictionVictims(snapshot *schdcache.Snapshot) []*workload.Info {
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {
-	if err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj.DeepCopy()); client.IgnoreNotFound(err) != nil {
+	err := s.evictWorkloadAfterFailedTASReplacement(ctx, log, e.Obj.DeepCopy())
+	if apierrors.IsConflict(err) {
+		// The copy that decided the eviction is outdated; the requeued pass re-reads the Workload.
+		msg := "Skipped eviction because the workload changed while it was being scheduled"
+		log.V(3).Info("Skipped eviction for a workload whose state changed during scheduling")
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, outdatedScheduleCycleReason, outdatedScheduleCycleReason, api.TruncateEventMessage(msg))
+		e.inadmissibleMsg = msg
+		return
+	}
+	if client.IgnoreNotFound(err) != nil {
 		log.Error(err, "Failed to evict workload")
 		return
 	}
@@ -1199,9 +1209,9 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	unhealthyNodesCsv := strings.Join(unhealthyNodes, ",")
 	log.V(4).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
+	// Strict, unlike preemption: never evict a Workload newer than the copy that decided it.
 	if err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, s.cache.RecordLocalQueueMetricsForWorkload, s.roleTracker, s.customLabels,
-		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
 	); err != nil {
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}
@@ -1281,7 +1291,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
 			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
-			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, outdatedScheduleCycleReason, outdatedScheduleCycleReason,
 				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
 		} else {
 			log.Error(err, errCouldNotAdmitWL)

@@ -86,6 +86,17 @@ func (q *secondPassQueue) queueLocked(w *workload.Info) bool {
 	return enqueued
 }
 
+// deleteReady removes the ready copy of a workload and reports whether it was queued.
+func (q *secondPassQueue) deleteReady(key workload.Reference) bool {
+	q.Lock()
+	defer q.Unlock()
+	if _, found := q.queued[key]; !found {
+		return false
+	}
+	delete(q.queued, key)
+	return true
+}
+
 func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 	q.Lock()
 	defer q.Unlock()

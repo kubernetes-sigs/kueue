@@ -3127,13 +3127,17 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
-		workloads        []*kueue.Workload
-		clientWorkloads  []*kueue.Workload
-		updateWorkload   *kueue.Workload
-		wantUpdateQueued *bool
-		passTime         time.Duration
-		wantReady        sets.Set[workload.Reference]
-		wantNoTimers     bool
+		workloads       []*kueue.Workload
+		clientWorkloads []*kueue.Workload
+		updateWorkload  *kueue.Workload
+		updateIteration int
+		updateAfterPass bool
+		// fromUpdateHandler also drops the ready copy, as the Workload update handler does.
+		fromUpdateHandler bool
+		wantUpdateQueued  *bool
+		passTime          time.Duration
+		wantReady         sets.Set[workload.Reference]
+		wantNoTimers      bool
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -3164,6 +3168,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			updateWorkload: baseWorkloadNeedingSecondPass.Clone().
 				EvictedAt(now).
 				Obj(),
+			updateIteration:  1,
 			wantUpdateQueued: new(false),
 			passTime:         time.Second,
 			wantReady:        nil,
@@ -3200,6 +3205,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				Name("first").
 				EvictedAt(now).
 				Obj(),
+			updateIteration:  1,
 			wantUpdateQueued: new(false),
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.NewReference("default", "second")),
@@ -3212,10 +3218,67 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
 			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
+			updateIteration:  1,
 			wantUpdateQueued: new(true),
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 			wantNoTimers:     true,
+		},
+		"not-needed update after the pass fired drops the ready copy": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			updateWorkload:    baseWorkloadNotNeedingSecondPass.Clone().Obj(),
+			updateAfterPass:   true,
+			fromUpdateHandler: true,
+			wantUpdateQueued:  new(false),
+			passTime:          time.Second,
+			wantReady:         nil,
+		},
+		"not-needed update before the pass fires keeps the pending pass": {
+			// The pending backoff re-reads the workload, so the decision is left to it.
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			updateWorkload:    baseWorkloadNotNeedingSecondPass.Clone().Obj(),
+			fromUpdateHandler: true,
+			wantUpdateQueued:  new(false),
+			passTime:          time.Second,
+			wantReady:         sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+		},
+		"update that still needs the pass keeps the ready copy": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			updateWorkload:    baseWorkloadNeedingSecondPass.Clone().Obj(),
+			updateAfterPass:   true,
+			fromUpdateHandler: true,
+			wantUpdateQueued:  new(true),
+			passTime:          time.Second,
+			wantReady:         sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+		},
+		// The scheduler requeues the copy its cycle read, which can be older than the ready copy.
+		"not-needed copy requeued by the scheduler keeps the ready copy": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			updateWorkload:   baseWorkloadNotNeedingSecondPass.Clone().Obj(),
+			updateAfterPass:  true,
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
 	}
 
@@ -3238,16 +3301,29 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				manager.QueueSecondPassIfNeeded(ctx, wl, 0)
 			}
 
-			if tc.updateWorkload != nil {
-				got := manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, 1)
+			deliverUpdate := func() {
+				if tc.updateWorkload == nil {
+					return
+				}
+				got := manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, tc.updateIteration)
+				if tc.fromUpdateHandler {
+					manager.DeleteReadySecondPassIfNotNeeded(ctx, tc.updateWorkload)
+				}
 				if tc.wantUpdateQueued != nil && got != *tc.wantUpdateQueued {
 					t.Errorf("Unexpected return from QueueSecondPassIfNeeded for updateWorkload: want %v, got %v", *tc.wantUpdateQueued, got)
 				}
+			}
+			if !tc.updateAfterPass {
+				deliverUpdate()
 			}
 
 			fakeClock.Step(tc.passTime)
 			if tc.wantNoTimers && fakeClock.HasWaiters() {
 				t.Error("Unexpected pending second-pass timer")
+			}
+
+			if tc.updateAfterPass {
+				deliverUpdate()
 			}
 
 			gotReady := sets.New[workload.Reference]()

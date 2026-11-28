@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -204,6 +205,86 @@ func TestWorkloadEventPreservesResidualTASReleaseIntent(t *testing.T) {
 				if diff := cmp.Diff(usageBefore, cqSnapshot.ResourceNode.Usage); diff != "" {
 					t.Errorf("release probe changed quota usage (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+// TestUpdateDropsReadySecondPassIfNotNeeded checks a drop only happens when no pass is needed.
+func TestUpdateDropsReadySecondPassIfNotNeeded(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	rf := utiltestingapi.MakeResourceFlavor("tas").NodeLabel("tas-node", "true").TopologyName(topology.Name).Obj()
+	cq := utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas").Resource(corev1.ResourceCPU, "50").Obj()).Obj()
+	stored := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		UnhealthyNodes("x1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "tas", "1").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).Obj()).Obj()).Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	cases := map[string]struct {
+		// update is the newer version delivered to the handler.
+		update    func(wl *kueue.Workload) *kueue.Workload
+		wantHeads int
+	}{
+		"repaired update drops the ready copy": {
+			update: func(wl *kueue.Workload) *kueue.Workload {
+				repaired := wl.DeepCopy()
+				repaired.Status.UnhealthyNodes = nil
+				return repaired
+			},
+			wantHeads: 0,
+		},
+		"update that still needs the pass keeps the ready copy": {
+			update: func(wl *kueue.Workload) *kueue.Workload {
+				updated := wl.DeepCopy()
+				updated.Annotations = map[string]string{"updated": "true"}
+				return updated
+			},
+			wantHeads: 1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().WithObjects(stored.DeepCopy()).Build()
+			fakeClock := testingclock.NewFakeClock(now)
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache, qcache.WithClock(fakeClock))
+			reconciler := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{})
+			cache.AddOrUpdateTopology(log, topology.DeepCopy())
+			cache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+			if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("adding the ClusterQueue to the cache: %v", err)
+			}
+			if err := queues.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("adding the ClusterQueue to the queues: %v", err)
+			}
+			if !queues.QueueSecondPassIfNeeded(ctx, stored, 0) {
+				t.Fatal("expected a second pass")
+			}
+			// The pass re-reads the Workload when the backoff elapses, which stores the ready copy.
+			fakeClock.Step(time.Second)
+
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: stored.DeepCopy(),
+				ObjectNew: tc.update(stored),
+			})
+
+			headsCtx, headsCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+			defer headsCancel()
+			go queues.CleanUpOnContext(headsCtx)
+			if heads := queues.Heads(headsCtx); len(heads) != tc.wantHeads {
+				t.Fatalf("second-pass heads = %d, want %d", len(heads), tc.wantHeads)
 			}
 		})
 	}
