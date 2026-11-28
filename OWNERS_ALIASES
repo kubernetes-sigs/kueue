@@ -71,6 +71,8 @@ aliases:
     - kannon92
   agent-emeritus-approvers:
     - pbundyra
+  scheduler-approvers:
+    - amy
   hugo-approvers:
     - mbobrovskyi
   infra-approvers:
