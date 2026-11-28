@@ -37,6 +37,10 @@ While scaling **down** a workload is relatively straightforward and does not req
 4. **Preemption**: Follows the existing workload preemption mechanism.
 5. **Completion**: Follows the existing workload completion behavior.
 
+When enforcing the admitted PodSet count, the elastic Pod ungater does not count
+Pods that are being deleted or have reached the `Succeeded` or `Failed` phase.
+This allows replacement Pods to be ungated even when an old Pod is stuck deleting.
+
 ## Example
 
 ## Kubernetes Job
