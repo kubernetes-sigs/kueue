@@ -41,30 +41,29 @@ type cohortMetricPoint struct {
 }
 
 func (c *Cache) RecordCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
-	if cohortName == "" {
-		log.V(4).Info("Cohort name is empty, skipping metrics recording")
-		return
-	}
-	log = c.withCohortLogger(log, cohortName)
-	log.V(4).Info("Recording metrics for cohort")
-
-	points := c.collectCohortMetricPoints(cohortName, false)
-	for _, p := range points {
-		c.applyCohortMetricPoint(p)
-	}
+	c.reportCohortMetrics(log, cohortName, false)
 }
 
 func (c *Cache) ClearCohortMetrics(log logr.Logger, cohortName kueue.CohortReference) {
+	c.reportCohortMetrics(log, cohortName, true)
+}
+
+func (c *Cache) reportCohortMetrics(log logr.Logger, cohortName kueue.CohortReference, simulateRemoval bool) {
+	c.RLock()
+	defer c.RUnlock()
 	if cohortName == "" {
-		log.V(4).Info("Cohort name is empty, skipping clearing metrics")
+		log.V(4).Info("Cohort name is empty, skipping metrics update")
 		return
 	}
 
 	log = c.withCohortLogger(log, cohortName)
-	log.V(4).Info("Clearing metrics for cohort")
 
-	points := c.collectCohortMetricPoints(cohortName, true)
-	for _, p := range points {
+	if simulateRemoval {
+		log.V(4).Info("Clearing metrics for cohort")
+	} else {
+		log.V(4).Info("Recording metrics for cohort")
+	}
+	for _, p := range c.collectCohortMetricPoints(cohortName, simulateRemoval) {
 		c.applyCohortMetricPoint(p)
 	}
 }
@@ -75,10 +74,8 @@ func (c *Cache) ClearCohortMetrics(log logr.Logger, cohortName kueue.CohortRefer
 // the target cohort's subtree contribution from each cohort's current subtree totals.
 // This is used when clearing metrics so ancestor subtree gauges are updated too,
 // rather than left with stale values after the target cohort is removed.
+// Caller must hold c.Lock() or c.RLock().
 func (c *Cache) collectCohortMetricPoints(cohortName kueue.CohortReference, simulateRemoval bool) []cohortMetricPoint {
-	c.RLock()
-	defer c.RUnlock()
-
 	ch := c.hm.Cohort(cohortName)
 	if ch == nil || hierarchy.HasCycle(ch) {
 		if simulateRemoval {
