@@ -30,6 +30,8 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -660,10 +662,19 @@ func (s *Scheduler) processEntry(
 
 	s.waitForPodsReadyIfNeeded(ctx, log, e)
 
-	// Copy ClusterName from old slice before admission (needed for MultiKueue).
+	// Carry the old slice's cluster and admitted time into the replacement before
+	// admission. Both the execution limit and preemption filters use the latter.
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
 		e.Obj = e.Obj.DeepCopy()
-		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
+		oldSlice := oldWorkloadSlice.WorkloadInfo.Obj
+		e.Obj.Status.ClusterName = oldSlice.Status.ClusterName
+		pastSeconds := ptr.Deref(oldSlice.Status.AccumulatedPastExecutionTimeSeconds, 0)
+		if admitted := apimeta.FindStatusCondition(oldSlice.Status.Conditions, kueue.WorkloadAdmitted); admitted != nil && admitted.Status == metav1.ConditionTrue {
+			pastSeconds += int32(max(0, s.clock.Since(admitted.LastTransitionTime.Time)/time.Second))
+		}
+		if pastSeconds > 0 {
+			e.Obj.Status.AccumulatedPastExecutionTimeSeconds = &pastSeconds
+		}
 	}
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
@@ -1236,9 +1247,18 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		return err
 	}
 
+	var pastExecutionTimeSeconds *int32
+	if oldWorkloadSlice != nil && features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		pastExecutionTimeSeconds = e.Obj.Status.AccumulatedPastExecutionTimeSeconds
+	}
 	newWorkload := e.Obj.DeepCopy()
+	if pastExecutionTimeSeconds != nil {
+		// The carried time is only in the assumed Workload. Build the admission
+		// patch against the replacement's original status so merge patch includes it.
+		newWorkload.Status.AccumulatedPastExecutionTimeSeconds = nil
+	}
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission)
+		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission, pastExecutionTimeSeconds)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -1298,6 +1318,7 @@ func (s *Scheduler) patchWorkloadAdmission(
 	wl *kueue.Workload,
 	cq *schdcache.ClusterQueueSnapshot,
 	admission *kueue.Admission,
+	pastExecutionTimeSeconds *int32,
 ) error {
 	replacedNodeName := workload.FirstUnhealthyNodeName(wl)
 	patchOptions := []workloadpatching.PatchStatusOption{
@@ -1313,6 +1334,9 @@ func (s *Scheduler) patchWorkloadAdmission(
 	}
 	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		s.prepareWorkload(log, wl, cq, admission)
+		if pastExecutionTimeSeconds != nil {
+			wl.Status.AccumulatedPastExecutionTimeSeconds = pastExecutionTimeSeconds
+		}
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
 		return true, nil
 	}, patchOptions...)
