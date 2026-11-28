@@ -1402,6 +1402,123 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.DeepCopy(),
 			},
 		},
+		"missing elastic replaced slice keeps remote job used by active successor": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Name("wl2").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+					ClusterName("worker1").
+					Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+				*baseWlBuilder.Clone().
+					Name("wl2").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl2").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Name("wl2").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl2").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"missing elastic replaced slice keeps remote job and remote workload before remote job is repointed": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Name("wl2").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
+					ClusterName("worker1").
+					Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+				*baseWlBuilder.Clone().
+					Name("wl2").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+				*baseWlBuilder.Clone().
+					Name("wl2").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"missing elastic replaced slice deletes remote job when no active slice remains": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl1").
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
 	}
 
 	objCheckOpts := cmp.Options{
