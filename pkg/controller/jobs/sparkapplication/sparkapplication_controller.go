@@ -61,6 +61,9 @@ const (
 	driverPodSetName   = "driver"
 	executorPodSetName = "executor"
 
+	// inlineInitContainersAnnotation marks Workloads built with inline init container support.
+	inlineInitContainersAnnotation = "kueue.x-k8s.io/spark-inline-init-containers"
+
 	// maxExecutorIDAnnotation records the highest executor ID of the current
 	// submission, which feeds the elastic workload-slice name.
 	maxExecutorIDAnnotation = "kueue.x-k8s.io/spark-max-executor-id"
@@ -136,12 +139,20 @@ var _ jobframework.GenericJob = (*SparkApplication)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*SparkApplication)(nil)
 var _ jobframework.JobWithPartialPreemption = (*SparkApplication)(nil)
+var _ jobframework.JobWithWorkloadAnnotations = (*SparkApplication)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*SparkApplication)(nil)
+
+// WorkloadAnnotations records how the PodSets were built. Deduplication can
+// produce identical PodSets from a template and a role-only specification.
+func (j *SparkApplication) WorkloadAnnotations() map[string]string {
+	return map[string]string{inlineInitContainersAnnotation: "true"}
+}
 
 // Older Workloads recorded only role-level init containers. Keep their reservation
 // while the application can still be running, provided both PodSets match that layout.
 func (j *SparkApplication) CustomEquivalenceOptions(_ context.Context, _ client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption {
-	if !workload.HasQuotaReservation(wl) || (j.IsSuspended() && !j.IsActive()) ||
+	if wl.Annotations[inlineInitContainersAnnotation] == "true" ||
+		!workload.HasQuotaReservation(wl) || (j.IsSuspended() && !j.IsActive()) ||
 		len(wl.Spec.PodSets) != podSetsCount || sparkutil.CompareSemanticVersion(j.Spec.SparkVersion, "3.0.0") < 0 {
 		return nil
 	}

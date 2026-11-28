@@ -230,6 +230,12 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithWorkloadAnnotations provides integration-owned annotations to persist
+// alongside the PodSets when a Workload is created or an unreserved one is rebuilt.
+type JobWithWorkloadAnnotations interface {
+	WorkloadAnnotations() map[string]string
+}
+
 // JobWithCustomEquivalenceOptions is an optional interface that should be implemented
 // by generic jobs when custom ComparePodSetsOption need to be passed to EquivalentToWorkload.
 type JobWithCustomEquivalenceOptions interface {
