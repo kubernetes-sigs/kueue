@@ -197,14 +197,8 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 		if afs.Enabled(r.admissionFSConfig) {
-			// A stopped LocalQueue's admitted Workloads keep running, finish or get
-			// evicted, so keep sampling. Otherwise usage that ends during the stop is
-			// undercounted after the queue resumes.
-			result, _, err := r.reconcileAfsUsage(ctx, &queueObj, false)
-			if err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			return result, nil
+			// Admitted Workloads can keep running or finish while the queue is stopped.
+			return r.reconcileAfsUsage(ctx, &queueObj, false)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -229,25 +223,15 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	if afs.Enabled(r.admissionFSConfig) {
-		result, reconciled, err := r.reconcileAfsUsage(ctx, &queueObj, true)
-		if err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		if reconciled {
-			if err := r.queues.RebuildClusterQueue(log, &cq, queueObj.Name); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-		return result, nil
+		return r.reconcileAfsUsage(ctx, &queueObj, true)
 	}
 	return ctrl.Result{}, nil
 }
 
-// reconcileAfsUsage samples AFS consumed usage and returns when to requeue
-// and whether sampling ran, allowing callers to skip unnecessary rebuilds.
+// reconcileAfsUsage samples AFS consumed usage and returns when to requeue.
 // Pending entry penalties can bypass the interval when penaltySkipsInterval
 // is true; stopped LocalQueues disable that bypass because they admit nothing.
-func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.LocalQueue, penaltySkipsInterval bool) (ctrl.Result, bool, error) {
+func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.LocalQueue, penaltySkipsInterval bool) (ctrl.Result, error) {
 	lqKey := utilqueue.Key(lq)
 	hadCache, entry := r.initializeAfsIfNeeded(lq)
 	sinceLastUpdate := r.clock.Now().Sub(entry.LastUpdate)
@@ -257,18 +241,18 @@ func (r *LocalQueueReconciler) reconcileAfsUsage(ctx context.Context, lq *kueue.
 	// truncates CPU consumed resources to zero.
 	if interval := r.admissionFSConfig.UsageSamplingInterval.Duration; hadCache && sinceLastUpdate < interval &&
 		(!penaltySkipsInterval || !r.queues.AfsUsageLedger.HasPendingPenalty(lqKey)) {
-		return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, false, nil
+		return ctrl.Result{RequeueAfter: interval - sinceLastUpdate}, nil
 	}
 	if err := r.reconcileConsumedUsage(ctx, lq); err != nil {
 		if errors.Is(err, schdcache.ErrCqNotFound) {
 			// The ClusterQueue isn't cached yet, for example when it is new
 			// or right after a restart. Retry the sample later.
 			ctrl.LoggerFrom(ctx).V(3).Info("Skipping the AFS usage sample of a LocalQueue whose ClusterQueue isn't cached")
-			return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, false, nil
+			return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
 		}
-		return ctrl.Result{}, false, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, true, nil
+	return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
 }
 
 func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue]) bool {
@@ -449,12 +433,14 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, entry.PendingPenalty(), now); err != nil {
 			return fmt.Errorf("resetting LocalQueue status: %w", err)
 		}
-		r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
+		if _, err := r.queues.UpdateLocalQueueAfsUsage(log, lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
 			old.Resources = corev1.ResourceList{}
 			old.LastUpdate = now
 			old.StatusAccounted = old.StatusAccounted || !found
 			return old
-		})
+		}); err != nil {
+			return err
+		}
 		log.V(3).Info("Reset AFS consumed resources cache")
 		return nil
 	}
@@ -485,7 +471,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	// land between the Get above and this write (the status update is an API call),
 	// and its folded penalty must not be overwritten. The persisted status may lag
 	// the stored value by one interval in that case; the next tick converges it.
-	stored := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
+	stored, err := r.queues.UpdateLocalQueueAfsUsage(log, lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
 		if !found {
 			return queueafs.UsageLedgerEntry{Resources: newConsumed, LastUpdate: now, StatusAccounted: true}
 		}
@@ -500,6 +486,9 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 		old.LastUpdate = storedLastUpdate
 		return old
 	})
+	if err != nil {
+		return err
+	}
 	log.V(4).Info("Updated AFS consumed resources cache", "consumedResources", stored.Resources)
 	return nil
 }
