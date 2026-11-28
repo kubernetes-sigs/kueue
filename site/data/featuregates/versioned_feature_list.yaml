@@ -917,6 +917,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: ValidateEffectiveRequestsOnPodTemplateUpdate
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: ValidateRayAndSparkJobUpdates
   versionedSpecs:
   - default: true

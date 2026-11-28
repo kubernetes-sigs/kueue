@@ -234,7 +234,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldDS, newDS *disaggregat
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldDS, newDS)...)
 	}
-	allErrs = append(allErrs, validateImmutableRoles(oldDS, newDS)...)
+	var in workload.AdjustmentInputs
+	if features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) {
+		if in, err = jobframework.AdjustmentInputsForUpdate(ctx, wh.client, newDS.Namespace, podSpecUpdates(oldDS, newDS)...); err != nil {
+			return nil, err
+		}
+	}
+	allErrs = append(allErrs, validateImmutableRoles(oldDS, newDS, in)...)
 	return nil, allErrs.ToAggregate()
 }
 
@@ -551,7 +557,7 @@ func validatePodSetGroupName(role *disaggregatedsetv1.DisaggregatedRoleSpec, rol
 // validateImmutableRoles checks that an update keeps the shape of every slice
 // Workload. Existing Workloads are not updated when the shape changes, so
 // replacement Pods would no longer match them.
-func validateImmutableRoles(oldDS, newDS *disaggregatedsetv1.DisaggregatedSet) field.ErrorList {
+func validateImmutableRoles(oldDS, newDS *disaggregatedsetv1.DisaggregatedSet, in workload.AdjustmentInputs) field.ErrorList {
 	oldNames := roleNames(oldDS)
 	newNames := roleNames(newDS)
 	if !slices.Equal(oldNames, newNames) {
@@ -568,8 +574,8 @@ func validateImmutableRoles(oldDS, newDS *disaggregatedsetv1.DisaggregatedSet) f
 		oldLWT, newLWT := &oldRole.Spec.LeaderWorkerTemplate, &newRole.Spec.LeaderWorkerTemplate
 
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(roleSize(newRole), roleSize(oldRole), lwtPath.Child("size"))...)
-		allErrs = append(allErrs, validateImmutablePodTemplateSpec(newLWT.LeaderTemplate, oldLWT.LeaderTemplate, lwtPath.Child("leaderTemplate"))...)
-		allErrs = append(allErrs, validateImmutablePodTemplateSpec(&newLWT.WorkerTemplate, &oldLWT.WorkerTemplate, lwtPath.Child("workerTemplate"))...)
+		allErrs = append(allErrs, validateImmutablePodTemplateSpec(newLWT.LeaderTemplate, oldLWT.LeaderTemplate, in, lwtPath.Child("leaderTemplate"))...)
+		allErrs = append(allErrs, validateImmutablePodTemplateSpec(&newLWT.WorkerTemplate, &oldLWT.WorkerTemplate, in, lwtPath.Child("workerTemplate"))...)
 		replicasChanged = replicasChanged || roleReplicas(newRole) != roleReplicas(oldRole)
 	}
 	if replicasChanged && !allRolesScaledToZero(oldDS) && !allRolesScaledToZero(newDS) {
@@ -577,6 +583,23 @@ func validateImmutableRoles(oldDS, newDS *disaggregatedsetv1.DisaggregatedSet) f
 			"role replicas can only change when every role is scaled to zero, or from zero"))
 	}
 	return allErrs
+}
+
+// podSpecUpdates returns the pod specs of the leader and worker templates that
+// the same role has in both DisaggregatedSets.
+func podSpecUpdates(oldDS, newDS *disaggregatedsetv1.DisaggregatedSet) []jobframework.PodSpecUpdate {
+	if !slices.Equal(roleNames(oldDS), roleNames(newDS)) {
+		return nil
+	}
+	var updates []jobframework.PodSpecUpdate
+	for i := range newDS.Spec.Roles {
+		oldLWT, newLWT := &oldDS.Spec.Roles[i].Spec.LeaderWorkerTemplate, &newDS.Spec.Roles[i].Spec.LeaderWorkerTemplate
+		if oldLWT.LeaderTemplate != nil && newLWT.LeaderTemplate != nil {
+			updates = append(updates, jobframework.PodSpecUpdate{New: &newLWT.LeaderTemplate.Spec, Old: &oldLWT.LeaderTemplate.Spec})
+		}
+		updates = append(updates, jobframework.PodSpecUpdate{New: &newLWT.WorkerTemplate.Spec, Old: &oldLWT.WorkerTemplate.Spec})
+	}
+	return updates
 }
 
 func roleNames(ds *disaggregatedsetv1.DisaggregatedSet) []string {
@@ -591,12 +614,12 @@ func roleNames(ds *disaggregatedsetv1.DisaggregatedSet) []string {
 // its Pod shape and its TAS annotations. Existing slice Workloads never refresh
 // their TopologyRequest, so a changed annotation would leave replacement Pods
 // on the old placement.
-func validateImmutablePodTemplateSpec(newTemplate, oldTemplate *corev1.PodTemplateSpec, templatePath *field.Path) field.ErrorList {
+func validateImmutablePodTemplateSpec(newTemplate, oldTemplate *corev1.PodTemplateSpec, in workload.AdjustmentInputs, templatePath *field.Path) field.ErrorList {
 	if newTemplate == nil || oldTemplate == nil {
 		return apivalidation.ValidateImmutableField(newTemplate != nil, oldTemplate != nil, templatePath)
 	}
 	allErrs := jobframework.ValidateImmutablePodGroupPodSpec(
-		withEffectiveRequests(&newTemplate.Spec), withEffectiveRequests(&oldTemplate.Spec), templatePath.Child("spec"))
+		withEffectiveRequests(&newTemplate.Spec), withEffectiveRequests(&oldTemplate.Spec), in, templatePath.Child("spec"))
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(
 		tasAnnotationsOf(newTemplate), tasAnnotationsOf(oldTemplate), templatePath.Child("metadata", "annotations"))...)
 	return allErrs

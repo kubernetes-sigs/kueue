@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -174,6 +176,11 @@ func copyContainers(remote, local *leaderworkersetv1.LeaderWorkerSet) bool {
 		updated = true
 	}
 	return updated
+}
+
+func sameContainers(a, b *corev1.PodSpec) bool {
+	return equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) &&
+		equality.Semantic.DeepEqual(a.Containers, b.Containers)
 }
 
 // copyAddedTolerations copies the tolerations added to the local LeaderWorkerSet

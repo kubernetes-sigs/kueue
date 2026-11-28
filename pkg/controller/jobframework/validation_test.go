@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -35,15 +36,22 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -125,9 +133,11 @@ func TestValidateQueueNameUpdate(t *testing.T) {
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {
-		newPodSpec *corev1.PodSpec
-		oldPodSpec *corev1.PodSpec
-		wantErr    field.ErrorList
+		newPodSpec   *corev1.PodSpec
+		oldPodSpec   *corev1.PodSpec
+		in           workload.AdjustmentInputs
+		featureGates map[featuregate.Feature]bool
+		wantErr      field.ErrorList
 	}{
 		"add container": {
 			oldPodSpec: &corev1.PodSpec{},
@@ -321,11 +331,209 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 				},
 			},
 		},
+		"add limit without request on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"change limit of a requested resource on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						},
+					},
+				},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+						},
+					},
+				},
+			},
+		},
+		"change init container to a sidecar container": {
+			oldPodSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Containers:     []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{RestartPolicy: new(corev1.ContainerRestartPolicyAlways), Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"add pod-level limit without request": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("4Gi")},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"raise pod-level limit of a resource that the containers request": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6")}},
+			},
+		},
+		"raise pod-level limit of a resource that only the LimitRange default request sets on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6")}},
+			},
+			in: workload.AdjustmentInputs{
+				LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"raise pod-level limit of a resource with a pod-level request": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6")},
+				},
+			},
+			in: workload.AdjustmentInputs{
+				LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()),
+			},
+		},
+		"add limit that equals the pod-level limit on container instead of the LimitRange default request": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			in: workload.AdjustmentInputs{
+				LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"raise limit without request on container under a pod-level limit": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")}}}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: testPath.String(),
+				},
+			},
+		},
+		"add limit that equals the LimitRange default request on container": {
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						},
+					},
+				},
+			},
+			in: workload.AdjustmentInputs{
+				LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("limits", "").WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj()),
+			},
+		},
+		"add limit without request on container when ValidateEffectiveRequestsOnPodTemplateUpdate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ValidateEffectiveRequestsOnPodTemplateUpdate: false},
+			oldPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}}},
+			},
+			newPodSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+							Limits:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotErr := jobframework.ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, testPath)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			gotErr := jobframework.ValidateImmutablePodGroupPodSpec(tc.newPodSpec, tc.oldPodSpec, tc.in, testPath)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
@@ -954,6 +1162,132 @@ func TestValidateWorkloadPriorityClassNameNotRemoved(t *testing.T) {
 			gotErr := jobframework.ValidateWorkloadPriorityClassNameNotRemoved(tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestAdjustmentInputsForUpdate(t *testing.T) {
+	const ns = "ns"
+	listErr := errors.New("list LimitRanges failed")
+	limitRange := utiltesting.MakeLimitRange("limits", ns).WithValue("DefaultRequest", corev1.ResourceCPU, "2").Obj()
+
+	testCases := map[string]struct {
+		updates       []jobframework.PodSpecUpdate
+		listErr       error
+		wantListCalls int
+		wantSummary   bool
+		wantErr       error
+	}{
+		"no updates": {},
+		"identical PodSpecs": {
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
+		},
+		"change of a field that does not affect the effective requests": {
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").NodeSelector("zone", "a").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
+			listErr: listErr,
+		},
+		"container requests change": {
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "2").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+			}},
+			wantListCalls: 1,
+			wantSummary:   true,
+		},
+		"pod-level resources change only": {
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
+			wantListCalls: 1,
+			wantSummary:   true,
+		},
+		"only one of the updates changes the effective request inputs": {
+			updates: []jobframework.PodSpecUpdate{
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+				},
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+				},
+			},
+			wantListCalls: 1,
+			wantSummary:   true,
+		},
+		"several updates change the effective request inputs": {
+			updates: []jobframework.PodSpecUpdate{
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "2").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+				},
+				{
+					New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+					Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+				},
+			},
+			wantListCalls: 1,
+			wantSummary:   true,
+		},
+		"list error is returned": {
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "2").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").Obj().Spec,
+			}},
+			listErr:       listErr,
+			wantListCalls: 1,
+			wantErr:       listErr,
+		},
+		"list error is returned for a change of pod-level resources only": {
+			updates: []jobframework.PodSpecUpdate{{
+				New: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "8").Obj().Spec,
+				Old: &testingpod.MakePod("p", ns).Request(corev1.ResourceCPU, "1").PodLevelLimit(corev1.ResourceCPU, "4").Obj().Spec,
+			}},
+			listErr:       listErr,
+			wantListCalls: 1,
+			wantErr:       listErr,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			listCalls := 0
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(limitRange).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						listCalls++
+						if tc.listErr != nil {
+							return tc.listErr
+						}
+						return c.List(ctx, list, opts...)
+					},
+				}).
+				Build()
+
+			got, err := jobframework.AdjustmentInputsForUpdate(ctx, cl, ns, tc.updates...)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Unexpected adjustment error: got %v, want %v", err, tc.wantErr)
+			}
+			if listCalls != tc.wantListCalls {
+				t.Errorf("Unexpected number of List calls: got %d, want %d", listCalls, tc.wantListCalls)
+			}
+			var wantSummary limitrange.Summary
+			if tc.wantSummary {
+				wantSummary = limitrange.Summarize(*limitRange)
+			}
+			if diff := cmp.Diff(workload.AdjustmentInputs{LimitRangeSummary: wantSummary}, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected adjustment inputs (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"math"
@@ -49,8 +50,11 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+const EffectiveRequestsChangedErrMessage = "containers, init containers and pod-level resources cannot change the effective resource requests of the pods while the job is managed by Kueue"
 
 var (
 	metaPath                                = field.NewPath("metadata")
@@ -364,10 +368,64 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 	return nil
 }
 
-// ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed
-// to the PodSpec except fields that required for role-hash generation.
-func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
+// ValidateImmutablePodGroupPodSpec validates an update of the PodSpec of a
+// serving workload that Kueue manages. It rejects changes to the fields that
+// the role hash is computed from and, when the
+// ValidateEffectiveRequestsOnPodTemplateUpdate feature gate is enabled, changes
+// to the effective requests of the pods. When sameEffectiveRequestInputs is
+// false for the two PodSpecs, `in` must hold the LimitRanges of the namespace,
+// or their defaults are ignored; AdjustmentInputsForUpdate resolves them.
+func ValidateImmutablePodGroupPodSpec(
+	newPodSpec, oldPodSpec *corev1.PodSpec,
+	in workload.AdjustmentInputs,
+	fieldPath *field.Path,
+) field.ErrorList {
+	if errs := ValidateImmutablePodGroupPodSpecShape(newPodSpec, oldPodSpec, fieldPath); len(errs) != 0 {
+		return errs
+	}
+
+	if !features.Enabled(features.ValidateEffectiveRequestsOnPodTemplateUpdate) {
+		return nil
+	}
+
+	if workload.EffectiveRequestsChanged(newPodSpec, oldPodSpec, in) {
+		return field.ErrorList{field.Forbidden(fieldPath, EffectiveRequestsChangedErrMessage)}
+	}
+
+	return nil
+}
+
+// ValidateImmutablePodGroupPodSpecShape rejects changes to the fields of the
+// PodSpec that the role hash is computed from.
+func ValidateImmutablePodGroupPodSpecShape(newPodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
+}
+
+// sameEffectiveRequestInputs reports whether the fields that the effective
+// requests of the pods depend on are unchanged.
+func sameEffectiveRequestInputs(newPodSpec, oldPodSpec *corev1.PodSpec) bool {
+	return apiequality.Semantic.DeepEqual(newPodSpec.InitContainers, oldPodSpec.InitContainers) &&
+		apiequality.Semantic.DeepEqual(newPodSpec.Containers, oldPodSpec.Containers) &&
+		apiequality.Semantic.DeepEqual(newPodSpec.Resources, oldPodSpec.Resources)
+}
+
+// PodSpecUpdate is a PodSpec before and after an update.
+type PodSpecUpdate struct {
+	New, Old *corev1.PodSpec
+}
+
+// AdjustmentInputsForUpdate returns the inputs to compute the effective requests
+// of the pods of the updated PodSpecs with. It lists the LimitRanges of the
+// namespace only when an update changes the fields that the effective requests
+// depend on, because otherwise the effective requests cannot change.
+func AdjustmentInputsForUpdate(ctx context.Context, c client.Client, namespace string, updates ...PodSpecUpdate) (workload.AdjustmentInputs, error) {
+	var in workload.AdjustmentInputs
+	if !slices.ContainsFunc(updates, func(u PodSpecUpdate) bool { return !sameEffectiveRequestInputs(u.New, u.Old) }) {
+		return in, nil
+	}
+	var err error
+	in.LimitRangeSummary, err = workload.ResolveLimitRangeSummary(ctx, c, namespace)
+	return in, err
 }
 
 // hasWaitForPodsReadyAnnotationChanged reports whether the parsed WaitForPodsReady
