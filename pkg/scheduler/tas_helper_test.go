@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/component-base/metrics/testutil"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,7 +44,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -76,6 +79,9 @@ type tasScheduleForTASCase struct {
 	wantInadmissibleLeft map[kueue.ClusterQueueReference][]workload.Reference
 	// wantEvents asserts on the events, the comparison options are passed by eventCmpOpts
 	wantEvents []utiltesting.EventRecord
+	// wantTASNodeReplacement, when non-nil, is kueue_tas_node_replacement_total
+	// after this cycle, keyed by ClusterQueue and result.
+	wantTASNodeReplacement map[string]map[string]int
 	// eventCmpOpts are the comparison options for the events
 	eventCmpOpts cmp.Options
 
@@ -145,6 +151,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					if len(tc.featureGates) > 0 {
 						features.SetFeatureGatesDuringTest(t, tc.featureGates)
 					}
+					metrics.TASNodeReplacementTotal.Reset()
 					ctx, log := utiltesting.ContextWithLog(t)
 					testWls := make([]kueue.Workload, 0, len(tc.workloads))
 					for _, wl := range tc.workloads {
@@ -331,6 +338,17 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					}
 					if diff := cmp.Diff(wantEvents, recorder.RecordedEvents, tc.eventCmpOpts...); diff != "" {
 						t.Errorf("unexpected events (-want/+got):\n%s", diff)
+					}
+					for cqName, resultWants := range tc.wantTASNodeReplacement {
+						for result, want := range resultWants {
+							val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(cqName, result, roletracker.RoleStandalone))
+							if err != nil {
+								t.Fatalf("tas_node_replacement_total cq=%s result=%s: %v", cqName, result, err)
+							}
+							if int(val) != want {
+								t.Errorf("tas_node_replacement_total cq=%s result=%s: got %d, want %d", cqName, result, int(val), want)
+							}
+						}
 					}
 				},
 			)

@@ -221,6 +221,12 @@ func ExpectEvictedWorkloadsTotalMetric(cqName, reason, underlyingCause, priority
 		cqName, reason, underlyingCause, priorityClass, roletracker.RoleStandalone)
 }
 
+func ExpectTASNodeReplacementTotalMetric(cqName string, result metrics.TASNodeReplacementResult, v int) {
+	ginkgo.GinkgoHelper()
+	expectCounterMetric(metrics.TASNodeReplacementTotal, v,
+		cqName, string(result), roletracker.RoleStandalone)
+}
+
 func ExpectPodsReadyToEvictedTimeSeconds(cqName, reason, underlyingCause string, v int) {
 	ginkgo.GinkgoHelper()
 	expectHistogramMetric(metrics.PodsReadyToEvictedTimeSeconds, gomega.Equal(v), cqName, reason, underlyingCause, roletracker.RoleStandalone)

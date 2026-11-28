@@ -45,6 +45,8 @@ type LocalQueueReference struct {
 
 type PreemptionTargetRecomputationResult string
 
+type TASNodeReplacementResult string
+
 const (
 	AdmissionResultSuccess      AdmissionResult = "success"
 	AdmissionResultInadmissible AdmissionResult = "inadmissible"
@@ -61,6 +63,22 @@ const (
 	// PreemptionTargetRecomputationResultSkipped is recorded when the
 	// recomputation does not resolve the overlap and the workload is skipped.
 	PreemptionTargetRecomputationResultSkipped PreemptionTargetRecomputationResult = "skipped"
+
+	// TASNodeReplacementResultReplaced is recorded when a scheduling cycle
+	// re-admits a workload and the new topology assignment no longer uses the
+	// unhealthy node that was next in line. When TASReplaceMultipleFailedNodes
+	// is enabled and every Pod in a PodSet group is on an unhealthy node, that
+	// cycle places the whole group again at once instead of replacing one node
+	// at a time; the counter increments once for that cycle rather than once
+	// per node.
+	TASNodeReplacementResultReplaced TASNodeReplacementResult = "replaced"
+	// TASNodeReplacementResultNoReplacement is recorded when fail-fast eviction
+	// completes because no replacement fit. A skipped eviction is not recorded.
+	TASNodeReplacementResultNoReplacement TASNodeReplacementResult = "no_replacement"
+	// TASNodeReplacementResultMultipleNodeFailures is recorded when the node
+	// controller finishes evicting a workload because another node failed while
+	// replacement was already in progress. A skipped eviction is not recorded.
+	TASNodeReplacementResultMultipleNodeFailures TASNodeReplacementResult = "multiple_node_failures"
 
 	// CQStatusPending means the ClusterQueue is accepted but not yet active,
 	// this can be because of:
@@ -131,6 +149,10 @@ The label 'stage' reports the maturity of the gate at the running version and ca
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",result="one of `new_targets`, `deferred_fit`, or `skipped`",replica_role="one of `leader`, `follower`, or `standalone`"
 	PreemptionTargetRecomputationsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",result="one of `replaced`, `no_replacement`, or `multiple_node_failures`",replica_role="one of `leader`, `follower`, or `standalone`"
+	TASNodeReplacementTotal *prometheus.CounterVec
 
 	// Metrics tied to the queue system.
 
@@ -493,6 +515,19 @@ The label 'result' can have the following values:
 - 'new_targets' means the recomputation resolved the overlap by selecting non-overlapping targets.
 - 'deferred_fit' means the workload will fit only after earlier preemptions in the cycle complete.
 - 'skipped' means recomputation produced neither a deferred fit nor a fit with non-overlapping targets, including cases where overlap is removed but the workload still fails the fit check.
+Globally configured custom ClusterQueue labels are also appended to the base labels.`,
+		}, append([]string{"cluster_queue", "result", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
+	TASNodeReplacementTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "tas_node_replacement_total",
+			Help: `The total number of TAS failed node replacement outcomes, per ClusterQueue.
+The label 'result' can have the following values:
+- 'replaced' means a scheduling cycle re-admitted the workload and the new topology assignment no longer uses the unhealthy node that was next in line. When TASReplaceMultipleFailedNodes is enabled and every Pod in a PodSet group is on an unhealthy node, that cycle places the whole group again at once instead of replacing one node at a time; the counter increments once for that cycle rather than once per node.
+- 'no_replacement' means fail-fast eviction completed because no replacement node fit. The counter is not incremented when that eviction writes nothing, or when TASFailedNodeReplacementFailFast is disabled.
+- 'multiple_node_failures' means the node controller evicted the workload because another node failed while replacement was already in progress. A skipped eviction is not counted.
 Globally configured custom ClusterQueue labels are also appended to the base labels.`,
 		}, append([]string{"cluster_queue", "result", "replica_role"}, clusterQueueMetricsLabels...),
 	)
@@ -1431,6 +1466,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PartiallyPreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	TASNodeReplacementTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1753,6 +1789,14 @@ func ReportPreemptionTargetRecomputation(cqName kueue.ClusterQueueReference, res
 	PreemptionTargetRecomputationsTotal.WithLabelValues(labels...).Inc()
 }
 
+// ReportTASNodeReplacement increments the counter for a TAS failed node
+// replacement outcome. The result must be one of TASNodeReplacementResultReplaced,
+// TASNodeReplacementResultNoReplacement, or TASNodeReplacementResultMultipleNodeFailures.
+func ReportTASNodeReplacement(cqName kueue.ClusterQueueReference, result TASNodeReplacementResult, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), string(result), roletracker.GetRole(tracker)}, customLabelValues...)
+	TASNodeReplacementTotal.WithLabelValues(labels...).Inc()
+}
+
 func clearScopedGaugeMetrics(scope gaugeCleanupScope, lbls prometheus.Labels) {
 	for _, g := range gaugeVecsByScope[scope] {
 		g.DeletePartialMatch(lbls)
@@ -1829,6 +1873,7 @@ func Register() {
 		MultiKueueWorkloadsEvictedTotal,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
+		TASNodeReplacementTotal,
 		PendingWorkloads,
 		PendingSchedulingHashes,
 		FinishedWorkloads,

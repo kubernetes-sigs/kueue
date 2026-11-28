@@ -220,7 +220,12 @@ func TestNodeFailureReconciler(t *testing.T) {
 		wantEvictedLQLabels []string
 		wantEventReason     string
 		wantPatchedPods     []string
-		featureGates        map[featuregate.Feature]bool
+		// wantTASNodeReplacement is a map of (cluster_queue, result) -> expected
+		// counter value for the tas_node_replacement_total metric.
+		wantTASNodeReplacement map[string]map[string]int
+		// cqTeam, when set, configures a "team" custom ClusterQueue metric label with this value.
+		cqTeam       string
+		featureGates map[featuregate.Feature]bool
 		// ignoreUnhealthyNodes is used only when we expect the unhealthy nodes list to be cleared.
 		// Patching the status in tests (via fake client and strategic merge interceptor)
 		// doesn't correctly handle clearing the list.
@@ -514,6 +519,45 @@ func TestNodeFailureReconciler(t *testing.T) {
 				Status:  metav1.ConditionTrue,
 				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
 				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
+			},
+			wantTASNodeReplacement: map[string]map[string]int{
+				"cq": {
+					string(metrics.TASNodeReplacementResultMultipleNodeFailures): 1,
+				},
+			},
+			ignoreUnhealthyNodes: true,
+		},
+		"Two Nodes Unhealthy (NotReady), delay passed, custom ClusterQueue metric label - workload evicted": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+			cqTeam:       "ml",
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
+				baseNode.Clone().Name(nodeName2).StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
+				workloadWithTwoNodes.DeepCopy(),
+				testingpod.MakePod("pod1", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName).Obj(),
+				testingpod.MakePod("pod2", nsName).Annotation(kueue.WorkloadAnnotation, wlName).NodeName(nodeName2).Obj(),
+			},
+			reconcileRequests: []reconcile.Request{
+				{Name: nodeName},
+				{Name: nodeName2},
+			},
+			wantUnhealthyNodes: nil,
+			wantEvictedCond: &metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedDueToNodeFailures,
+				Message: fmt.Sprintf(nodeMultipleFailuresEvictionMessageFormat, nodeName+", "+nodeName2),
+			},
+			wantTASNodeReplacement: map[string]map[string]int{
+				"cq": {
+					string(metrics.TASNodeReplacementResultMultipleNodeFailures): 1,
+				},
 			},
 			ignoreUnhealthyNodes: true,
 		},
@@ -1195,6 +1239,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 		fakeClock.SetTime(testStartTime)
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			metrics.TASNodeReplacementTotal.Reset()
 			fakeClock.SetTime(testStartTime)
 
 			initObjs := append([]client.Object{baseResourceFlavor.DeepCopy()}, tc.initObjs...)
@@ -1230,6 +1275,12 @@ func TestNodeFailureReconciler(t *testing.T) {
 			var customLabels *metrics.CustomLabels
 			var cacheOpts []schdcache.Option
 			var reconcilerOpts []NodeReconcilerOption
+			if tc.cqTeam != "" {
+				customLabels = metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+				customLabels.CQStore("cq", map[string]string{"team": tc.cqTeam}, nil)
+				reconcilerOpts = append(reconcilerOpts, withCustomLabels(customLabels))
+			}
 			if len(tc.customLabels) > 0 {
 				customLabels = metrics.NewCustomLabels(tc.customLabels)
 				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
@@ -1319,6 +1370,22 @@ func TestNodeFailureReconciler(t *testing.T) {
 				})
 				if !foundEvent {
 					t.Errorf("Expected event with reason %q, got %+v", tc.wantEventReason, recorder.RecordedEvents)
+				}
+			}
+
+			for cqName, resultWants := range tc.wantTASNodeReplacement {
+				for result, want := range resultWants {
+					lvs := []string{cqName, result, roletracker.RoleStandalone}
+					if tc.cqTeam != "" {
+						lvs = append(lvs, tc.cqTeam)
+					}
+					val, err := testutil.GetCounterMetricValue(metrics.TASNodeReplacementTotal.WithLabelValues(lvs...))
+					if err != nil {
+						t.Fatalf("Couldn't get value for metric tas_node_replacement_total for cq=%q result=%q: %v", cqName, result, err)
+					}
+					if want != int(val) {
+						t.Errorf("tas_node_replacement_total: cq=%q result=%q: got %d, want %d", cqName, result, int(val), want)
+					}
 				}
 			}
 

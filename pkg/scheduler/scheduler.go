@@ -1205,6 +1205,14 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	); err != nil {
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}
+	// A conflict retry that reads the workload without a quota reservation
+	// makes Evict write and report nothing.
+	if wl.Status.Admission == nil {
+		log.V(4).Info("Skipped TAS no-replacement metric; workload has no quota reservation")
+		return nil
+	}
+	cqName := wl.Status.Admission.ClusterQueue
+	metrics.ReportTASNodeReplacement(cqName, metrics.TASNodeReplacementResultNoReplacement, s.customLabels.CQGet(cqName), s.roleTracker)
 	return nil
 }
 
@@ -1300,6 +1308,10 @@ func (s *Scheduler) patchWorkloadAdmission(
 	admission *kueue.Admission,
 ) error {
 	replacedNodeName := workload.FirstUnhealthyNodeName(wl)
+	// Count a replacement only when this admission moves the workload off the
+	// unhealthy node it was assigned to. A successful write that still places
+	// pods on that node is not a replacement.
+	replacingAssignedNode := utiltas.HasTASAssignmentOnNode(wl.Status.Admission, replacedNodeName)
 	patchOptions := []workloadpatching.PatchStatusOption{
 		workloadpatching.WithRetryOnConflict(),
 		workloadpatching.WithLooseOnApply(),
@@ -1311,11 +1323,15 @@ func (s *Scheduler) patchWorkloadAdmission(
 			workloadpatching.WithStrictApply(),
 		}
 	}
-	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+	err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		s.prepareWorkload(log, wl, cq, admission)
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
 		return true, nil
 	}, patchOptions...)
+	if err == nil && admission != nil && replacingAssignedNode && !utiltas.HasTASAssignmentOnNode(admission, replacedNodeName) {
+		metrics.ReportTASNodeReplacement(admission.ClusterQueue, metrics.TASNodeReplacementResultReplaced, s.customLabels.CQGet(admission.ClusterQueue), s.roleTracker)
+	}
+	return err
 }
 
 func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload, replacedNodeName string) {
