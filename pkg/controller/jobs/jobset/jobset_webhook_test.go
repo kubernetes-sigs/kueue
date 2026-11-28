@@ -344,6 +344,16 @@ func TestValidateUpdate(t *testing.T) {
 				field.OmitValueType{}, `must not contain more than one topology annotation: ["kueue.x-k8s.io/podset-required-topology", `+
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 		},
+		"unchanged unscheduled timeout annotation is allowed after its gate is disabled": {
+			oldJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingutil.MakeJobSet("job", "default").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),

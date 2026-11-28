@@ -113,7 +113,7 @@ func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.V(5).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload, true)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kf
 func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTrainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldTrainJob, newTrainJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
-	validationErrs, err := w.validateCreate(ctx, newTrainJob, nil)
+	validationErrs, err := w.validateCreate(ctx, newTrainJob, nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +144,13 @@ func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTr
 	return allErrs, nil
 }
 
-func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob, maxTimeoutOnWorkload *metav1.Duration, validateWaitForPodsReady bool) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob, maxTimeoutOnWorkload)...)
+	if validateWaitForPodsReady {
+		allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob, maxTimeoutOnWorkload)...)
+	} else {
+		allErrs = append(allErrs, jobframework.ValidateJobOnCreateWithoutWaitForPodsReady(trainjob)...)
+	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, trainjob)
 		if err != nil {

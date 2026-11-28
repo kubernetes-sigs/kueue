@@ -371,6 +371,17 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr                error
 		maxTimeoutOnWorkload   *metav1.Duration
 	}{
+		"unchanged unscheduled timeout annotation is allowed after its gate is disabled": {
+			clusterTrainingRuntime: testCtr,
+			oldTrainJob: testTrainJob.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			newTrainJob: testTrainJob.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			clusterTrainingRuntime: testCtr,
 			oldTrainJob: testTrainJob.Clone().Queue("local-queue").

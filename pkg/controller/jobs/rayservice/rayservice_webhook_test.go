@@ -393,6 +393,16 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"unchanged unscheduled timeout annotation is allowed after its gate is disabled": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").UpgradeStrategy(rayv1.RayServiceUpgradeNone).Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").UpgradeStrategy(rayv1.RayServiceUpgradeNone).Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
 				UpgradeStrategy(rayv1.RayServiceUpgradeNone).

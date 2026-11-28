@@ -114,9 +114,12 @@ overall limit for the Pods to become ready. Once the Workload has been ready,
 either initial deadline.
 
 The value must be non-negative and no greater than `timeout`. If omitted or set
-to `0s`, this feature does nothing: no scheduling observation, propagation, extra
-annotations/index, scheduling timeout or scheduling-history reset. Existing scheduling
-conditions are retained but ignored, and ordinary readiness behavior is unchanged.
+to `0s`, cluster-wide scheduling tracking is disabled. Workloads with a positive
+`unscheduledTimeoutSeconds` override are still tracked when both feature gates are
+enabled. When neither a cluster timeout nor a Workload override is positive, there
+is no scheduling observation, readiness propagation, scheduling timeout or
+scheduling-history reset for that Workload. Existing scheduling conditions are
+retained but ignored, and ordinary readiness behavior is unchanged.
 With the feature gate enabled and a positive timeout, Workloads waiting for
 scheduling report `PodsReady=False` with reason `WaitForScheduling`.
 
@@ -127,8 +130,8 @@ gate. This feature cannot be used together with `DisableWaitForPodsReady`.
 
 {{< feature-state state="alpha" for_version="v0.20" >}}
 
-Use the `kueue.x-k8s.io/wait-for-pods-ready` annotation to define custom `timeoutSeconds`
-and `recoveryTimeoutSeconds` per Kueue-managed resource, overriding the cluster-wide configuration for
+Use the `kueue.x-k8s.io/wait-for-pods-ready` annotation to define custom `timeoutSeconds`,
+`recoveryTimeoutSeconds`, and `unscheduledTimeoutSeconds` per Kueue-managed resource, overriding the cluster-wide configuration for
 that workload. To enable per-workload timeouts, set the `WorkloadLevelWaitForPodsReady`
 [feature gate](/docs/getting-started/installation/#change-the-feature-gates-configuration) to `true`, which is
 `false` by default.
@@ -140,7 +143,8 @@ annotations:
   kueue.x-k8s.io/wait-for-pods-ready: |
     {
       "timeoutSeconds": 20,
-      "recoveryTimeoutSeconds": 40
+      "recoveryTimeoutSeconds": 40,
+      "unscheduledTimeoutSeconds": 10
     }
 ```
 
@@ -150,7 +154,7 @@ and propagated to Pods and workload, any changes to it causes a rollout. The tem
 is removed from the template if it's only specified there and not on the Deployment annotation.
 {{% /alert %}}
 
-You can cap the maximum value allowed for `timeoutSeconds` and `recoveryTimeoutSeconds`
+You can cap the maximum value allowed for all three timeout fields
 using the `maxTimeoutOnWorkload` field under the `waitForPodsReady` in the Kueue config,
 which defaults to 2 hours. When combined with `blockAdmission: true`, the `maxTimeoutOnWorkload`
 is also the longest a single workload can keep admission blocked for the whole cluster,
@@ -161,12 +165,20 @@ waitForPodsReady:
   maxTimeoutOnWorkload: 1h
 ```
 
-When the annotation is set, its `timeoutSeconds` and `recoveryTimeoutSeconds` values take
-priority over the cluster-wide `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout`
-for that workload. Each omitted value falls back to its corresponding cluster-wide value.
+When the annotation is set, its timeout values take priority over the corresponding
+cluster-wide `waitForPodsReady` values for that workload. Each omitted value falls
+back to its corresponding cluster-wide value.
 
-Both fields are optional, but at least one must be set. If set, each must be a positive
-integer (greater than 0) less than or equal to `maxTimeoutOnWorkload`.
+At least one field is required. Each value must be a positive integer no greater
+than `maxTimeoutOnWorkload`.
+
+`unscheduledTimeoutSeconds` requires the `WaitForPodsReadyUnscheduledTimeout`
+feature gate and works even if the cluster-wide `unscheduledTimeout` is unset or
+`0s`. If `timeoutSeconds` is also set, the webhook rejects the annotation when
+`unscheduledTimeoutSeconds` exceeds it. If `timeoutSeconds` is omitted, the
+cluster-wide `timeout` supplies the startup deadline when configured. While
+Pods remain unscheduled, the earlier of the startup and unscheduled deadlines
+applies.
 
 This feature cannot be used together with `DisableWaitForPodsReady`.
 

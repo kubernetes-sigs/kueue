@@ -175,6 +175,12 @@ func TestParseAnnotation(t *testing.T) {
 				Timeout: new(100 * time.Second),
 			},
 		},
+		"unscheduledTimeoutSeconds is ignored when its feature gate is disabled": {
+			annotation: `{"timeoutSeconds":100,"unscheduledTimeoutSeconds":8}`,
+			want: &WorkloadLevelConfig{
+				Timeout: new(100 * time.Second),
+			},
+		},
 		"valid annotation with recoveryTimeoutSeconds": {
 			annotation: `{"timeoutSeconds":100,"recoveryTimeoutSeconds":50}`,
 			want: &WorkloadLevelConfig{
@@ -244,7 +250,8 @@ func TestParseAnnotation(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.WorkloadLevelWaitForPodsReady: true,
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
 			})
 			got, err := ParseAnnotation(tc.annotation)
 			gotErrMsg := ""
@@ -263,9 +270,10 @@ func TestParseAnnotation(t *testing.T) {
 
 func TestParseWaitForPodsReady(t *testing.T) {
 	testCases := map[string]struct {
-		annotation string
-		want       *kueue.WaitForPodsReady
-		wantErrMsg string
+		annotation             string
+		want                   *kueue.WaitForPodsReady
+		wantErrMsg             string
+		unscheduledGateEnabled bool
 	}{
 		"no annotation": {
 			annotation: "",
@@ -288,6 +296,27 @@ func TestParseWaitForPodsReady(t *testing.T) {
 				RecoveryTimeoutSeconds: new(int64(10)),
 			},
 		},
+		"unscheduled timeout only with its gate enabled": {
+			annotation:             `{"unscheduledTimeoutSeconds":120}`,
+			unscheduledGateEnabled: true,
+			want:                   &kueue.WaitForPodsReady{UnscheduledTimeoutSeconds: new(int64(120))},
+		},
+		"unscheduled timeout only with its gate disabled": {
+			annotation: `{"unscheduledTimeoutSeconds":120}`,
+			want:       nil,
+		},
+		"negative unscheduled timeout with its gate enabled leaves other timeouts": {
+			annotation:             `{"timeoutSeconds":30,"recoveryTimeoutSeconds":20,"unscheduledTimeoutSeconds":-1}`,
+			unscheduledGateEnabled: true,
+			want: &kueue.WaitForPodsReady{
+				TimeoutSeconds:         new(int64(30)),
+				RecoveryTimeoutSeconds: new(int64(20)),
+			},
+		},
+		"zero unscheduled timeout alone with its gate enabled leaves no spec": {
+			annotation:             `{"unscheduledTimeoutSeconds":0}`,
+			unscheduledGateEnabled: true,
+		},
 		"malformed JSON returns an error": {
 			annotation: `{"timeoutSeconds":`,
 			wantErrMsg: "unexpected end of JSON input",
@@ -296,7 +325,8 @@ func TestParseWaitForPodsReady(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.WorkloadLevelWaitForPodsReady: true,
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: tc.unscheduledGateEnabled,
 			})
 			obj := &metav1.PartialObjectMetadata{}
 			if tc.annotation != "" {

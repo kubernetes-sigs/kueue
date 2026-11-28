@@ -109,7 +109,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSe
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload, true)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobs
 func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
-	validationErrs, err := w.validateCreate(ctx, newJob, nil)
+	validationErrs, err := w.validateCreate(ctx, newJob, nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -140,9 +140,13 @@ func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobS
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet, maxTimeoutOnWorkload *metav1.Duration, validateWaitForPodsReady bool) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet, maxTimeoutOnWorkload)...)
+	if validateWaitForPodsReady {
+		allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet, maxTimeoutOnWorkload)...)
+	} else {
+		allErrs = append(allErrs, jobframework.ValidateJobOnCreateWithoutWaitForPodsReady(jobSet)...)
+	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
 		if err != nil {

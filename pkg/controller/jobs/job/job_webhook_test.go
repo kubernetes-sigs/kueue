@@ -1301,6 +1301,45 @@ func TestValidateUpdate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
+		"unchanged unscheduled-only annotation is allowed when its gate is disabled": {
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
+		"changed unscheduled-only annotation is rejected when its gate is disabled": {
+			oldJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"unscheduledTimeoutSeconds":60}`).Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
+					`{"unscheduledTimeoutSeconds":60}`,
+					"at least one of timeoutSeconds or recoveryTimeoutSeconds must be set",
+				),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
+		"changed unscheduled timeout is ignored when its gate is disabled": {
+			oldJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30,"unscheduledTimeoutSeconds":10}`).Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30,"unscheduledTimeoutSeconds":-1}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady:      true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldJob: testingutil.MakeJob("job", "default").
 				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
