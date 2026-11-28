@@ -19,6 +19,7 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -98,11 +99,21 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
+const defaultMetricsCertPath = "/etc/kueue/metrics/certs"
+
 var (
 	scheme              = runtime.NewScheme()
 	setupLog            = ctrl.Log.WithName("setup")
 	integrationManager  = jobs.NewIntegrationManager()
 	registerMetricsOnce sync.Once
+
+	errFlagParse      = errors.New("unable to parse flags")
+	errConfigLoad     = errors.New("unable to load the configuration")
+	errFeatureGates   = errors.New("conflicting feature gates detected")
+	errConfigValidate = errors.New("unable to validate the configuration")
+	errTLSOptions     = errors.New("unable to parse TLS options from configuration")
+	errMetricsCerts   = errors.New("unable to initialize metrics certificate watcher")
+	errKubeConfig     = errors.New("unable to get kubeconfig")
 )
 
 func init() {
@@ -129,10 +140,10 @@ func init() {
 
 // Run executes the Kueue controller manager startup and blocks until ctx is canceled.
 func Run(ctx context.Context, args []string) error {
-	return runWithOutput(ctx, args, os.Stderr)
+	return runWithOptions(ctx, args, os.Stderr, defaultMetricsCertPath)
 }
 
-func runWithOutput(ctx context.Context, args []string, out io.Writer) error {
+func runWithOptions(ctx context.Context, args []string, out io.Writer, metricsCertPath string) error {
 	configFile, featureGates, err := parseFlagsAndInitLogger(args, out)
 	if err != nil {
 		return err
@@ -143,7 +154,7 @@ func runWithOutput(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 
-	parsedTLSConfig, metricsCertWatcher, lqMetrics, customLabels, err := configureMetricsAndWebhooks(&options, &cfg)
+	parsedTLSConfig, metricsCertWatcher, lqMetrics, customLabels, err := configureMetricsAndWebhooks(&options, &cfg, metricsCertPath)
 	if err != nil {
 		return err
 	}
@@ -749,7 +760,7 @@ func parseFlagsAndInitLogger(args []string, out io.Writer) (string, string, erro
 	}
 	zapOptions.BindFlags(fs)
 	if err := fs.Parse(args); err != nil {
-		return "", "", fmt.Errorf("unable to parse flags: %w", err)
+		return "", "", fmt.Errorf("%w: %w", errFlagParse, err)
 	}
 
 	logger := zap.New(zap.UseFlagOptions(&zapOptions))
@@ -760,11 +771,11 @@ func parseFlagsAndInitLogger(args []string, out io.Writer) (string, string, erro
 func loadAndValidateConfig(configFile, featureGates string) (ctrl.Options, configapi.Configuration, error) {
 	options, cfg, err := apply(configFile)
 	if err != nil {
-		return options, cfg, fmt.Errorf("unable to load the configuration: %w", err)
+		return options, cfg, fmt.Errorf("%w: %w", errConfigLoad, err)
 	}
 
 	if err := config.LoadAndValidateFeatureGates(featureGates, cfg.FeatureGates).ToAggregate(); err != nil {
-		return options, cfg, fmt.Errorf("conflicting feature gates detected: %w", err)
+		return options, cfg, fmt.Errorf("%w: %w", errFeatureGates, err)
 	}
 
 	// Apply feature-gated defaults after the configured gates have been loaded.
@@ -772,7 +783,7 @@ func loadAndValidateConfig(configFile, featureGates string) (ctrl.Options, confi
 
 	// Validates the configuration after it has been loaded and feature gates have been set.
 	if err := config.Validate(&cfg, scheme, integrationManager).ToAggregate(); err != nil {
-		return options, cfg, fmt.Errorf("unable to validate the configuration: %w", err)
+		return options, cfg, fmt.Errorf("%w: %w", errConfigValidate, err)
 	}
 
 	setupLog.V(1).Info(
@@ -794,7 +805,11 @@ func loadAndValidateConfig(configFile, featureGates string) (ctrl.Options, confi
 	return options, cfg, nil
 }
 
-func configureMetricsAndWebhooks(options *ctrl.Options, cfg *configapi.Configuration) (*tlsconfig.TLS, *certwatcher.CertWatcher, *metrics.LocalQueueMetricsConfig, *metrics.CustomLabels, error) {
+func configureMetricsAndWebhooks(
+	options *ctrl.Options,
+	cfg *configapi.Configuration,
+	metricsCertPath string,
+) (*tlsconfig.TLS, *certwatcher.CertWatcher, *metrics.LocalQueueMetricsConfig, *metrics.CustomLabels, error) {
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
@@ -806,7 +821,7 @@ func configureMetricsAndWebhooks(options *ctrl.Options, cfg *configapi.Configura
 		var err error
 		parsedTLSConfig, err = tlsconfig.ParseTLSOptions(cfg.TLS)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("unable to parse TLS options from configuration: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("%w: %w", errTLSOptions, err)
 		}
 	}
 
@@ -822,7 +837,9 @@ func configureMetricsAndWebhooks(options *ctrl.Options, cfg *configapi.Configura
 
 	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
-		metricsCertPath := "/etc/kueue/metrics/certs"
+		if metricsCertPath == "" {
+			metricsCertPath = defaultMetricsCertPath
+		}
 		setupLog.V(1).Info("Initializing metrics certificate watcher using provided certificates",
 			"metricsCertPath", metricsCertPath)
 
@@ -832,7 +849,7 @@ func configureMetricsAndWebhooks(options *ctrl.Options, cfg *configapi.Configura
 			filepath.Join(metricsCertPath, "tls.key"),
 		)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("unable to initialize metrics certificate watcher: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("%w: %w", errMetricsCerts, err)
 		}
 
 		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
@@ -860,7 +877,7 @@ func configureMetricsAndWebhooks(options *ctrl.Options, cfg *configapi.Configura
 func buildKubeConfig(cfg *configapi.Configuration) (*rest.Config, error) {
 	kubeConfig, err := ctrl.GetConfig()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get kubeconfig: %w", err)
+		return nil, fmt.Errorf("%w: %w", errKubeConfig, err)
 	}
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()

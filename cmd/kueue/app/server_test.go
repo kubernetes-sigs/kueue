@@ -17,6 +17,7 @@ limitations under the License.
 package app
 
 import (
+	"crypto/tls"
 	"errors"
 	"flag"
 	"io"
@@ -24,8 +25,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"k8s.io/component-base/featuregate"
+	ctrl "sigs.k8s.io/controller-runtime"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -54,21 +58,24 @@ users:
 		kubeconfig   string
 		extraArgs    []string
 		featureGates map[featuregate.Feature]bool
-		wantTargetIs error
+		wantTargetIs []error
+		wantPathErr  bool
 	}{
 		"invalid flag": {
-			extraArgs: []string{"--unknown-flag"},
+			extraArgs:    []string{"--unknown-flag"},
+			wantTargetIs: []error{errFlagParse},
 		},
 		"help flag": {
 			extraArgs:    []string{"--help"},
-			wantTargetIs: flag.ErrHelp,
+			wantTargetIs: []error{errFlagParse, flag.ErrHelp},
 		},
 		"missing config file": {
 			missingCfg:   true,
-			wantTargetIs: os.ErrNotExist,
+			wantTargetIs: []error{errConfigLoad, os.ErrNotExist},
 		},
 		"invalid config YAML": {
-			configYAML: "not: [valid: yaml",
+			configYAML:   "not: [valid: yaml",
+			wantTargetIs: []error{errConfigLoad},
 		},
 		"conflicting feature gates": {
 			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -76,17 +83,18 @@ kind: Configuration
 featureGates:
   TopologyAwareScheduling: true
 `,
-			extraArgs: []string{"--feature-gates=TopologyAwareScheduling=false"},
+			extraArgs:    []string{"--feature-gates=TopologyAwareScheduling=false"},
+			wantTargetIs: []error{errFeatureGates},
 		},
 		"invalid configuration": {
 			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 waitForPodsReady:
-  enable: true
   timeout: -1s
 `,
+			wantTargetIs: []error{errConfigValidate},
 		},
-		"TLSOptions enabled with invalid TLS options": {
+		"invalid TLS options rejected by validation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TLSOptions: true,
 			},
@@ -95,34 +103,7 @@ kind: Configuration
 tls:
   minVersion: InvalidVersion
 `,
-		},
-		"CustomMetricLabels enabled with custom labels": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: true,
-			},
-			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-internalCertManagement:
-  enable: true
-metrics:
-  customLabels:
-  - name: team
-    sourceLabelKey: team
-`,
-		},
-		"CustomMetricLabels disabled with custom labels": {
-			featureGates: map[featuregate.Feature]bool{
-				features.CustomMetricLabels: false,
-			},
-			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-internalCertManagement:
-  enable: true
-metrics:
-  customLabels:
-  - name: team
-    sourceLabelKey: team
-`,
+			wantTargetIs: []error{errConfigValidate},
 		},
 		"missing metrics certificates": {
 			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -130,7 +111,8 @@ kind: Configuration
 internalCertManagement:
   enable: false
 `,
-			wantTargetIs: os.ErrNotExist,
+			wantTargetIs: []error{errMetricsCerts, os.ErrNotExist},
+			wantPathErr:  true,
 		},
 		"missing kubeconfig": {
 			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -138,6 +120,7 @@ kind: Configuration
 internalCertManagement:
   enable: true
 `,
+			wantTargetIs: []error{errKubeConfig},
 		},
 		"kubeconfig flag accepted": {
 			extraArgs: []string{"--kubeconfig", filepath.Join(t.TempDir(), "nonexistent-kubeconfig")},
@@ -146,19 +129,7 @@ kind: Configuration
 internalCertManagement:
   enable: true
 `,
-			wantTargetIs: os.ErrNotExist,
-		},
-		"rate limiter disabled via negative QPS": {
-			kubeconfig: validKubeconfig,
-			configYAML: `apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-internalCertManagement:
-  enable: false
-clientConnection:
-  qps: -1
-  burst: 30
-`,
-			wantTargetIs: os.ErrNotExist,
+			wantTargetIs: []error{errKubeConfig, os.ErrNotExist},
 		},
 	}
 
@@ -193,13 +164,131 @@ clientConnection:
 			}
 			args = append(args, tc.extraArgs...)
 
-			err := runWithOutput(t.Context(), args, io.Discard)
+			certDir := t.TempDir()
+			err := runWithOptions(t.Context(), args, io.Discard, certDir)
 			if err == nil {
-				t.Fatal("expected Run to return an error, got nil")
+				t.Fatal("expected runWithOptions to return an error, got nil")
 			}
-			if tc.wantTargetIs != nil && !errors.Is(err, tc.wantTargetIs) {
-				t.Errorf("expected error matching %v, got: %v", tc.wantTargetIs, err)
+			for _, target := range tc.wantTargetIs {
+				if !errors.Is(err, target) {
+					t.Errorf("expected error matching %v, got: %v", target, err)
+				}
+			}
+			if tc.wantPathErr {
+				var pathErr *os.PathError
+				if !errors.As(err, &pathErr) {
+					t.Fatalf("expected *os.PathError, got: %T (%v)", err, err)
+				}
+				if diff := cmp.Diff(filepath.Join(certDir, "tls.crt"), pathErr.Path); diff != "" {
+					t.Errorf("unexpected missing cert path (-want/+got):\n%s", diff)
+				}
 			}
 		})
 	}
+
+	t.Run("metrics and TLS configuration", func(t *testing.T) {
+		cfgTests := map[string]struct {
+			featureGates     map[featuregate.Feature]bool
+			tlsMinVersion    string
+			customLabels     []configapi.ControllerMetricsCustomLabel
+			wantMinVersion   uint16
+			wantCustomLabels bool
+		}{
+			"TLSOptions applies valid non-default minVersion": {
+				featureGates: map[featuregate.Feature]bool{
+					features.TLSOptions: true,
+				},
+				tlsMinVersion:  "VersionTLS13",
+				wantMinVersion: tls.VersionTLS13,
+			},
+			"CustomMetricLabels enabled installs custom labels": {
+				featureGates: map[featuregate.Feature]bool{
+					features.CustomMetricLabels: true,
+				},
+				customLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "team", SourceLabelKey: "team"},
+				},
+				wantCustomLabels: true,
+			},
+			"CustomMetricLabels disabled ignores custom labels": {
+				featureGates: map[featuregate.Feature]bool{
+					features.CustomMetricLabels: false,
+				},
+				customLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "team", SourceLabelKey: "team"},
+				},
+				wantCustomLabels: false,
+			},
+		}
+
+		for name, tc := range cfgTests {
+			t.Run(name, func(t *testing.T) {
+				for fg, enabled := range tc.featureGates {
+					features.SetFeatureGateDuringTest(t, fg, enabled)
+				}
+
+				options := ctrl.Options{}
+				var cfg configapi.Configuration
+				scheme.Default(&cfg)
+				cfg.InternalCertManagement = &configapi.InternalCertManagement{Enable: new(true)}
+				if tc.tlsMinVersion != "" {
+					cfg.TLS = &configapi.TLSOptions{MinVersion: tc.tlsMinVersion}
+				}
+				cfg.Metrics.CustomLabels = tc.customLabels
+
+				parsedTLS, _, _, customLabels, err := configureMetricsAndWebhooks(&options, &cfg, t.TempDir())
+				if err != nil {
+					t.Fatalf("configureMetricsAndWebhooks() unexpected error: %v", err)
+				}
+				if tc.wantMinVersion != 0 {
+					if diff := cmp.Diff(tc.wantMinVersion, parsedTLS.MinVersion); diff != "" {
+						t.Errorf("unexpected TLS MinVersion (-want/+got):\n%s", diff)
+					}
+				}
+				if (customLabels != nil) != tc.wantCustomLabels {
+					t.Errorf("customLabels != nil is %v, want %v", customLabels != nil, tc.wantCustomLabels)
+				}
+			})
+		}
+	})
+
+	t.Run("kubeconfig rate limiter", func(t *testing.T) {
+		kcTests := map[string]struct {
+			qps             float32
+			wantRateLimiter bool
+		}{
+			"positive QPS enables rate limiter": {
+				qps:             20,
+				wantRateLimiter: true,
+			},
+			"negative QPS disables rate limiter": {
+				qps:             -1,
+				wantRateLimiter: false,
+			},
+		}
+
+		for name, tc := range kcTests {
+			t.Run(name, func(t *testing.T) {
+				kcPath := filepath.Join(t.TempDir(), "kubeconfig")
+				if err := os.WriteFile(kcPath, []byte(validKubeconfig), 0o600); err != nil {
+					t.Fatalf("failed to write temp kubeconfig: %v", err)
+				}
+				t.Setenv("KUBECONFIG", kcPath)
+
+				cfg := &configapi.Configuration{
+					ClientConnection: &configapi.ClientConnection{
+						QPS:   new(tc.qps),
+						Burst: new(int32(30)),
+					},
+				}
+				kubeConfig, err := buildKubeConfig(cfg)
+				if err != nil {
+					t.Fatalf("buildKubeConfig() unexpected error: %v", err)
+				}
+				if (kubeConfig.RateLimiter != nil) != tc.wantRateLimiter {
+					t.Errorf("RateLimiter != nil is %v, want %v", kubeConfig.RateLimiter != nil, tc.wantRateLimiter)
+				}
+			})
+		}
+	})
 }
